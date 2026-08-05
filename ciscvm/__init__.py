@@ -600,8 +600,8 @@ build {
 
   # 2. CIS apply (ansible-local: gate inside role via cis_fail_on_findings)
   provisioner "ansible-local" {
-    playbook_file   = "ansible/site.yml"
-    role_paths      = ["__ROLE_PATH__"]
+    playbook_dir    = "ansible"
+    playbook_file   = "site.yml"
     extra_arguments = []
   }
 
@@ -886,7 +886,6 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
         hcl = HCL_WIN_TEMPLATE.replace("__WINRM_PASSWORD_ENV__", r.winrm_password_env)
     else:
         hcl = HCL_LINUX_TEMPLATE.replace("__CLEAN_CMD__", str(p["clean_cmd"]))
-        hcl = hcl.replace("__ROLE_PATH__", f"ansible/roles/{r.role_dir}")
         user_data = ""
         if r.ssh_debug_password:
             user_data = (
