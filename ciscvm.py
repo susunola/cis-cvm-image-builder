@@ -178,6 +178,19 @@ PROFILES = {
         "audit_dir": "",
         "preview": True,
     },
+    "windows2025": {
+        "family": "windows",
+        "winrm_username": "Administrator",
+        "role": "Windows-2025-CIS",
+        "git_repo": "Windows-2025-CIS",
+        "role_version": "",
+        "os_tag": "windows-2025",
+        "benchmark": "CIS-v2.0.0",
+        "level1_var": "win25cis_l1_ms",
+        "level2_var": "win25cis_l2_ms",
+        "audit_dir": "",
+        "preview": True,
+    },
 }
 
 DEFAULT_WORKDIR = ".ciscvm-build"
@@ -185,7 +198,7 @@ DEFAULT_WORKDIR = ".ciscvm-build"
 SAMPLE_CONFIG = """\
 # ciscvm.toml — 唯一事实来源，所有构建参数都在这里改
 [build]
-profile             = "ubuntu22"          # ubuntu22 | ubuntu24 | rhel8 | rhel9 | centos8 | centos9 | windows2019 | windows2022
+profile             = "ubuntu22"          # ubuntu22 | ubuntu24 | rhel8 | rhel9 | centos8 | centos9 | windows2019 | windows2022 | windows2025
 region              = "ap-guangzhou"
 zone                = "ap-guangzhou-4"
 instance_type       = "S5.MEDIUM2"
