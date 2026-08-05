@@ -134,7 +134,13 @@ function Invoke-Check {
                 $out = auditpol /get /subcategory:"$subcategory" 2>&1 | Out-String
                 if ($out -match "$([regex]::Escape($subcategory))\s+(.+)$") {
                     $actual = $Matches[2].Trim()
-                    $ok = ($actual -eq $expected)
+                    switch ($expected) {
+                        "No Auditing"         { $ok = ($actual -eq "No Auditing") }
+                        "Success"             { $ok = ($actual -eq "Success" -or $actual -eq "Success and Failure") }
+                        "Failure"             { $ok = ($actual -eq "Failure" -or $actual -eq "Success and Failure") }
+                        "Success and Failure" { $ok = ($actual -eq "Success and Failure") }
+                        default               { $ok = ($actual -eq $expected) }
+                    }
                     return @{status=if($ok){"pass"}else{"fail"}; detail="$subcategory = $actual (expected $expected)"}
                 }
             } catch {}
@@ -415,10 +421,29 @@ function Invoke-Fix {
             try {
                 $out = auditpol /get /subcategory:"$subcategory" 2>&1 | Out-String
                 if ($out -match "$([regex]::Escape($subcategory))\s+(.+)$") {
-                    if ($Matches[2].Trim() -eq $expected) { return "already" }
+                    $actual = $Matches[2].Trim()
+                    if ($actual -eq $expected) { return "already" }
+                    $alreadyOk = $false
+                    switch ($expected) {
+                        "Success"             { $alreadyOk = ($actual -eq "Success" -or $actual -eq "Success and Failure") }
+                        "Failure"             { $alreadyOk = ($actual -eq "Failure" -or $actual -eq "Success and Failure") }
+                        "Success and Failure" { $alreadyOk = ($actual -eq "Success and Failure") }
+                        "No Auditing"         { $alreadyOk = ($actual -eq "No Auditing") }
+                    }
+                    if ($alreadyOk) { return "already" }
                 }
-                $successArg = if ($expected -like "*Success*") { "enable" } else { "disable" }
-                $failureArg = if ($expected -like "*Failure*") { "enable" } else { "disable" }
+                $successArg = "disable"
+                $failureArg = "disable"
+                switch ($expected) {
+                    "No Auditing"         { $successArg = "disable"; $failureArg = "disable" }
+                    "Success"             { $successArg = "enable";  $failureArg = "disable" }
+                    "Failure"             { $successArg = "disable"; $failureArg = "enable" }
+                    "Success and Failure" { $successArg = "enable";  $failureArg = "enable" }
+                    default {
+                        $successArg = if ($expected -like "*Success*") { "enable" } else { "disable" }
+                        $failureArg = if ($expected -like "*Failure*") { "enable" } else { "disable" }
+                    }
+                }
                 auditpol /set /subcategory:"$subcategory" /success:$successArg /failure:$failureArg 2>$null | Out-Null
                 return "applied"
             } catch { return "failed: $($_.Exception.Message)" }
