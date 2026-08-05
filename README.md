@@ -45,7 +45,7 @@ templates, or Terraform image references.
 | Requirement | Details |
 |---|---|
 | **Python** | >= 3.11 (stdlib only — zero pip dependencies) |
-| **Packer** | >= 1.9 with `packer-plugin-tencentcloud` |
+| **Packer** | >= 1.12 |
 | **ansible-core** | >= 2.15 (required on the controller for Windows builds) |
 | **Tencent Cloud** | Sub-account with `cvm:RunInstances`, `cvm:CreateImage`, `cvm:DescribeImages`, `cvm:CopyImage`* |
 | **Network** | Dedicated VPC + subnet + security group (Linux: SSH/22, Windows: WinRM/5986). Source-restricted to build machine egress IP. |
@@ -104,7 +104,7 @@ ciscvm clean
 
 ```
 ════════════════════════════════════════════════════════
-  ciscvm 0.4.0 — tencentos3 (L1) → ap-guangzhou-4
+  ciscvm 0.5.0 — tencentos3 (L1) → ap-guangzhou-4
 ════════════════════════════════════════════════════════
 [packer]  tencentcloud-cvm: output will be in this color
 [packer]  ==> tencentcloud-cvm: Creating temporary keypair...
@@ -319,7 +319,7 @@ Pin the build machine to a dedicated VPC and security group.
 | Symptom | Likely Cause | Fix |
 |---|---|---|
 | `preflight` fails with credential error | `TENCENTCLOUD_SECRET_ID` / `_KEY` not exported | `export TENCENTCLOUD_SECRET_ID=...` in your shell |
-| `validate` fails with "plugin not found" | Missing `packer-plugin-tencentcloud` | `packer plugins install github.com/tencentcloud/tencentcloud` |
+| `validate` fails with plugin download error | `packer init` failed (e.g. offline build machine) | Re-run `ciscvm validate` with internet access — Packer caches plugins after first download |
 | Packer times out waiting for SSH | Security group doesn't allow port 22 from build machine | Add inbound rule: TCP/22 from your egress IP |
 | `ansible-playbook` fails with "python3 not found" | Build instance OS doesn't have Python pre-installed | Ensure source image includes Python >= 3.6 |
 | Windows build fails with WinRM connection error | `WINRM_PASSWORD` not set or network blocked | Export password + ensure TCP/5986 inbound from build IP |

@@ -47,7 +47,7 @@
 | 要件 | 詳細 |
 |---|---|
 | **Python** | >= 3.11（標準ライブラリのみ — pip 依存ゼロ） |
-| **Packer** | >= 1.9、`packer-plugin-tencentcloud` 付き |
+| **Packer** | >= 1.12 |
 | **ansible-core** | >= 2.15（Windows ビルドではコントローラ側に必要） |
 | **Tencent Cloud** | `cvm:RunInstances`、`cvm:CreateImage`、`cvm:DescribeImages`、`cvm:CopyImage`* を持つサブアカウント |
 | **ネットワーク** | 専用 VPC + サブネット + セキュリティグループ（Linux: SSH/22、Windows: WinRM/5986）、送信元はビルドマシンの Egress IP に限定 |
@@ -108,7 +108,7 @@ ciscvm clean
 
 ```
 ════════════════════════════════════════════════════════
-  ciscvm 0.4.0 — tencentos3 (L1) → ap-guangzhou-4
+  ciscvm 0.5.0 — tencentos3 (L1) → ap-guangzhou-4
 ════════════════════════════════════════════════════════
 [packer]  tencentcloud-cvm: output will be in this color
 [packer]  ==> tencentcloud-cvm: Creating temporary keypair...
@@ -321,7 +321,7 @@ ciscvm build
 | 症状 | 原因 | 解決策 |
 |---|---|---|
 | `preflight` で資格情報エラー | `TENCENTCLOUD_SECRET_ID` / `_KEY` 未設定 | シェルで `export TENCENTCLOUD_SECRET_ID=...` を実行 |
-| `validate` で "plugin not found" | `packer-plugin-tencentcloud` 未導入 | `packer plugins install github.com/tencentcloud/tencentcloud` |
+| `validate` でプラグインダウンロードエラー | `packer init` 失敗（オフラインビルドマシンなど） | インターネット接続ありで `ciscvm validate` を再実行 — Packer は初回ダウンロード後にプラグインをキャッシュします |
 | Packer が SSH 待機中にタイムアウト | セキュリティグループがポート 22 を許可していない | インバウンドルールを追加：TCP/22、送信元はビルドマシンの Egress IP |
 | `ansible-playbook` で "python3 not found" | ビルドインスタンスの OS に Python 未導入 | ソースイメージに Python >= 3.6 が含まれていることを確認 |
 | Windows ビルドで WinRM 接続エラー | `WINRM_PASSWORD` 未設定またはネットワーク不通 | パスワードを export + TCP/5986 がビルド IP から接続可能か確認 |

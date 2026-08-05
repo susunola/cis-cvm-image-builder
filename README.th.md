@@ -46,7 +46,7 @@ engine ที่ให้มาด้วยทำการ CIS hardened, รั�
 | รายการ | รายละเอียด |
 |---|---|
 | **Python** | >= 3.11 (stdlib ล้วน — ไม่ต้อง pip install อะไรเพิ่ม) |
-| **Packer** | >= 1.9 พร้อม `packer-plugin-tencentcloud` |
+| **Packer** | >= 1.12 |
 | **ansible-core** | >= 2.15 (Windows build ต้องติดตั้งที่ controller) |
 | **Tencent Cloud** | Sub-account ที่มีสิทธิ์ `cvm:RunInstances`, `cvm:CreateImage`, `cvm:DescribeImages`, `cvm:CopyImage`* |
 | **เครือข่าย** | VPC + subnet + security group เฉพาะ (Linux: SSH/22, Windows: WinRM/5986) จำกัด source เฉพาะ egress IP ของเครื่อง build |
@@ -107,7 +107,7 @@ ciscvm clean
 
 ```
 ════════════════════════════════════════════════════════
-  ciscvm 0.4.0 — tencentos3 (L1) → ap-guangzhou-4
+  ciscvm 0.5.0 — tencentos3 (L1) → ap-guangzhou-4
 ════════════════════════════════════════════════════════
 [packer]  tencentcloud-cvm: output will be in this color
 [packer]  ==> tencentcloud-cvm: Creating temporary keypair...
@@ -321,7 +321,7 @@ ciscvm build
 | อาการ | สาเหตุที่เป็นไปได้ | วิธีแก้ไข |
 |---|---|---|
 | `preflight` แจ้ง credential error | ยังไม่ได้ export `TENCENTCLOUD_SECRET_ID` / `_KEY` | `export TENCENTCLOUD_SECRET_ID=...` ใน shell |
-| `validate` แจ้ง "plugin not found" | ยังไม่ได้ติดตั้ง `packer-plugin-tencentcloud` | `packer plugins install github.com/tencentcloud/tencentcloud` |
+| `validate` แจ้ง plugin download error | `packer init` ล้มเหลว (เช่นเครื่อง build offline) | รัน `ciscvm validate` อีกครั้งเมื่อมีอินเทอร์เน็ต — Packer cache plugin หลังจากดาวน์โหลดครั้งแรก |
 | Packer timeout ตอนรอ SSH | security group ไม่อนุญาต port 22 จากเครื่อง build | เพิ่ม inbound rule: TCP/22 จาก egress IP ของเครื่อง build |
 | `ansible-playbook` fail แจ้ง "python3 not found" | OS ของ build instance ไม่มี Python ติดตั้ง | ตรวจสอบว่า source image มี Python >= 3.6 |
 | Windows build fail ด้วย WinRM connection error | ยังไม่ได้ตั้ง `WINRM_PASSWORD` หรือ network ไม่ผ่าน | export password + ตรวจสอบว่า TCP/5986 เปิดจาก build IP |
