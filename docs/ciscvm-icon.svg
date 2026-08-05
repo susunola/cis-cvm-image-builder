@@ -1,21 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
   <defs>
-    <linearGradient id="arc-bg" x1="0" y1="0" x2="200" y2="200" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#0A1A33"/>
-      <stop offset="100%" stop-color="#04101F"/>
-    </linearGradient>
     <linearGradient id="arc-line" x1="30" y1="145" x2="170" y2="145" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#00B4D8"/>
       <stop offset="50%" stop-color="#0090E0"/>
       <stop offset="100%" stop-color="#006EFF"/>
     </linearGradient>
   </defs>
-
-  <!-- Rounded square background -->
-  <rect x="0" y="0" width="200" height="200" rx="40" fill="url(#arc-bg)"/>
-
-  <!-- Subtle glow behind arc -->
-  <ellipse cx="100" cy="145" rx="80" ry="20" fill="#006EFF" opacity="0.12"/>
 
   <!-- Outer arc (thickest) -->
   <path d="M30 145 Q30 60 100 30 Q170 60 170 145"
@@ -31,9 +21,9 @@
 
   <!-- Source node (left endpoint) -->
   <circle cx="30" cy="145" r="9" fill="#00B4D8"/>
-  <circle cx="30" cy="145" r="4" fill="#E8F4FD"/>
+  <circle cx="30" cy="145" r="4" fill="white"/>
 
   <!-- Target node (right endpoint) -->
   <circle cx="170" cy="145" r="9" fill="#006EFF"/>
-  <circle cx="170" cy="145" r="4" fill="#E8F4FD"/>
+  <circle cx="170" cy="145" r="4" fill="white"/>
 </svg>
