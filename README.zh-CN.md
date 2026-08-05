@@ -1,66 +1,76 @@
 <p align="center">
-  <a href="README.md">English</a> | <b>简体中文</b>
+  <a href="README.md">English</a> | <b>简体中文</b> | <a href="README.ja.md">日本語</a> | <a href="README.th.md">ภาษาไทย</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/python-%3E%3D3.11-blue?logo=python&logoColor=white" alt="Python >= 3.11">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT">
+  <img src="https://img.shields.io/badge/profiles-14-orange" alt="14 profiles">
+  <img src="https://img.shields.io/badge/platform-Tencent%20Cloud-0052D9" alt="Tencent Cloud">
 </p>
 
 # ciscvm — CIS 加固黄金镜像构建
 
-在腾讯云上自动化产出 CIS 加固的黄金镜像。配置驱动的 CLI 工具：起一台临时 CVM →
-应用捆绑的 cis-os 引擎进行 CIS 加固 → 内建门禁校验 → 捕获为自定义镜像。全部由
-`ciscvm.toml` 驱动。
+> 五条命令在腾讯云上构建 CIS 加固黄金镜像。无需 Galaxy，构建时零网络依赖，
+> 不用手写模板 — 一切由 `ciscvm.toml` 驱动。
 
-支持：**14 个画像（Linux + Windows）** — Ubuntu 20/22/24、RHEL 8/9/10、
-TencentOS Server 3/4、SLES 15/16、Windows Server 2016/2019/2022/2025。CIS 引擎
-（`cis_engine.py` / `cis_engine.ps1` + `rules.json`）本地捆绑在 `roles/` 目录下 —
-无需 Ansible Galaxy，构建时无网络依赖。门禁在 Ansible 角色内执行
-（`cis_fail_on_findings: true`）：加固后仍有残留发现项则构建失败，镜像不入库。
+**做什么：** 起一台临时 CVM，应用捆绑的 [cis-os](https://github.com/susunola/cis-os)
+引擎执行 CIS 加固，跑内建门禁，产出自定义镜像。加固后仍有残留发现项则构建失败，镜像不入库。
 
-## 项目结构
+**给谁用：** 需要可重复、可审计的 CIS 加固基础镜像的 DevOps 和安全工程师 —
+用于私有 CI、弹性伸缩启动模板或 Terraform 镜像引用。
 
-```
-cis-cvm-image/
-├── ciscvm.py                 # CLI 工具（纯标准库，单文件）
-├── ciscvm.toml               # 构建配置（`init` 生成）
-├── README.md / README.zh-CN.md
-├── LICENSE                   # MIT
-├── roles/                    # 捆绑 cis-os 引擎（14 个角色）
-│   ├── cis_tencentos3/       #   cis_engine.py + rules.json + Ansible 角色
-│   ├── cis_tencentos4/
-│   ├── cis_ubuntu2004/  cis_ubuntu2204/  cis_ubuntu2404/
-│   ├── cis_rhel8/       cis_rhel9/       cis_rhel10/
-│   ├── cis_sles15/      cis_sles16/
-│   └── cis_win2016/     cis_win2019/     cis_win2022/     cis_win2025/
-└── .ciscvm-build/            # 渲染工作目录（git 忽略）
-    ├── packer/
-    │   ├── main.pkr.hcl
-    │   ├── auto.pkrvars.hcl
-    │   └── scripts/
-    │       └── install-ansible.sh   # 仅 Linux
-    └── ansible/
-        ├── site.yml
-        └── roles/            # 构建时从 ../roles/ 复制
-```
+## 目录
 
-## 前置条件
+- [安装](#安装)
+- [快速开始](#快速开始)
+- [命令](#命令)
+- [配置文件](#配置文件)
+- [架构](#架构)
+- [画像](#画像)
+- [对接 CI/CD](#对接-cicd)
+- [故障排查](#故障排查)
+- [路线图](#路线图)
+- [参与贡献](#参与贡献)
+- [许可证](#许可证)
+- [CIS Benchmarks 声明](#cis-benchmarks-声明)
+
+## 安装
+
+**前置条件**
 
 | 条件 | 说明 |
 |---|---|
-| **Python** | >= 3.11，仅用标准库，无 pip 依赖 |
+| **Python** | >= 3.11，仅用标准库，零 pip 依赖 |
 | **Packer** | >= 1.9，需 `packer-plugin-tencentcloud` 插件 |
-| **ansible-core** | >= 2.15（Windows 构建需在构建控制器本地安装） |
+| **ansible-core** | >= 2.15（Windows 构建需在控制器本地安装） |
 | **腾讯云** | 子账号，最少权限：`cvm:RunInstances`、`cvm:CreateImage`、`cvm:DescribeImages`、`cvm:CopyImage`* |
-| **网络** | 专用构建 VPC + 子网 + 安全组。Linux：放行 22 入站；Windows：放行 5986 入站。来源限定构建机出口 IP |
+| **网络** | 专用构建 VPC + 子网 + 安全组（Linux: SSH/22，Windows: WinRM/5986），来源限定构建机出口 IP |
 | **源镜像** | 目标 OS 的公共镜像 ID |
 
 \* 跨地域复制才需要 `cvm:CopyImage`。
 
-凭据仅通过环境变量传入：
+**获取工具**
+
+```bash
+git clone https://github.com/susunola/cis-cvm-image-builder.git
+cd cis-cvm-image-builder
+
+# 直接运行（无需 pip install）
+python3 ciscvm.py --version
+
+# 可选：安装为 Python 包
+pip install -e ".[dev]"
+```
+
+**设置凭据**（仅通过环境变量，不写入配置文件）
 
 ```bash
 export TENCENTCLOUD_SECRET_ID=AKIDxxxx
 export TENCENTCLOUD_SECRET_KEY=xxxx
 
 # Windows 构建额外需要：
-# export WINRM_PASSWORD=xxxx
+export WINRM_PASSWORD=xxxx
 ```
 
 ## 快速开始
@@ -69,12 +79,12 @@ export TENCENTCLOUD_SECRET_KEY=xxxx
 # 1. 生成配置文件
 python3 ciscvm.py init
 
-# 2. 编辑 ciscvm.toml，填入 VPC / 子网 / SG / 源镜像 ID
+# 2. 编辑 ciscvm.toml，填入 VPC、子网、安全组和源镜像 ID
 
-# 3. 构建前自检
+# 3. 构建前自检（校验配置、凭据和前置条件）
 python3 ciscvm.py preflight
 
-# 4. 校验：渲染 + packer validate
+# 4. 干跑校验（渲染模板 + packer validate）
 python3 ciscvm.py validate
 
 # 5. 构建加固镜像
@@ -83,6 +93,39 @@ python3 ciscvm.py build
 # 可选：清理渲染产物
 python3 ciscvm.py clean
 ```
+
+**构建输出示例（`build`）**
+
+```
+════════════════════════════════════════════════════════
+  ciscvm 0.4.0 — tencentos3 (L1) → ap-guangzhou-4
+════════════════════════════════════════════════════════
+[packer]  tencentcloud-cvm: output will be in this color
+[packer]  ==> tencentcloud-cvm: Creating temporary keypair...
+[packer]  ==> tencentcloud-cvm: Launching instance (S5.MEDIUM2)...
+[packer]  ==> tencentcloud-cvm: Provisioning with ansible-local...
+[packer]      tencentcloud-cvm: TASK [cis_tencentos3 : apply CIS Level 1] ***
+[packer]      tencentcloud-cvm: ok: 142  changed: 38  failed: 0
+[packer]      tencentcloud-cvm: TASK [cis_tencentos3 : gate] **************
+[packer]      tencentcloud-cvm: PASS — 0 remaining findings
+[packer]  ==> tencentcloud-cvm: Creating custom image...
+[packer]  ==> tencentcloud-cvm: Image created: img-abc123def456
+[packer]  ==> tencentcloud-cvm: Terminating build instance...
+
+✔  Build complete — image-id: img-abc123def456
+```
+
+## 命令
+
+| 命令 | 说明 |
+|---|---|
+| `ciscvm.py init` | 在当前目录生成 `ciscvm.toml` |
+| `ciscvm.py preflight` | 校验配置、凭据和前置条件 |
+| `ciscvm.py validate` | 渲染模板并执行 `packer validate` |
+| `ciscvm.py build` | 渲染 + `packer build`（产出镜像） |
+| `ciscvm.py clean` | 删除 `.ciscvm-build/` 工作目录 |
+
+所有命令均支持以下参数：
 
 | 参数 | 默认值 | 说明 |
 |---|---|---|
@@ -93,7 +136,7 @@ python3 ciscvm.py clean
 
 ## 配置文件
 
-`ciscvm.toml` 是唯一事实来源：
+`ciscvm.toml` 是唯一事实来源，无需手写 Packer 模板。
 
 ```toml
 [build]
@@ -134,7 +177,7 @@ benchmark = "CIS-v1.0.0"
 
 | 节 | 字段 | 类型 | 说明 |
 |---|---|---|---|
-| `[build]` | `profile` | string | 14 个画像之一（见上） |
+| `[build]` | `profile` | string | 14 个画像之一 |
 | | `region` | string | 腾讯云地域，如 `ap-guangzhou` |
 | | `zone` | string | 可用区，如 `ap-guangzhou-4` |
 | | `instance_type` | string | CVM 实例规格，如 `S5.MEDIUM2` |
@@ -147,13 +190,13 @@ benchmark = "CIS-v1.0.0"
 | `[cis]` | `level` | int | 1（Level 1）或 2（Level 2） |
 | `[cloud]` | `secret_id_env` | string | Secret ID 环境变量名 |
 | | `secret_key_env` | string | Secret Key 环境变量名 |
-| | `winrm_password_env` | string | Windows Administrator 密码环境变量名（仅 Windows） |
+| | `winrm_password_env` | string | Windows Admin 密码环境变量名（仅 Windows） |
 | `[meta]` | `os_tag` | string | 产出镜像标签值 |
 | | `benchmark` | string | CIS benchmark 版本标签 |
 
 ## 架构
 
-### Linux 构建流水线
+### Linux 构建流水线（SSH × ansible-local）
 
 ```
 构建机                                     腾讯云
@@ -173,12 +216,12 @@ benchmark = "CIS-v1.0.0"
 Packer 在临时 CVM 上通过 `ansible-local` 执行三个阶段：
 
 1. **安装** — 通过系统包管理器 + pip 安装 ansible-core。
-2. **加固** — `ansible-local` 运行捆绑的 cis-os 引擎（`cis_engine.py` + `rules.json`）。
+2. **加固** — 运行捆绑的 cis-os 引擎（`cis_engine.py` + `rules.json`）。
    变量：`cis_mode: apply`、`cis_profile: L1/L2`、`cis_platform: server`。
 3. **门禁** — 角色内执行：`cis_fail_on_findings: true` + `cis_min_score: 0`。
    加固后仍有残留发现项则 `ansible-playbook` 非零退出，Packer 构建失败。
 
-### Windows 构建流水线
+### Windows 构建流水线（WinRM × 控制器侧 ansible）
 
 ```
 构建机                                     腾讯云
@@ -247,7 +290,7 @@ AK/SK 仅通过环境变量传入（HCL `sensitive = true`）。临时实例打�
 
 切换画像仅需改 `ciscvm.toml` 中的 `[build].profile` 和 `source_image_id`。
 
-## 对接 CI
+## 对接 CI/CD
 
 ```bash
 export TENCENTCLOUD_SECRET_ID=xxx
@@ -261,6 +304,45 @@ python3 ciscvm.py build
 
 下游 CVM / 伸缩组 / Terraform 引用产出的 `image_id`。构建机固定专用 VPC + SG。
 
+## 故障排查
+
+| 症状 | 可能原因 | 解决 |
+|---|---|---|
+| `preflight` 报凭据错误 | 未 export `TENCENTCLOUD_SECRET_ID` / `_KEY` | 在 shell 中 `export TENCENTCLOUD_SECRET_ID=...` |
+| `validate` 报 "plugin not found" | 缺少 `packer-plugin-tencentcloud` | `packer plugins install github.com/tencentcloud/tencentcloud` |
+| Packer 等待 SSH 超时 | 安全组未对构建机放行 22 端口 | 添加入站规则：TCP/22，来源为构建机出口 IP |
+| `ansible-playbook` 报 "python3 not found" | 构建实例 OS 未预装 Python | 确保源镜像包含 Python >= 3.6 |
+| Windows 构建 WinRM 连接失败 | 未设 `WINRM_PASSWORD` 或网络不通 | export 密码 + 确保 TCP/5986 对构建 IP 放行 |
+| 构建成功但仍有 CIS 发现项 | 当前 OS 的部分规则未被覆盖 | 先用 `level: 1`（Level 1 覆盖大部分常见规则） |
+
+## 路线图
+
+- [ ] CI 流水线（GitHub Actions）自动构建镜像
+- [ ] PyPI 发布（`pip install ciscvm`）
+- [ ] `ciscvm list` — 枚举可用画像及元数据
+- [ ] `ciscvm report` — 获取并展示已完成构建的审计报告
+- [ ] 自定义规则选择（`ciscvm.toml` 中的 `rules_include` / `rules_exclude`）
+
+## 参与贡献
+
+欢迎提交 Bug 报告和 Pull Request。提交前请运行测试：
+
+```bash
+pip install -e ".[dev]"
+pytest tests/ -v
+```
+
 ## 许可证
 
-MIT
+MIT — 详见 [LICENSE](LICENSE)。
+
+## CIS Benchmarks 声明
+
+本工具应用的加固规则源自 CIS Benchmark 建议。CIS Benchmarks 由
+[Center for Internet Security](https://www.cisecurity.org/)（CIS）制定和维护。
+本仓库捆绑的 cis-os 引擎角色派生自 [susunola/cis-os](https://github.com/susunola/cis-os)
+项目，按其各自许可提供。
+
+**重要提示：** 以 `apply` 模式运行 CIS 加固会修改系统配置，可能影响应用兼容性。
+硬化镜像在生产环境使用前，务必在预发环境中充分测试。CIS 组织和本工具作者均不保证
+所应用规则能达到完全合规 — 正式审计需使用 CIS-CAT 或等效工具独立评估。

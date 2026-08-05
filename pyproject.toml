@@ -4,14 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ciscvm"
-version = "0.2.1"
-description = "Packer × Tencent Cloud CVM × CIS Image Builder — automate CIS-hardened golden image creation"
+version = "0.4.0"
+description = "CIS-hardened golden image builder for Tencent Cloud — config-driven CLI, 14 OS profiles, bundled cis-os engine"
 license = {text = "MIT"}
 readme = "README.md"
 authors = [{name = "ciscvm contributors"}]
 requires-python = ">=3.11"
+keywords = ["cis", "hardening", "tencent-cloud", "packer", "ansible", "golden-image", "devops", "security"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: System Administrators",
     "License :: OSI Approved :: MIT License",
@@ -25,6 +26,11 @@ classifiers = [
     "Topic :: Security",
 ]
 
+[project.urls]
+Homepage = "https://github.com/susunola/cis-cvm-image-builder"
+Repository = "https://github.com/susunola/cis-cvm-image-builder.git"
+Issues = "https://github.com/susunola/cis-cvm-image-builder/issues"
+
 [project.scripts]
 ciscvm = "ciscvm:main"
 
@@ -34,6 +40,7 @@ dev = [
     "pytest-cov>=5",
     "mypy>=1",
     "ruff>=0.8",
+    "tomli_w>=1",
 ]
 
 [tool.setuptools]
