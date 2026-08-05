@@ -20,6 +20,20 @@ HCL / playbook / 脚本全部在构建时由配置渲染生成，不用手改 HC
 > **默认目标**：Ubuntu 22.04 + CIS Level 1。换 OS / Level 见下方「换操作系统」
 > （Ubuntu 24 / RHEL 8/9 / CentOS 8/9 / Windows Server 2019/2022/2025）。
 
+## 流程概览
+
+![流程图](docs/ciscvm-pipeline.png)
+
+| 步骤 | 所在层 | 说明 |
+|------|--------|------|
+| `ciscvm.toml` | CLI | 唯一事实来源：profile / 云参数 / CIS level / 审计目录 |
+| `preflight` | CLI | 校验凭据、packer 装好、必填参数、Windows 时校验 WinRM 可达 |
+| `render` | CLI | 模板渲染出 `main.pkr.hcl`、Ansible playbook、install/verify 脚本 |
+| `packer build` | Packer | 起临时 CVM，串起 `tencentcloud-cvm` builder + 后续 provisioner |
+| `ansible-local` | Ansible CIS | Linux：在 VM 内引导 Ansible，跑 `ansible-lockdown` CIS 角色。Windows：WinRM + 远程 ansible（控制器侧） |
+| `goss audit` | Audit | 仅 Linux 的 build 期 gate，超过 `cis_max_failures` 即中断构建 |
+| Image Output | Output | 加固后的 CVM 镜像，打上 profile + level + 时间戳，可选复制到其他地域 |
+
 ## 项目结构
 
 ```
@@ -27,8 +41,13 @@ cis-cvm-image/
 ├── ciscvm.py                    # 工具本体（纯标准库，单文件，python3 直接跑）
 ├── README.md                    # 英文版
 ├── README.zh-CN.md              # 本文件（中文）
-└── ciscvm.toml                  # init 后生成的配置文件（单事实来源）
-                                 # HCL / playbook / 脚本全部渲染进 .ciscvm-build/
+├── LICENSE                      # MIT
+├── ciscvm.toml                  # init 后生成的配置文件（单事实来源）
+├── docs/                        # 流程图（见上节）
+│   ├── ciscvm-pipeline.html     #   可交互版（带主题切换 + 导出）
+│   ├── ciscvm-pipeline.png      #   静态 PNG，已嵌入本 README
+│   └── ciscvm-pipeline.workflow.json
+└── .ciscvm-build/               # 渲染出来的 HCL / playbook（gitignored）
 ```
 
 ## 前置条件
