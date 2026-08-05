@@ -111,6 +111,14 @@ ciscvm clean
 [packer]      tencentcloud-cvm: ok: 142  changed: 38  failed: 0
 [packer]      tencentcloud-cvm: TASK [cis_tencentos3 : gate] **************
 [packer]      tencentcloud-cvm: PASS — 0 remaining findings
+[packer]      tencentcloud-cvm:
+[packer]      tencentcloud-cvm: ═══ CIS Hardening Results ═══
+[packer]      tencentcloud-cvm: Mode:      apply
+[packer]      tencentcloud-cvm: Profile:   L1
+[packer]      tencentcloud-cvm: Total:     142
+[packer]      tencentcloud-cvm: Passed:    142
+[packer]      tencentcloud-cvm: Failed:    0
+[packer]      tencentcloud-cvm: Score:     100%
 [packer]  ==> tencentcloud-cvm: Creating custom image...
 [packer]  ==> tencentcloud-cvm: Image created: img-abc123def456
 [packer]  ==> tencentcloud-cvm: Terminating build instance...
@@ -130,12 +138,14 @@ ciscvm clean
 
 所有命令均支持以下参数：
 
-| 参数 | 默认值 | 说明 |
-|---|---|---|
-| `--config <path>` | `./ciscvm.toml` | 配置文件路径 |
-| `--workdir <dir>` | `./.ciscvm-build` | 渲染输出目录 |
-| `--quiet` | — | 精简输出（validate / build） |
-| `-y` / `--yes` | — | 跳过构建确认提示 |
+| 参数 | 默认值 | 适用范围 | 说明 |
+|---|---|---|---|
+| `--config <path>` | `./ciscvm.toml` | 全部 | 配置文件路径 |
+| `--workdir <dir>` | `./.ciscvm-build` | 全部 | 渲染输出目录 |
+| `--quiet` | — | validate / build | 精简 packer 输出 |
+| `--debug` | — | validate / build | 启用 Packer 调试日志（`PACKER_LOG=1`） |
+| `-y` / `--yes` | — | build | 跳过构建确认提示 |
+| `--log-file <path>` | — | build | 将完整构建日志写入文件 |
 
 ## 配置文件
 
@@ -305,7 +315,7 @@ export TENCENTCLOUD_SECRET_KEY=xxx
 # Windows 构建：
 # export WINRM_PASSWORD=xxx
 
-ciscvm build
+ciscvm build --log-file build.log
 ```
 
 下游 CVM / 伸缩组 / Terraform 引用产出的 `image_id`。构建机固定专用 VPC + SG。
@@ -326,7 +336,6 @@ ciscvm build
 - [ ] CI 流水线（GitHub Actions）自动构建镜像
 - [ ] PyPI 发布（`pip install ciscvm`）
 - [ ] `ciscvm list` — 枚举可用画像及元数据
-- [ ] `ciscvm report` — 获取并展示已完成构建的审计报告
 - [ ] 自定义规则选择（`ciscvm.toml` 中的 `rules_include` / `rules_exclude`）
 
 ## 参与贡献

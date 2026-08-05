@@ -114,6 +114,14 @@ ciscvm clean
 [packer]      tencentcloud-cvm: ok: 142  changed: 38  failed: 0
 [packer]      tencentcloud-cvm: TASK [cis_tencentos3 : gate] **************
 [packer]      tencentcloud-cvm: PASS — 0 remaining findings
+[packer]      tencentcloud-cvm:
+[packer]      tencentcloud-cvm: ═══ CIS Hardening Results ═══
+[packer]      tencentcloud-cvm: Mode:      apply
+[packer]      tencentcloud-cvm: Profile:   L1
+[packer]      tencentcloud-cvm: Total:     142
+[packer]      tencentcloud-cvm: Passed:    142
+[packer]      tencentcloud-cvm: Failed:    0
+[packer]      tencentcloud-cvm: Score:     100%
 [packer]  ==> tencentcloud-cvm: Creating custom image...
 [packer]  ==> tencentcloud-cvm: Image created: img-abc123def456
 [packer]  ==> tencentcloud-cvm: Terminating build instance...
@@ -133,12 +141,14 @@ ciscvm clean
 
 All commands accept these flags:
 
-| Flag | Default | Description |
-|---|---|---|
-| `--config <path>` | `./ciscvm.toml` | Configuration file |
-| `--workdir <dir>` | `./.ciscvm-build` | Rendered output directory |
-| `--quiet` | — | Suppress tool output (validate / build) |
-| `-y` / `--yes` | — | Skip build confirmation prompt |
+| Flag | Default | Applies to | Description |
+|---|---|---|---|
+| `--config <path>` | `./ciscvm.toml` | all | Configuration file |
+| `--workdir <dir>` | `./.ciscvm-build` | all | Rendered output directory |
+| `--quiet` | — | validate / build | Suppress packer output |
+| `--debug` | — | validate / build | Enable Packer debug logging (`PACKER_LOG=1`) |
+| `-y` / `--yes` | — | build | Skip confirmation prompt |
+| `--log-file <path>` | — | build | Write full build log to file |
 
 ## Configuration
 
@@ -311,7 +321,7 @@ export TENCENTCLOUD_SECRET_KEY=xxx
 # Windows builds:
 # export WINRM_PASSWORD=xxx
 
-ciscvm build
+ciscvm build --log-file build.log
 ```
 
 Point downstream CVM / Auto Scaling / Terraform at the output `image_id`.
@@ -333,7 +343,6 @@ Pin the build machine to a dedicated VPC and security group.
 - [ ] CI pipeline (GitHub Actions) for automated image builds
 - [ ] PyPI package (`pip install ciscvm`)
 - [ ] `ciscvm list` — enumerate available profiles with metadata
-- [ ] `ciscvm report` — fetch and display the audit report from a completed build
 - [ ] Custom rule selection (`rules_include` / `rules_exclude` in `ciscvm.toml`)
 
 ## Contributing
