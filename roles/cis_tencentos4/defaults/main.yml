@@ -1,0 +1,54 @@
+---
+# =============================================================================
+# CIS TencentOS Linux 4 Benchmark v1.0.0 - role defaults
+# Every value here can be overridden on the command line with -e, in
+# group_vars/, host_vars/ or in the inventory.
+# =============================================================================
+
+# --- What to run ------------------------------------------------------------
+# scan  : read-only assessment, nothing on the host is modified
+# apply : assess, remediate what fails, then re-assess to confirm
+cis_mode: scan
+
+# L1 : Level 1  - the defensive baseline, low operational impact
+# L2 : Level 2  - defence in depth; includes every L1 rule as well
+cis_profile: L1
+
+# server | workstation | all - filters rules that only apply to one platform
+cis_platform: server
+
+# Remediations flagged "disruptive" (reboot required, service restart,
+# partition/mount changes, kernel module unload, firewall default-deny, ...)
+# are skipped unless this is explicitly turned on.
+cis_allow_disruptive: false
+
+# --- Scoping ----------------------------------------------------------------
+# All three accept a list of rule ids or id prefixes, e.g. ["5.1", "1.1.1.2"]
+cis_include: []        # when non-empty ONLY these rules run
+cis_exclude: []        # always wins over cis_include
+cis_sections: []       # e.g. ["1", "5"] to run only chapters 1 and 5
+cis_families: []       # engine implementation families, mainly for debugging
+
+# --- Reporting --------------------------------------------------------------
+cis_report_dir: "{{ playbook_dir }}/reports"
+cis_report_html: true          # per-host HTML report
+cis_report_json: true          # raw engine output, handy for diffing runs
+cis_report_csv: false          # flat CSV of every finding
+cis_report_index: true         # combined index page across all hosts
+cis_report_timestamp: "{{ ansible_date_time.iso8601_basic_short | default('run') }}"
+cis_report_open_sections: 2    # chapters expanded by default in the HTML report
+cis_report_embed_remediation: true   # show CIS remediation text for findings
+
+# --- Execution --------------------------------------------------------------
+cis_python: /usr/bin/python3   # interpreter used for the engine on the target
+cis_remote_tmp: /tmp           # parent directory for the temporary work dir
+cis_keep_remote_artifacts: false
+cis_engine_timeout: 1800       # seconds
+cis_backup_dir: /var/backups/cis-tencentos4   # apply mode writes .bak files here
+cis_fail_on_findings: false    # make the play fail when findings remain
+cis_min_score: 0               # or fail when the L1/L2 score drops below this
+
+# --- Static metadata --------------------------------------------------------
+cis_benchmark_name: "CIS TencentOS Linux 4 Benchmark"
+cis_benchmark_version: "v1.0.0"
+cis_org_name: ""               # shown in the report header when set

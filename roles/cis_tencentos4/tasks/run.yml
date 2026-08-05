@@ -1,0 +1,97 @@
+---
+# --check never modifies the target: apply degrades to a scan.
+- name: Determine the effective mode
+  ansible.builtin.set_fact:
+    cis_mode_effective: "{{ 'scan' if ansible_check_mode else cis_mode }}"
+
+- name: Create a temporary working directory on the target
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: cis-tos4-
+    path: "{{ cis_remote_tmp }}"
+  register: cis_workdir
+  changed_when: false
+  check_mode: false
+
+- name: Ship the assessment engine and rule catalogue
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ cis_workdir.path }}/{{ item }}"
+    mode: "0700"
+  loop:
+    - "{{ cis_engine_file }}"
+    - "{{ cis_rules_file }}"
+  changed_when: false
+  check_mode: false
+
+- name: Create the remediation backup directory
+  ansible.builtin.file:
+    path: "{{ cis_backup_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: cis_mode_effective == 'apply'
+  check_mode: false
+
+- name: Assemble the engine command line
+  ansible.builtin.set_fact:
+    cis_engine_argv: >-
+      {{ [cis_python_real,
+          cis_workdir.path ~ '/' ~ cis_engine_file,
+          '--catalog', cis_workdir.path ~ '/' ~ cis_rules_file,
+          '--mode', cis_mode_effective,
+          '--profile', cis_profile,
+          '--platform', cis_platform,
+          '--include', cis_include | join(','),
+          '--exclude', cis_exclude | join(','),
+          '--sections', cis_sections | join(','),
+          '--families', cis_families | join(','),
+          '--backup-dir', cis_backup_dir,
+          '--benchmark', cis_benchmark_name ~ ' ' ~ cis_benchmark_version,
+          '--out', cis_workdir.path ~ '/result.json']
+         + (['--allow-disruptive']
+            if (cis_mode_effective == 'apply' and cis_allow_disruptive | bool)
+            else []) }}
+
+- name: "Run the benchmark ({{ cis_mode }} / {{ cis_profile }})"
+  ansible.builtin.command:
+    argv: "{{ cis_engine_argv }}"
+  register: cis_engine_run
+  changed_when: false
+  check_mode: false
+  timeout: "{{ cis_engine_timeout | int }}"
+  environment:
+    LC_ALL: C
+    LANG: C
+
+- name: Read the engine result document
+  ansible.builtin.slurp:
+    src: "{{ cis_workdir.path }}/result.json"
+  register: cis_result_raw
+  check_mode: false
+
+- name: Register the result as a fact
+  ansible.builtin.set_fact:
+    cis_result: "{{ cis_result_raw.content | b64decode | from_json }}"
+
+- name: Remove the temporary working directory
+  ansible.builtin.file:
+    path: "{{ cis_workdir.path }}"
+    state: absent
+  when: not (cis_keep_remote_artifacts | bool)
+  changed_when: false
+  check_mode: false
+
+- name: Record remediation activity
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: {{ cis_result.summary.all.applied }} remediated,
+      {{ cis_result.summary.all.applied_pending }} pending reboot/restart,
+      {{ cis_result.summary.all.apply_failed }} failed,
+      {{ cis_result.summary.all.skipped_disruptive }} skipped as disruptive,
+      {{ cis_result.changed_files | length }} file(s) rewritten.
+  when: cis_mode_effective == 'apply'
+  changed_when: >-
+    (cis_result.summary.all.applied | int)
+    + (cis_result.summary.all.applied_pending | int) > 0

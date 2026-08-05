@@ -160,6 +160,31 @@ PROFILES = {
         "root_login_rule_var": "rhel9cis_rule_5_2_2",
         "preview": True,
     },
+    # ---------- TencentOS 3/4（自定义 CIS 引擎，role 本地捆绑，gate 内置于 role）----------
+    "tencentos3": {
+        "family": "cis-os",
+        "role_dir": "cis_tencentos3",
+        "ssh_username": "root",
+        "audit_dir": "",              # gate 在角色内执行，无需独立 goss 审计
+        "os_tag": "tencentos-3",
+        "benchmark": "CIS-v1.0.0",
+        "pkg_update": "sudo dnf makecache",
+        "pkg_install": "sudo dnf install -y python3-pip git",
+        "clean_cmd": "sudo dnf clean all",
+        "preview": False,
+    },
+    "tencentos4": {
+        "family": "cis-os",
+        "role_dir": "cis_tencentos4",
+        "ssh_username": "root",
+        "audit_dir": "",
+        "os_tag": "tencentos-4",
+        "benchmark": "CIS-v1.0.0",
+        "pkg_update": "sudo dnf makecache",
+        "pkg_install": "sudo dnf install -y python3-pip git",
+        "clean_cmd": "sudo dnf clean all",
+        "preview": False,
+    },
     # ---------- Windows Server（winrm + 远程 ansible；无 goss 审计）----------
     # 注意：ansible-lockdown 的 Windows 角色按 section 应用 CIS 设置，L1/L2 用成员服务器
     # 变量（l1_ms / l2_ms）区分；GPO/域相关变量默认关闭。WinRM 是连接与构建必需，不能禁。
@@ -210,7 +235,7 @@ DEFAULT_WORKDIR = ".ciscvm-build"
 SAMPLE_CONFIG = """\
 # ciscvm.toml — 唯一事实来源，所有构建参数都在这里改
 [build]
-profile             = "ubuntu22"          # ubuntu22 | ubuntu24 | rhel8 | rhel9 | centos8 | centos9 | windows2019 | windows2022 | windows2025
+profile             = "ubuntu22"          # ubuntu22 | ubuntu24 | rhel8 | rhel9 | centos8 | centos9 | tencentos3 | tencentos4 | windows2019 | windows2022 | windows2025
 region              = "ap-guangzhou"
 zone                = "ap-guangzhou-4"
 instance_type       = "S5.MEDIUM2"
@@ -335,6 +360,104 @@ build {
   }
 
   # 4. 清理：缩容前清掉 ansible / 角色，避免带进镜像
+  provisioner "shell" {
+    pause_before = "10s"
+    inline = [
+      "__CLEAN_CMD__",
+      "rm -rf /tmp/ansible ~/.ansible/roles 2>/dev/null || true"
+    ]
+  }
+}
+"""
+
+# TencentOS 3/4：自定义 CIS 引擎（本地捆绑角色），gate 在 ansible role 内执行
+# （cis_fail_on_findings + cis_min_score），不依赖 goss 审计。
+HCL_CISOS_TEMPLATE = r"""packer {
+  required_plugins {
+    tencentcloud = {
+      source  = "github.com/hashicorp/packer-plugin-tencentcloud"
+      version = ">= 1.0.0"
+    }
+  }
+}
+
+variable "secret_id" {
+  type      = string
+  default   = env("TENCENTCLOUD_SECRET_ID")
+  sensitive = true
+}
+
+variable "secret_key" {
+  type      = string
+  default   = env("TENCENTCLOUD_SECRET_KEY")
+  sensitive = true
+}
+
+variable "region"                      { type = string }
+variable "zone"                        { type = string }
+variable "instance_type"               { type = string }
+variable "source_image_id"             { type = string }
+variable "ssh_username"                { type = string }
+variable "vpc_id"                      { type = string }
+variable "subnet_id"                   { type = string }
+variable "security_group_id"           { type = string }
+variable "associate_public_ip_address" { type = bool }
+variable "image_name_prefix"           { type = string }
+variable "image_copy_regions"          { type = list(string); default = [] }
+variable "cis_level"                   { type = string }
+variable "cis_audit_dir"               { type = string; default = "" }
+variable "cis_max_failures"            { type = number; default = 0 }
+variable "image_os_tag"                { type = string }
+variable "image_benchmark"             { type = string }
+
+locals {
+  level_short = replace(var.cis_level, "-server", "")
+  image_name  = "${var.image_name_prefix}-${local.level_short}-${formatdate("YYYYMMDD", timestamp())}"
+}
+
+source "tencentcloud-cvm" "default" {
+  secret_id                   = var.secret_id
+  secret_key                  = var.secret_key
+  region                      = var.region
+  zone                        = var.zone
+  instance_type               = var.instance_type
+  source_image_id             = var.source_image_id
+  ssh_username                = var.ssh_username
+  image_name                  = local.image_name
+  vpc_id                      = var.vpc_id
+  subnet_id                   = var.subnet_id
+  security_group_id           = var.security_group_id
+  associate_public_ip_address = var.associate_public_ip_address
+  image_copy_regions          = var.image_copy_regions
+  image_tags = {
+    cis_level  = local.level_short
+    os         = var.image_os_tag
+    benchmark  = var.image_benchmark
+    built_with = "ciscvm"
+  }
+  run_tags = {
+    purpose   = "cis-image-build"
+    ephemeral = "true"
+  }
+}
+
+build {
+  sources = ["source.tencentcloud-cvm.default"]
+
+  # 1. 临时 CVM 内装 python3 + ansible（角色从控制器上传，无需 galaxy）
+  provisioner "shell" {
+    script = "packer/scripts/install-ansible.sh"
+  }
+
+  # 2. CIS apply（ansible-local：playbook + role 都在实例内）
+  #    gate（cis_fail_on_findings + cis_min_score）在 role 内执行，
+  #    不达标时 ansible-playbook exit != 0 → packer build 失败
+  provisioner "ansible-local" {
+    playbook_file   = "ansible/site.yml"
+    extra_arguments = ["--tags", var.cis_level]
+  }
+
+  # 3. 清理：缩容前清掉 ansible role 等，避免带进镜像
   provisioner "shell" {
     pause_before = "10s"
     inline = [
@@ -567,9 +690,40 @@ __EXTRA_VARS__
 
   roles:
     - __ROLE__
+"""
 
-# 注意：不同 CIS 版本角色变量名略有差异，以角色 defaults/main.yml 为准；
-# Level 2 还需额外分区（/var /var/tmp /var/log /var/log/audit /home）。
+SITE_YML_CISOS_TEMPLATE = r"""---
+# CIS TencentOS apply（cis-os 引擎，非 ansible-lockdown）
+# gate 在 role 内：cis_fail_on_findings: true → 有残留失败项则 ansible exit != 0
+- name: "CIS __OS_NAME__ - apply (__CIS_LEVEL__)"
+  hosts: localhost
+  connection: local
+  become: true
+  vars:
+    cis_mode: apply
+    cis_profile: __CIS_LEVEL__
+    cis_platform: server
+    cis_allow_disruptive: false
+    cis_fail_on_findings: true
+    cis_min_score: 0
+    cis_org_name: ""
+  roles:
+    - role: __ROLE_DIR__
+"""
+
+INSTALL_CISOS_TEMPLATE = r"""#!/usr/bin/env bash
+# TencentOS CIS 引擎：安装 python3 + ansible（角色由 ciscvm 上传，不需 galaxy）
+set -euo pipefail
+
+# 1. 系统依赖
+__PKG_UPDATE__
+__PKG_INSTALL__
+
+# 2. ansible
+sudo python3 -m pip install --upgrade pip
+sudo python3 -m pip install 'ansible-core>=2.15' pexpect passlib
+
+echo "ansible ready (cis-os engine)"
 """
 
 
@@ -622,10 +776,13 @@ def load_config(path: Path) -> dict:
         "cis": ["level", "max_failures"],
         "cloud": ["secret_id_env", "secret_key_env"],
     }
-    # audit_dir is only required for Linux profiles; Windows has no goss audit
+    # audit_dir is only required for Linux ansible-lockdown profiles;
+    # Windows (no goss) and cis-os (built-in gate) skip this field.
     profile = data.get("build", {}).get("profile", "")
-    if profile in PROFILES and PROFILES[profile].get("family") != "windows":
-        required["cis"].append("audit_dir")
+    if profile in PROFILES:
+        fam = PROFILES[profile].get("family", "")
+        if fam not in ("windows", "cis-os"):
+            required["cis"].append("audit_dir")
     for section, keys in required.items():
         if section not in data:
             raise ConfigError(f"配置缺少 [section]：[{section}]")
@@ -670,7 +827,7 @@ def resolve(data: dict) -> dict:
         "image_copy_regions": data["image"]["copy_regions"],
         "cis_level_tag": f"level{level}-server",
         "cis_max_failures": data["cis"]["max_failures"],
-        "cis_audit_dir": data["cis"]["audit_dir"],
+        "cis_audit_dir": data["cis"].get("audit_dir", p.get("audit_dir", "")),
         "secret_id_env": data["cloud"]["secret_id_env"],
         "secret_key_env": data["cloud"]["secret_key_env"],
         "winrm_password_env": data.get("cloud", {}).get("winrm_password_env", "WINRM_PASSWORD"),
@@ -742,6 +899,11 @@ def render_install(p: dict) -> str:
         install_line = f'ansible-galaxy role install "git+https://github.com/ansible-lockdown/{repo}.git" --force'
         # 该 install 命令由 ciscvm 在 build 前于控制器执行，这里仅作参考/离线记录
         return (INSTALL_WIN_TEMPLATE.replace("__INSTALL_ROLE__", install_line))
+    if p.get("family") == "cis-os":
+        # TencentOS：自定义 CIS 引擎，角色由 ciscvm 捆绑上传，无需 galaxy
+        return (INSTALL_CISOS_TEMPLATE
+                .replace("__PKG_UPDATE__", p["pkg_update"])
+                .replace("__PKG_INSTALL__", p["pkg_install"]))
     if p.get("role_version"):
         install_line = f'ansible-galaxy install "{p["role"]},{p["role_version"]}" --force'
     else:
@@ -767,6 +929,14 @@ def render_requirements(p: dict) -> str:
 def render_site(p: dict, level: int) -> str:
     l1 = "true" if level == 1 else "false"
     l2 = "true" if level == 2 else "false"
+    if p.get("family") == "cis-os":
+        # TencentOS：自定义 CIS 引擎，L1 / L2 直接传 cis_profile
+        cis_level = f"L{level}"
+        os_name = p["os_tag"].replace("-", " ").title()
+        return (SITE_YML_CISOS_TEMPLATE
+                .replace("__OS_NAME__", p["os_tag"])
+                .replace("__CIS_LEVEL__", cis_level)
+                .replace("__ROLE_DIR__", p["role_dir"]))
     if p.get("family") == "windows":
         # 成员服务器 L1/L2 变量前缀（win22cis_ / win19cis_ ...）
         prefix = p["level1_var"].split("_l1")[0]
@@ -798,12 +968,26 @@ def render_site(p: dict, level: int) -> str:
 def render_all(workdir: Path, r: dict) -> None:
     p = r["profile"]
     is_win = p.get("family") == "windows"
+    is_cisos = p.get("family") == "cis-os"
     (workdir / "packer" / "scripts").mkdir(parents=True, exist_ok=True)
     (workdir / "ansible").mkdir(parents=True, exist_ok=True)
 
     if is_win:
         hcl = HCL_WIN_TEMPLATE.replace("__WINRM_PASSWORD_ENV__", r["winrm_password_env"])
         (workdir / "packer" / "main.pkr.hcl").write_text(hcl, encoding="utf-8")
+    elif is_cisos:
+        # cis-os：角色目录从工具捆绑路径复制到构建目录
+        role_dir = p["role_dir"]
+        tool_roles = Path(__file__).parent / "roles" / role_dir
+        dst_roles = workdir / "ansible" / "roles" / role_dir
+        if tool_roles.is_dir():
+            if dst_roles.exists():
+                shutil.rmtree(dst_roles)
+            shutil.copytree(tool_roles, dst_roles)
+        else:
+            warn(f"捆绑角色目录不存在：{tool_roles}，请确保 roles/{role_dir}/ 在 ciscvm.py 同目录下。")
+        (workdir / "packer" / "main.pkr.hcl").write_text(
+            HCL_CISOS_TEMPLATE.replace("__CLEAN_CMD__", p["clean_cmd"]), encoding="utf-8")
     else:
         (workdir / "packer" / "main.pkr.hcl").write_text(
             HCL_TEMPLATE.replace("__CLEAN_CMD__", p["clean_cmd"]), encoding="utf-8")
@@ -817,8 +1001,9 @@ def render_all(workdir: Path, r: dict) -> None:
     else:
         (workdir / "packer" / "scripts" / "install-ansible.sh").write_text(
             render_install(p), encoding="utf-8")
-        (workdir / "packer" / "scripts" / "verify-cis.sh").write_text(
-            VERIFY_SH_TEMPLATE, encoding="utf-8")
+        if not is_cisos:
+            (workdir / "packer" / "scripts" / "verify-cis.sh").write_text(
+                VERIFY_SH_TEMPLATE, encoding="utf-8")
         for sh in (workdir / "packer" / "scripts").glob("*.sh"):
             sh.chmod(0o755)
 
@@ -886,6 +1071,16 @@ def run_preflight(data: dict, r: dict) -> bool:
             ok(f"WinRM 密码环境变量 {env_win} 已设置")
         else:
             fail(f"WinRM 密码环境变量 {env_win} 未设置（Windows 管理员密码，export 后再跑）")
+            all_ok = False
+
+    # cis-os 画像：检查捆绑角色目录是否存在
+    if r["family"] == "cis-os":
+        role_dir = p.get("role_dir")
+        tool_roles = Path(__file__).parent / "roles" / role_dir
+        if tool_roles.is_dir():
+            ok(f"捆绑角色 {role_dir} 已就绪（{tool_roles}）")
+        else:
+            fail(f"捆绑角色目录丢失：{tool_roles}，请确保 ciscvm.py 同目录下有 roles/{role_dir}/")
             all_ok = False
 
     # 关键参数非空 / 非占位

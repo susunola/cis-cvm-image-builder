@@ -10,6 +10,9 @@
 
 - **Linux**（Ubuntu / RHEL / CentOS）：通过 `ansible-local` provisioner **在实例内**执行加固，
   goss 审计做 build 期 gate。
+- **TencentOS 3 / 4**：使用**自研 CIS 引擎**（`cis_engine.py` + `rules.json`），角色目录随工具内置——
+  不依赖 ansible-lockdown；合规 gate 由 Ansible 角色内部 `cis_fail_on_findings` 完成，
+  不需要额外的 goss 审计。
 - **Windows Server**（2019 / 2022 / 2025，*preview*）：使用 **WinRM** + 远程 `ansible` provisioner
   （Ansible 在控制器侧执行，不是在 VM 里）；Windows 没有 goss 审计——见
   [Windows Server（preview）](#windows-serverpreview)。
@@ -18,7 +21,7 @@
 HCL / playbook / 脚本全部在构建时由配置渲染生成，不用手改 HCL。
 
 > **默认目标**：Ubuntu 22.04 + CIS Level 1。换 OS / Level 见下方「换操作系统」
-> （Ubuntu 24 / RHEL 8/9 / CentOS 8/9 / Windows Server 2019/2022/2025）。
+> （Ubuntu 24 / RHEL 8/9 / CentOS 8/9 / TencentOS 3/4 / Windows Server 2019/2022/2025）。
 
 ## 流程概览
 
@@ -40,6 +43,9 @@ cis-cvm-image/
 ├── README.zh-CN.md              # 本文件（中文）
 ├── LICENSE                      # MIT
 ├── ciscvm.toml                  # init 后生成的配置文件（单事实来源）
+├── roles/
+│   ├── cis_tencentos3/           #   TencentOS 3 内置 CIS 角色（见「换操作系统」）
+│   └── cis_tencentos4/           #   TencentOS 4 内置 CIS 角色
 ├── docs/
 │   ├── ciscvm-pipeline.png      #   静态 PNG，已嵌入本 README
 │   └── ciscvm-pipeline.svg      #   上方流程图的可编辑源
@@ -143,12 +149,18 @@ playbook 和角色都直接在实例里跑。
 | `windows2019` | Windows Server 2019 | `Windows-2019-CIS` | Administrator (WinRM) | Preview** |
 | `windows2022` | Windows Server 2022 | `Windows-2022-CIS` | Administrator (WinRM) | Preview** |
 | `windows2025` | Windows Server 2025 | `Windows-2025-CIS` | Administrator (WinRM) | Preview** |
+| `tencentos3` | TencentOS Server 3 | **内置** `cis_tencentos3`（cis_engine.py） | root (ssh) | Preview† |
+| `tencentos4` | TencentOS Server 4 | **内置** `cis_tencentos4`（cis_engine.py） | root (ssh) | Preview† |
 
 \* 角色名与变量前缀均已对照 ansible-lockdown 源码核实，但尚未在腾讯云端到端实跑。
 按 preview 对待：核对你角色版本的 `[cis].audit_dir`，验证后把 `role_version` 固定。
 \*\* Windows 在架构上有本质不同（WinRM + 远程 ansible，不在 VM 里跑 ansible、
 无 goss 审计）。WinRM 的 provisioner 接线、成员服务器 L1/L2 变量
 （`win22cis_l1_ms` / `win19cis_l1_ms`）需用真实的 Windows 构建来验证——见下方。
+† TencentOS 使用来自 [susunola/cis-os](https://github.com/susunola/cis-os) 的**自研 CIS 引擎**：
+`cis_tencentos3` / `cis_tencentos4` 角色目录已内置在 `roles/`，不走 ansible-galaxy。合规 gate
+由角色内的 `cis_fail_on_findings` 控制，没有 goss 审计步骤。通过 level 配置切换
+`cis_mode: apply` + `cis_profile: L1` 或 `L2`。
 
 ### 情况 A：用内置已支持的
 
