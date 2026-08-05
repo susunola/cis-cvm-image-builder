@@ -46,9 +46,38 @@
   ansible.builtin.set_fact:
     _slug: "{{ cis_host.hostname }}-{{ cis_profile }}-{{ cis_mode_effective | default(cis_mode) }}-{{ cis_run_stamp }}"
 
-- name: Pin guidance to only the rules that actually ran (keep template context lean)
-  ansible.builtin.set_fact:
-    cis_guidance: "{{ cis_guidance | dict2items | selectattr('key', 'in', cis_result.results | map(attribute='id')) | items2dict }}"
+- name: Write rule IDs for Python-side guidance filtering
+  ansible.builtin.copy:
+    content: "{{ cis_result.results | map(attribute='id') | list | to_json }}"
+    dest: "{{ cis_report_dir }}/_result_ids.json"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: cis_report_html | bool
+
+- name: Filter guidance JSON to only the rules that actually ran
+  ansible.builtin.shell:
+    cmd: |
+      python3 -c "
+      import json
+      with open('{{ role_path }}/files/{{ cis_guidance_file }}') as f:
+          g = json.load(f)
+      with open('{{ cis_report_dir }}/_result_ids.json') as f:
+          ids = set(json.load(f))
+      fg = {k: v for k, v in g.items() if k in ids}
+      with open('{{ cis_report_dir }}/_guidance_filtered.json', 'w') as f:
+          json.dump(fg, f)
+      print(f'Filtered guidance: {len(fg)} of {len(g)} entries')
+      "
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: cis_report_html | bool
+
+- name: Load the filtered guidance (no Jinja2 on large dict)
+  ansible.builtin.include_vars:
+    file: "{{ cis_report_dir }}/_guidance_filtered.json"
+    name: cis_guidance
   when: cis_report_html | bool
 
 - name: Write HTML report
