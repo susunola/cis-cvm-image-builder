@@ -1,71 +1,50 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 260" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200" width="600" height="200">
   <defs>
-    <linearGradient id="shield-grad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#006EFF"/>
-      <stop offset="100%" stop-color="#00B4D8"/>
+    <linearGradient id="arc" x1="80" y1="155" x2="220" y2="155" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00B4D8"/>
+      <stop offset="50%" stop-color="#0090E0"/>
+      <stop offset="100%" stop-color="#006EFF"/>
     </linearGradient>
-    <linearGradient id="layer-1" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#006EFF" stop-opacity="0.85"/>
-      <stop offset="100%" stop-color="#006EFF" stop-opacity="0.45"/>
-    </linearGradient>
-    <linearGradient id="layer-2" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0080FF" stop-opacity="0.65"/>
-      <stop offset="100%" stop-color="#0080FF" stop-opacity="0.30"/>
-    </linearGradient>
-    <linearGradient id="layer-3" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0099FF" stop-opacity="0.45"/>
-      <stop offset="100%" stop-color="#0099FF" stop-opacity="0.18"/>
+    <linearGradient id="wordmark" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#00B4D8"/>
+      <stop offset="100%" stop-color="#006EFF"/>
     </linearGradient>
   </defs>
 
-  <!-- Icon: Shield + Layers -->
-  <g transform="translate(40, 30)">
-    <!-- Shield outline -->
-    <path d="M100 0 L170 18 L170 80 Q170 140 100 170 Q30 140 30 80 L30 18 Z"
-          fill="url(#shield-grad)" opacity="0.12"/>
-    <path d="M100 0 L170 18 L170 80 Q170 140 100 170 Q30 140 30 80 L30 18 Z"
-          stroke="url(#shield-grad)" stroke-width="3.5" fill="none"
-          stroke-linejoin="round"/>
-
-    <!-- Layer 3 (bottom) -->
-    <rect x="52" y="118" width="96" height="32" rx="4"
-          fill="url(#layer-3)" stroke="#006EFF" stroke-width="1.5" stroke-opacity="0.35"/>
-
-    <!-- Layer 2 (middle) -->
-    <rect x="52" y="95" width="96" height="30" rx="4"
-          fill="url(#layer-2)" stroke="#006EFF" stroke-width="1.5" stroke-opacity="0.5"/>
-
-    <!-- Layer 1 (top, most prominent) -->
-    <rect x="52" y="72" width="96" height="30" rx="4"
-          fill="url(#layer-1)" stroke="#006EFF" stroke-width="2" stroke-opacity="0.7"/>
-
-    <!-- Layer top highlight bar -->
-    <rect x="58" y="78" width="84" height="4" rx="2" fill="white" opacity="0.6"/>
-    <rect x="58" y="84" width="50" height="2" rx="1" fill="white" opacity="0.3"/>
-
-    <!-- Checkmark (verified / compliant) -->
-    <path d="M82 45 L92 56 L118 30"
-          stroke="url(#shield-grad)" stroke-width="4.5" stroke-linecap="round"
-          stroke-linejoin="round" fill="none"/>
+  <!-- Arc icon (left) -->
+  <g transform="translate(60, 50)">
+    <!-- Outer arc (thickest) -->
+    <path d="M0 50 Q0 0 40 -20 Q80 -40 120 -20 Q160 0 160 50"
+          stroke="url(#arc)" stroke-width="6" stroke-linecap="round" fill="none"/>
+    <!-- Middle arc -->
+    <path d="M8 42 Q8 6 42 -12 Q78 -30 118 -12 Q152 6 152 42"
+          stroke="#0090E0" stroke-width="3.5" stroke-linecap="round" fill="none" opacity="0.65"/>
+    <!-- Inner arc (thinnest) -->
+    <path d="M16 34 Q16 12 44 -4 Q76 -22 116 -4 Q144 12 144 34"
+          stroke="#00B4D8" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.4"/>
+    <!-- Source node -->
+    <circle cx="0" cy="50" r="6" fill="#00B4D8"/>
+    <!-- Target node -->
+    <circle cx="160" cy="50" r="6" fill="#006EFF"/>
   </g>
 
-  <!-- Wordmark area -->
-  <g transform="translate(230, 82)">
-    <!-- SecX Series brand line (top) -->
-    <text x="0" y="-26" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
-          font-size="13" font-weight="600" letter-spacing="5" fill="#006EFF">
+  <!-- Text block (right) -->
+  <g transform="translate(260, 0)">
+    <!-- SECX SERIES tag (top) -->
+    <text x="0" y="62" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+          font-size="13" font-weight="500" letter-spacing="5" fill="#6B7C95">
       SECX SERIES
     </text>
 
-    <!-- Main wordmark: ciscvm -->
-    <text x="0" y="14" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
-          font-size="56" font-weight="700" letter-spacing="-1.5">
-      <tspan fill="#1A1A2E">cis</tspan><tspan fill="#006EFF">cvm</tspan>
+    <!-- Main wordmark -->
+    <text x="0" y="118" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+          font-size="64" font-weight="700" letter-spacing="-2" fill="url(#wordmark)">
+      ciscvm
     </text>
 
-    <!-- Subtitle: CIS-hardened Image Builder -->
-    <text x="2" y="44" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
-          font-size="14" font-weight="400" letter-spacing="3" fill="#6B7280">
+    <!-- Subtitle -->
+    <text x="2" y="148" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+          font-size="14" font-weight="400" letter-spacing="4" fill="#6B7C95">
       CIS-HARDENED IMAGE BUILDER
     </text>
   </g>

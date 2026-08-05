@@ -1,52 +1,39 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
   <defs>
-    <linearGradient id="shield-grad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#006EFF"/>
-      <stop offset="100%" stop-color="#00B4D8"/>
+    <linearGradient id="arc-bg" x1="0" y1="0" x2="200" y2="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0A1A33"/>
+      <stop offset="100%" stop-color="#04101F"/>
     </linearGradient>
-    <linearGradient id="layer-1" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#006EFF" stop-opacity="0.85"/>
-      <stop offset="100%" stop-color="#006EFF" stop-opacity="0.45"/>
-    </linearGradient>
-    <linearGradient id="layer-2" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0080FF" stop-opacity="0.65"/>
-      <stop offset="100%" stop-color="#0080FF" stop-opacity="0.30"/>
-    </linearGradient>
-    <linearGradient id="layer-3" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0099FF" stop-opacity="0.45"/>
-      <stop offset="100%" stop-color="#0099FF" stop-opacity="0.18"/>
+    <linearGradient id="arc-line" x1="30" y1="145" x2="170" y2="145" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00B4D8"/>
+      <stop offset="50%" stop-color="#0090E0"/>
+      <stop offset="100%" stop-color="#006EFF"/>
     </linearGradient>
   </defs>
 
-  <rect width="200" height="200" rx="32" fill="#0A0E27"/>
+  <!-- Rounded square background -->
+  <rect x="0" y="0" width="200" height="200" rx="40" fill="url(#arc-bg)"/>
 
-  <g transform="translate(25, 18)">
-    <!-- Shield glow -->
-    <path d="M85 -2 L155 16 L155 78 Q155 138 85 168 Q15 138 15 78 L15 16 Z"
-          fill="url(#shield-grad)" opacity="0.18"/>
-    <path d="M85 -2 L155 16 L155 78 Q155 138 85 168 Q15 138 15 78 L15 16 Z"
-          stroke="url(#shield-grad)" stroke-width="3" fill="none"
-          stroke-linejoin="round"/>
+  <!-- Subtle glow behind arc -->
+  <ellipse cx="100" cy="145" rx="80" ry="20" fill="#006EFF" opacity="0.12"/>
 
-    <!-- Layer 3 -->
-    <rect x="42" y="115" width="86" height="33" rx="4"
-          fill="url(#layer-3)" stroke="#006EFF" stroke-width="1.5" stroke-opacity="0.35"/>
+  <!-- Outer arc (thickest) -->
+  <path d="M30 145 Q30 60 100 30 Q170 60 170 145"
+        stroke="url(#arc-line)" stroke-width="9" stroke-linecap="round" fill="none"/>
 
-    <!-- Layer 2 -->
-    <rect x="42" y="90" width="86" height="33" rx="4"
-          fill="url(#layer-2)" stroke="#006EFF" stroke-width="1.5" stroke-opacity="0.5"/>
+  <!-- Middle arc -->
+  <path d="M44 135 Q44 70 100 44 Q156 70 156 135"
+        stroke="#0090E0" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.7"/>
 
-    <!-- Layer 1 (top) -->
-    <rect x="42" y="65" width="86" height="33" rx="4"
-          fill="url(#layer-1)" stroke="#006EFF" stroke-width="2" stroke-opacity="0.7"/>
+  <!-- Inner arc -->
+  <path d="M58 125 Q58 82 100 58 Q142 82 142 125"
+        stroke="#00B4D8" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.45"/>
 
-    <!-- Highlight bars -->
-    <rect x="50" y="72" width="70" height="4" rx="2" fill="white" opacity="0.55"/>
-    <rect x="50" y="79" width="40" height="2.5" rx="1.25" fill="white" opacity="0.25"/>
+  <!-- Source node (left endpoint) -->
+  <circle cx="30" cy="145" r="9" fill="#00B4D8"/>
+  <circle cx="30" cy="145" r="4" fill="#E8F4FD"/>
 
-    <!-- Checkmark -->
-    <path d="M70 40 L80 51 L100 28"
-          stroke="url(#shield-grad)" stroke-width="4" stroke-linecap="round"
-          stroke-linejoin="round" fill="none"/>
-  </g>
+  <!-- Target node (right endpoint) -->
+  <circle cx="170" cy="145" r="9" fill="#006EFF"/>
+  <circle cx="170" cy="145" r="4" fill="#E8F4FD"/>
 </svg>
