@@ -12,6 +12,7 @@
   become: false
   run_once: true
   check_mode: false
+  when: cis_report_html or cis_report_json or cis_report_csv
 
 - name: Ensure the report directory exists
   ansible.builtin.file:
