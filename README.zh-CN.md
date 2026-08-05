@@ -127,6 +127,7 @@ playbook 和角色都直接在实例里跑。
 | `centos9` | CentOS 9（映射 RHEL 9 角色） | `ansible-lockdown.rhel9_cis` | root (ssh) | Preview* |
 | `windows2019` | Windows Server 2019 | `Windows-2019-CIS` | Administrator (WinRM) | Preview** |
 | `windows2022` | Windows Server 2022 | `Windows-2022-CIS` | Administrator (WinRM) | Preview** |
+| `windows2025` | Windows Server 2025 | `Windows-2025-CIS` | Administrator (WinRM) | Preview** |
 
 \* 角色名与变量前缀均已对照 ansible-lockdown 源码核实，但尚未在腾讯云端到端实跑。
 按 preview 对待：核对你角色版本的 `[cis].audit_dir`，验证后把 `role_version` 固定。
@@ -150,7 +151,7 @@ SSH 用户、CIS 角色名、包管理器、审计目录等 profile 已带，自
 
 在 `ciscvm.py` 的 `PROFILES` 字典里加一项，再在 `ciscvm.toml` 用它的 key。模板
 （RHEL 系示例；非 RHEL 去掉 `os_check_var` / `root_login_rule_var`；
-Windows 模板参考 `PROFILES` 已有的 `windows2019` / `windows2022` 项）：
+Windows 模板参考 `PROFILES` 已有的 `windows2019` / `windows2022` / `windows2025` 项）：
 
 ```python
 "almalinux9": {
@@ -192,7 +193,7 @@ Windows 模板参考 `PROFILES` 已有的 `windows2019` / `windows2022` 项）�
 
 ## Windows Server（preview）
 
-Windows 镜像不能用 `ansible-local` / SSH，也没有 goss 审计。因此工具对 `windows2019` / `windows2022`
+Windows 镜像不能用 `ansible-local` / SSH，也没有 goss 审计。因此工具对 `windows2019` / `windows2022` / `windows2025`
 渲染的是**不同的流水线**：
 
 | | Linux | Windows |
@@ -235,7 +236,7 @@ python3 ciscvm.py preflight && python3 ciscvm.py build
 - 用 **Microsoft Policy Analyzer** 或 **CIS-CAT Pro** 扫描产出的镜像，或
 - 用角色自带的上报（按你的角色版本设置 `win22cis_run_audit` / section 级别检查）。
 
-在真实的 Windows 构建验证 WinRM 接线和 L1/L2 成员服务器变量之前，`windows2019` / `windows2022`
+在真实的 Windows 构建验证 WinRM 接线和 L1/L2 成员服务器变量之前，`windows2019` / `windows2022` / `windows2025`
 均按 **preview** 对待，跑前请以角色 `defaults/main.yml` 为准。
 
 ## 接 CI

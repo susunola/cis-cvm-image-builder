@@ -144,6 +144,7 @@ requires only changing a config value or adding one dictionary entry in `ciscvm.
 | `centos9` | CentOS 9 (maps to RHEL 9 role) | `ansible-lockdown.rhel9_cis` | root (ssh) | Preview* |
 | `windows2019` | Windows Server 2019 | `Windows-2019-CIS` | Administrator (WinRM) | Preview** |
 | `windows2022` | Windows Server 2022 | `Windows-2022-CIS` | Administrator (WinRM) | Preview** |
+| `windows2025` | Windows Server 2025 | `Windows-2025-CIS` | Administrator (WinRM) | Preview** |
 
 \* Role names and variable prefixes are verified against the ansible-lockdown source, but not yet
 run end-to-end on Tencent Cloud. Treat as preview: double-check `[cis].audit_dir` for your role
@@ -169,7 +170,7 @@ auto-rendered, no other changes needed.
 
 Add an entry to the `PROFILES` dictionary in `ciscvm.py`, then use its key in `ciscvm.toml`.
 Template (RHEL-family example; drop `os_check_var` / `root_login_rule_var` for non-RHEL;
-see existing `windows2019`/`windows2022` entries in `PROFILES` for the Windows template):
+see existing `windows2019`/`windows2022`/`windows2025` entries in `PROFILES` for the Windows template):
 
 ```python
 "almalinux9": {
@@ -213,7 +214,7 @@ After that: `preflight` → `validate` → `build` as usual.
 ## Windows Server (preview)
 
 Windows images can't use `ansible-local` / SSH, and there is **no goss audit** on Windows.
-The tool therefore renders a **different pipeline** for `windows2019` / `windows2022`:
+The tool therefore renders a **different pipeline** for `windows2019` / `windows2022` / `windows2025`:
 
 | | Linux | Windows |
 |---|---|---|
@@ -257,7 +258,7 @@ compliance **after** the image is built, out-of-band:
 - Use the role's own reporting (set `win22cis_run_audit` / section-based checks per your role version).
 
 Until a real Windows build validates the WinRM wiring and the L1/L2 member-server variables,
-treat `windows2019` / `windows2022` as **preview** and confirm them against the role's
+treat `windows2019` / `windows2022` / `windows2025` as **preview** and confirm them against the role's
 `defaults/main.yml`.
 
 ## CI Integration
