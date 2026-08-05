@@ -61,6 +61,11 @@
   ansible.builtin.set_fact:
     cis_report_slug: "{{ cis_host.hostname | regex_replace('[^A-Za-z0-9._-]', '_') }}-{{ cis_profile }}-{{ cis_mode_effective }}-{{ cis_run_stamp }}"
 
+- name: Pin guidance to only the rules that actually ran (keep template context lean)
+  ansible.builtin.set_fact:
+    cis_guidance: "{{ cis_guidance | dict2items | selectattr('key', 'in', cis_result.results | map(attribute='id')) | items2dict }}"
+  when: cis_report_html | bool
+
 - name: Write the HTML compliance report
   ansible.builtin.template:
     src: report.html.j2

@@ -46,6 +46,11 @@
   ansible.builtin.set_fact:
     _slug: "{{ cis_host.hostname }}-{{ cis_profile }}-{{ cis_mode_effective | default(cis_mode) }}-{{ cis_run_stamp }}"
 
+- name: Pin guidance to only the rules that actually ran (keep template context lean)
+  ansible.builtin.set_fact:
+    cis_guidance: "{{ cis_guidance | dict2items | selectattr('key', 'in', cis_result.results | map(attribute='id')) | items2dict }}"
+  when: cis_report_html | bool
+
 - name: Write HTML report
   ansible.builtin.template:
     src: report.html.j2
