@@ -20,6 +20,8 @@ from ciscvm import (
     ResolvedConfig,
     PROFILES,
     SAMPLE_CONFIG,
+    _clean_is_safe,
+    _color,
     _format_hcl_value,
     _validate_value_present,
     _bundle_role,
@@ -155,6 +157,17 @@ class TestValidateValuePresent:
     def test_none(self):
         assert _validate_value_present("x", None) is not None
 
+    def test_zero_is_valid(self):
+        """Zero should not be treated as empty."""
+        assert _validate_value_present("x", 0) is None
+
+    def test_false_is_valid(self):
+        """False should not be treated as empty."""
+        assert _validate_value_present("x", False) is None
+
+    def test_empty_string(self):
+        assert _validate_value_present("x", "") is not None
+
 
 class TestFormatHCLValue:
     def test_bool_true(self):
@@ -217,6 +230,22 @@ class TestResolve:
         r = resolve(valid_toml)
         assert r.ssh_username == "ubuntu"
         assert r.family == ""
+
+    def test_copy_regions_string_raises(self, valid_toml):
+        """Passing a string for copy_regions must raise ConfigError."""
+        valid_toml["image"]["copy_regions"] = "ap-shanghai"
+        with pytest.raises(ConfigError, match="copy_regions"):
+            resolve(valid_toml)
+
+    def test_copy_regions_list_ok(self, valid_toml):
+        valid_toml["image"]["copy_regions"] = ["ap-shanghai", "ap-beijing"]
+        r = resolve(valid_toml)
+        assert r.image_copy_regions == ["ap-shanghai", "ap-beijing"]
+
+    def test_empty_copy_regions(self, valid_toml):
+        valid_toml["image"]["copy_regions"] = []
+        r = resolve(valid_toml)
+        assert r.image_copy_regions == []
 
 
 # ---------------------------------------------------------------------------
@@ -334,11 +363,10 @@ class TestBundleRole:
         _bundle_role(wd, "cis_win2022")
         assert (wd / "ansible" / "roles" / "cis_win2022" / "tasks" / "main.yml").exists()
 
-    def test_missing_role_warns(self, tmp_path, caplog):
-        caplog.set_level(logging.WARNING, logger="ciscvm")
+    def test_missing_role_raises(self, tmp_path):
         wd = tmp_path / "build"
-        _bundle_role(wd, "nonexistent_role")
-        assert "not found" in caplog.text
+        with pytest.raises(ConfigError, match="not found"):
+            _bundle_role(wd, "nonexistent_role")
 
 
 class TestCheckBundledRole:
@@ -473,6 +501,9 @@ class TestCmdClean:
     def test_removes_directory(self, tmp_path):
         wd = tmp_path / "build"
         wd.mkdir()
+        # Create ciscvm marker files
+        (wd / "packer").mkdir()
+        (wd / "packer" / "main.pkr.hcl").write_text("")
         rc = cmd_clean(mock.MagicMock(workdir=str(wd)))
         assert rc == 0
         assert not wd.exists()
@@ -481,6 +512,23 @@ class TestCmdClean:
         wd = tmp_path / "nonexistent"
         rc = cmd_clean(mock.MagicMock(workdir=str(wd)))
         assert rc == 0
+
+    def test_not_a_ciscvm_dir(self, tmp_path):
+        """Refuse to clean a directory without ciscvm markers."""
+        wd = tmp_path / "not-ciscvm"
+        wd.mkdir()
+        rc = cmd_clean(mock.MagicMock(workdir=str(wd)))
+        assert rc == 1
+        assert wd.exists()  # not deleted
+
+    def test_refuses_system_path(self):
+        """Refuse to clean / , /etc , /home , etc."""
+        rc = cmd_clean(mock.MagicMock(workdir="/"))
+        assert rc == 1
+        rc = cmd_clean(mock.MagicMock(workdir="/etc"))
+        assert rc == 1
+        rc = cmd_clean(mock.MagicMock(workdir="/usr"))
+        assert rc == 1
 
 
 # ---------------------------------------------------------------------------
@@ -559,6 +607,61 @@ class TestProfiles:
             p = PROFILES[name]
             assert "pkg_update" not in p, f"{name}: should not have pkg_update"
             assert "pkg_install" not in p, f"{name}: should not have pkg_install"
+
+
+# ---------------------------------------------------------------------------
+# Clean safety
+# ---------------------------------------------------------------------------
+class TestCleanIsSafe:
+    def test_allows_valid_ciscvm_dir(self, tmp_path):
+        wd = tmp_path / "build"
+        (wd / "packer").mkdir(parents=True)
+        (wd / "packer" / "main.pkr.hcl").write_text("")
+        assert _clean_is_safe(wd) is None
+
+    def test_allows_ansible_marker(self, tmp_path):
+        wd = tmp_path / "build"
+        (wd / "ansible").mkdir(parents=True)
+        (wd / "ansible" / "site.yml").write_text("")
+        assert _clean_is_safe(wd) is None
+
+    def test_rejects_dir_without_markers(self, tmp_path):
+        wd = tmp_path / "empty"
+        wd.mkdir()
+        assert _clean_is_safe(wd) is not None
+
+    def test_rejects_system_paths(self):
+        for p in ["/", "/etc", "/usr", "/home"]:
+            assert _clean_is_safe(Path(p)) is not None, f"should reject {p}"
+
+    def test_rejects_home(self):
+        home = Path.home()
+        assert _clean_is_safe(home) is not None
+        assert _clean_is_safe(home / "Desktop") is not None
+
+
+# ---------------------------------------------------------------------------
+# _color TTY check
+# ---------------------------------------------------------------------------
+class TestColor:
+    def test_no_color_env(self, monkeypatch):
+        monkeypatch.setenv("NO_COLOR", "1")
+        result = _color("hello", 31)
+        assert "\033" not in result
+        assert result == "hello"
+
+    def test_non_tty_stderr(self, monkeypatch):
+        """When stderr is not a TTY, ANSI codes are stripped."""
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        with mock.patch.object(ciscvm.sys.stderr, "isatty", return_value=False):
+            result = _color("hello", 31)
+            assert "\033" not in result
+
+    def test_tty_produces_ansi(self, monkeypatch):
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        with mock.patch.object(ciscvm.sys.stderr, "isatty", return_value=True):
+            result = _color("hello", 31)
+            assert "\033" in result
 
 
 # ---------------------------------------------------------------------------

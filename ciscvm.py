@@ -55,7 +55,7 @@ def _setup_logging(*, verbose: bool = False) -> None:
 
 
 def _color(text: str, code: int) -> str:
-    if os.environ.get("NO_COLOR"):
+    if os.environ.get("NO_COLOR") or not sys.stderr.isatty():
         return text
     return f"\033[{code}m{text}\033[0m"
 
@@ -316,7 +316,7 @@ class ConfigError(Exception):
 
 def _validate_value_present(label: str, value: Any) -> str | None:
     """Return an error message if *value* looks like a placeholder, else None."""
-    if not value:
+    if value is None or (isinstance(value, str) and not value):
         return f"{label}: cannot be empty"
     if isinstance(value, str) and "xxxxxxxx" in value:
         return f"{label}: still placeholder '{value}'"
@@ -386,6 +386,14 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
     level: int = int(data["cis"]["level"])
     family: str = str(p.get("family", ""))
 
+    copy_regions_raw = data["image"]["copy_regions"]
+    if not isinstance(copy_regions_raw, list):
+        raise ConfigError(
+            f"[image].copy_regions must be a list, got {type(copy_regions_raw).__name__}. "
+            f"Use [] for no copy or ['ap-shanghai'] for cross-region copy."
+        )
+    copy_regions: list[str] = [str(r) for r in copy_regions_raw]
+
     return ResolvedConfig(
         profile_name=profile_name,
         profile=p,
@@ -402,7 +410,7 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         winrm_username=str(p.get("winrm_username", "")),
         winrm_password_env=str(data.get("cloud", {}).get("winrm_password_env", "WINRM_PASSWORD")),
         image_name_prefix=str(data["image"]["name_prefix"]),
-        image_copy_regions=list(data["image"]["copy_regions"]),
+        image_copy_regions=copy_regions,
         cis_level_tag=f"level{level}-server",
         secret_id_env=str(data["cloud"]["secret_id_env"]),
         secret_key_env=str(data["cloud"]["secret_key_env"]),
@@ -431,9 +439,10 @@ def _bundle_role(workdir: Path, role_dir: str) -> None:
         return
 
     if not src.is_dir():
-        warn(f"Bundled role directory not found: {src}. "
-             f"Ensure roles/{role_dir}/ exists alongside ciscvm.py.")
-        return
+        raise ConfigError(
+            f"Bundled role directory not found: {src}. "
+            f"Ensure roles/{role_dir}/ exists alongside ciscvm.py."
+        )
     dst = workdir / "ansible" / "roles" / role_dir
     if dst.exists():
         shutil.rmtree(dst)
@@ -1098,14 +1107,72 @@ def cmd_build(args: argparse.Namespace) -> int:
     return result.exit_code
 
 
+# Paths that must never be deleted by ciscvm clean.
+_FORBIDDEN_CLEAN_PREFIXES: tuple[Path, ...] = (
+    Path("/"),
+    Path("/bin"),
+    Path("/boot"),
+    Path("/dev"),
+    Path("/etc"),
+    Path("/lib"),
+    Path("/lib64"),
+    Path("/opt"),
+    Path("/proc"),
+    Path("/root"),
+    Path("/run"),
+    Path("/sbin"),
+    Path("/srv"),
+    Path("/sys"),
+    Path("/usr"),
+    Path.home(),
+    Path.home() / "Desktop",
+    Path.home() / "Documents",
+    Path.home() / "Downloads",
+    Path.home() / "Library",
+    Path.home() / "Pictures",
+    Path.home() / "Music",
+    Path.home() / "Movies",
+)
+
+
+def _clean_is_safe(workdir: Path) -> str | None:
+    """Return an error message if *workdir* is unsafe to delete, else None."""
+    wd = workdir.resolve()
+
+    # 1. Reject known system / home directories
+    for forbidden in _FORBIDDEN_CLEAN_PREFIXES:
+        try:
+            fr = forbidden.resolve()
+        except OSError:
+            continue
+        if wd == fr or str(wd).startswith(str(fr) + os.sep):
+            return f"Refusing to clean system/home path: {wd}"
+
+    # 2. Require at least one ciscvm marker file (guard against accidental path)
+    markers = [
+        wd / "packer" / "main.pkr.hcl",
+        wd / "ansible" / "site.yml",
+    ]
+    if not any(m.exists() for m in markers):
+        return f"Not a ciscvm working directory (no packer/main.pkr.hcl or ansible/site.yml): {wd}"
+
+    return None
+
+
 def cmd_clean(args: argparse.Namespace) -> int:
     """Remove the rendered working directory."""
     workdir = Path(args.workdir)
-    if workdir.exists():
-        shutil.rmtree(workdir)
-        ok(f"Removed: {workdir}")
-    else:
+    if not workdir.exists():
         info(f"Working directory does not exist: {workdir}")
+        return 0
+
+    err = _clean_is_safe(workdir)
+    if err:
+        fail(err)
+        return 1
+
+    shutil.rmtree(workdir)
+    ok(f"Removed: {workdir}")
     return 0
 
 
