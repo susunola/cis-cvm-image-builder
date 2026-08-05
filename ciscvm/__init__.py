@@ -735,6 +735,9 @@ SITE_YML_TEMPLATE = r"""---
     cis_fail_on_findings: true
     cis_min_score: 0
     cis_org_name: ""
+    cis_report_html: false
+    cis_report_json: false
+    cis_report_csv: false
   roles:
     - role: __ROLE_DIR__
 """
@@ -756,6 +759,9 @@ SITE_YML_WIN_TEMPLATE = r"""---
     cis_fail_on_findings: true
     cis_min_score: 0
     cis_org_name: ""
+    cis_report_html: false
+    cis_report_json: false
+    cis_report_csv: false
   roles:
     - role: __ROLE_DIR__
 """
