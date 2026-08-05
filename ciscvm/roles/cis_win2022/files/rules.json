@@ -2617,7 +2617,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Credential Validation' is set to 'Success and Failure'",
     "params": {
-      "subcategory": "17.1.1"
+      "subcategory": "17.1.1",
+      "expected": "Success and Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -2634,7 +2635,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Kerberos Authentication Service' is set to 'Success and Failure' (DC Only)",
     "params": {
-      "subcategory": "17.1.2"
+      "subcategory": "17.1.2",
+      "expected": "Success and Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -2651,7 +2653,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Kerberos Service Ticket Operations' is set to 'Success and Failure' (DC Only) ................................................................................................................... 378 17.2 Account Management",
     "params": {
-      "subcategory": "17.1.3"
+      "subcategory": "17.1.3",
+      "expected": "Success and Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -2668,7 +2671,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Application Group Management' is set to 'Success and Failure'",
     "params": {
-      "subcategory": "17.2.1"
+      "subcategory": "17.2.1",
+      "expected": "Success and Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -2685,7 +2689,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Computer Account Management' is set to include 'Success' (DC only)",
     "params": {
-      "subcategory": "17.2.2"
+      "subcategory": "17.2.2",
+      "expected": "Success"
     },
     "automated": true,
     "risk": "medium",
@@ -2702,7 +2707,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Distribution Group Management' is set to include 'Success' (DC only) ............................................................................................................................ 385 Page 8 === PAGE 10 ===",
     "params": {
-      "subcategory": "17.2.3"
+      "subcategory": "17.2.3",
+      "expected": "Success"
     },
     "automated": true,
     "risk": "medium",
@@ -2719,7 +2725,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Other Account Management Events' is set to include 'Success' (DC only)",
     "params": {
-      "subcategory": "17.2.4"
+      "subcategory": "17.2.4",
+      "expected": "Success"
     },
     "automated": true,
     "risk": "medium",
@@ -2736,7 +2743,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Security Group Management' is set to include 'Success'",
     "params": {
-      "subcategory": "17.2.5"
+      "subcategory": "17.2.5",
+      "expected": "Success"
     },
     "automated": true,
     "risk": "medium",
@@ -2753,7 +2761,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit User Account Management' is set to 'Success and Failure' ................................................................................................................................................ 392 17.3 Detailed Tracking",
     "params": {
-      "subcategory": "17.2.6"
+      "subcategory": "17.2.6",
+      "expected": "Success and Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -2770,7 +2779,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit PNP Activity' is set to include 'Success'",
     "params": {
-      "subcategory": "17.3.1"
+      "subcategory": "17.3.1",
+      "expected": "Success"
     },
     "automated": true,
     "risk": "medium",
@@ -2787,7 +2797,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Process Creation' is set to include 'Success' ................... 397 17.4 DS Access",
     "params": {
-      "subcategory": "17.3.2"
+      "subcategory": "17.3.2",
+      "expected": "Success"
     },
     "automated": true,
     "risk": "medium",
@@ -2804,7 +2815,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Directory Service Access' is set to include 'Failure' (DC only)",
     "params": {
-      "subcategory": "17.4.1"
+      "subcategory": "17.4.1",
+      "expected": "Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -2821,7 +2833,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Directory Service Changes' is set to include 'Success' (DC only) ............................................................................................................................ 402 17.5 Logon/Logoff",
     "params": {
-      "subcategory": "17.4.2"
+      "subcategory": "17.4.2",
+      "expected": "Success"
     },
     "automated": true,
     "risk": "medium",
@@ -2838,7 +2851,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Account Lockout' is set to include 'Failure'",
     "params": {
-      "subcategory": "17.5.1"
+      "subcategory": "17.5.1",
+      "expected": "Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -2855,7 +2869,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Group Membership' is set to include 'Success'",
     "params": {
-      "subcategory": "17.5.2"
+      "subcategory": "17.5.2",
+      "expected": "Success"
     },
     "automated": true,
     "risk": "medium",
@@ -2872,7 +2887,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Logoff' is set to include 'Success'",
     "params": {
-      "subcategory": "17.5.3"
+      "subcategory": "17.5.3",
+      "expected": "Success"
     },
     "automated": true,
     "risk": "medium",
@@ -2889,7 +2905,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Logon' is set to 'Success and Failure'",
     "params": {
-      "subcategory": "17.5.4"
+      "subcategory": "17.5.4",
+      "expected": "Success and Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -2906,7 +2923,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Other Logon/Logoff Events' is set to 'Success and Failure'",
     "params": {
-      "subcategory": "17.5.5"
+      "subcategory": "17.5.5",
+      "expected": "Success and Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -2923,7 +2941,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Special Logon' is set to include 'Success' ........................ 415 17.6 Object Access",
     "params": {
-      "subcategory": "17.5.6"
+      "subcategory": "17.5.6",
+      "expected": "Success"
     },
     "automated": true,
     "risk": "medium",
@@ -2940,7 +2959,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Detailed File Share' is set to include 'Failure'",
     "params": {
-      "subcategory": "17.6.1"
+      "subcategory": "17.6.1",
+      "expected": "Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -2957,7 +2977,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit File Share' is set to 'Success and Failure'",
     "params": {
-      "subcategory": "17.6.2"
+      "subcategory": "17.6.2",
+      "expected": "Success and Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -2974,7 +2995,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Other Object Access Events' is set to 'Success and Failure'",
     "params": {
-      "subcategory": "17.6.3"
+      "subcategory": "17.6.3",
+      "expected": "Success and Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -2991,7 +3013,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Removable Storage' is set to 'Success and Failure' ........ 425 17.7 Policy Change",
     "params": {
-      "subcategory": "17.6.4"
+      "subcategory": "17.6.4",
+      "expected": "Success and Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -3008,7 +3031,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Audit Policy Change' is set to include 'Success'",
     "params": {
-      "subcategory": "17.7.1"
+      "subcategory": "17.7.1",
+      "expected": "Success"
     },
     "automated": true,
     "risk": "medium",
@@ -3025,7 +3049,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Authentication Policy Change' is set to include 'Success' 430",
     "params": {
-      "subcategory": "17.7.2"
+      "subcategory": "17.7.2",
+      "expected": "Success"
     },
     "automated": true,
     "risk": "medium",
@@ -3042,7 +3067,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Authorization Policy Change' is set to include 'Success'",
     "params": {
-      "subcategory": "17.7.3"
+      "subcategory": "17.7.3",
+      "expected": "Success"
     },
     "automated": true,
     "risk": "medium",
@@ -3059,7 +3085,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit MPSSVC Rule-Level Policy Change' is set to 'Success and Failure'",
     "params": {
-      "subcategory": "17.7.4"
+      "subcategory": "17.7.4",
+      "expected": "Success and Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -3076,7 +3103,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Other Policy Change Events' is set to include 'Failure' .... 437 17.8 Privilege Use",
     "params": {
-      "subcategory": "17.7.5"
+      "subcategory": "17.7.5",
+      "expected": "Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -3093,7 +3121,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Sensitive Privilege Use' is set to 'Success' ...................... 440 17.9 System",
     "params": {
-      "subcategory": "17.8.1"
+      "subcategory": "17.8.1",
+      "expected": "Success and Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -3110,7 +3139,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit IPsec Driver' is set to 'Success and Failure'",
     "params": {
-      "subcategory": "17.9.1"
+      "subcategory": "17.9.1",
+      "expected": "Success and Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -3127,7 +3157,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Other System Events' is set to 'Success and Failure'",
     "params": {
-      "subcategory": "17.9.2"
+      "subcategory": "17.9.2",
+      "expected": "Success and Failure"
     },
     "automated": true,
     "risk": "medium",
@@ -3144,7 +3175,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Security State Change' is set to include 'Success'",
     "params": {
-      "subcategory": "17.9.3"
+      "subcategory": "17.9.3",
+      "expected": "Success"
     },
     "automated": true,
     "risk": "medium",
@@ -3161,7 +3193,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit Security System Extension' is set to include 'Success'",
     "params": {
-      "subcategory": "17.9.4"
+      "subcategory": "17.9.4",
+      "expected": "Success"
     },
     "automated": true,
     "risk": "medium",
@@ -3178,7 +3211,8 @@
     "family": "adv-audit",
     "assessment": "Check: Ensure 'Audit System Integrity' is set to 'Success and Failure' .............. 452 18 Administrative Templates (Computer) ......................................................................... 454 18.1 Control Panel",
     "params": {
-      "subcategory": "17.9.5"
+      "subcategory": "17.9.5",
+      "expected": "Success and Failure"
     },
     "automated": true,
     "risk": "medium",
