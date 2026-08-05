@@ -628,10 +628,11 @@ build {
 
   # 2. CIS apply (gate disabled: fails don't block, re-audited after reboot)
   provisioner "ansible-local" {
-    command         = "/opt/ciscvm-ansible/bin/ansible-playbook"
-    playbook_dir    = "ansible"
-    playbook_file   = "ansible/site.yml"
-    extra_arguments = [
+    command          = "/opt/ciscvm-ansible/bin/ansible-playbook"
+    playbook_dir     = "ansible"
+    playbook_file    = "ansible/site.yml"
+    staging_directory = "/opt/ciscvm-ansible/staging"
+    extra_arguments  = [
       "-v",
       "-e", "ansible_python_interpreter=/opt/ciscvm-ansible/bin/python"
     ]
@@ -645,10 +646,11 @@ build {
 
   # 4. Re-audit after reboot + gate check (score >= 85%)
   provisioner "ansible-local" {
-    command         = "/opt/ciscvm-ansible/bin/ansible-playbook"
-    playbook_dir    = "ansible"
-    playbook_file   = "ansible/site-audit.yml"
-    extra_arguments = [
+    command          = "/opt/ciscvm-ansible/bin/ansible-playbook"
+    playbook_dir     = "ansible"
+    playbook_file    = "ansible/site-audit.yml"
+    staging_directory = "/opt/ciscvm-ansible/staging"
+    extra_arguments  = [
       "-v",
       "-e", "ansible_python_interpreter=/opt/ciscvm-ansible/bin/python"
     ]
@@ -659,7 +661,7 @@ build {
     pause_before = "10s"
     inline = [
       "__CLEAN_CMD__",
-      "rm -rf /tmp/ansible ~/.ansible/roles 2>/dev/null || true"
+      "rm -rf /tmp/ansible /opt/ciscvm-ansible/staging ~/.ansible/roles 2>/dev/null || true"
     ]
   }
 }
