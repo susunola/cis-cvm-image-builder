@@ -24,15 +24,12 @@ HCL / playbook / 脚本全部在构建时由配置渲染生成，不用手改 HC
 
 ![流程图](docs/ciscvm-pipeline.png)
 
-| 步骤 | 所在层 | 说明 |
-|------|--------|------|
-| `ciscvm.toml` | CLI | 唯一事实来源：profile / 云参数 / CIS level / 审计目录 |
-| `preflight` | CLI | 校验凭据、packer 装好、必填参数、Windows 时校验 WinRM 可达 |
-| `render` | CLI | 模板渲染出 `main.pkr.hcl`、Ansible playbook、install/verify 脚本 |
-| `packer build` | Packer | 起临时 CVM，串起 `tencentcloud-cvm` builder + 后续 provisioner |
-| `ansible-local` | Ansible CIS | Linux：在 VM 内引导 Ansible，跑 `ansible-lockdown` CIS 角色。Windows：WinRM + 远程 ansible（控制器侧） |
-| `goss audit` | Audit | 仅 Linux 的 build 期 gate，超过 `cis_max_failures` 即中断构建 |
-| Image Output | Output | 加固后的 CVM 镜像，打上 profile + level + 时间戳，可选复制到其他地域 |
+中间那根虚线把**控制器**（本机 / CI runner）和 **CVM**（Packer 临时拉起的机器）分开。
+全流程由 `ciscvm.toml` 一个文件驱动，CLI 只是把 HCL / playbook / 脚本渲染进
+`.ciscvm-build/` 再交给 Packer，最右边的 `hardened image` 就是产物。
+
+Windows 的唯一区别：CVM 走 WinRM，ansible 跑在**控制器**上（不在 VM 里），没有 goss gate
+—— Windows CIS 角色本身就是审计。
 
 ## 项目结构
 
@@ -43,10 +40,9 @@ cis-cvm-image/
 ├── README.zh-CN.md              # 本文件（中文）
 ├── LICENSE                      # MIT
 ├── ciscvm.toml                  # init 后生成的配置文件（单事实来源）
-├── docs/                        # 流程图（见上节）
-│   ├── ciscvm-pipeline.html     #   可交互版（带主题切换 + 导出）
+├── docs/
 │   ├── ciscvm-pipeline.png      #   静态 PNG，已嵌入本 README
-│   └── ciscvm-pipeline.workflow.json
+│   └── ciscvm-pipeline.svg      #   上方流程图的可编辑源
 └── .ciscvm-build/               # 渲染出来的 HCL / playbook（gitignored）
 ```
 
