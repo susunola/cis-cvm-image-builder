@@ -16,7 +16,7 @@
 
 - name: Locate Python 3 interpreter
   ansible.builtin.shell: |
-    for py in /usr/bin/python3 /usr/libexec/platform-python /usr/bin/python3.6 /usr/bin/python3.8 /usr/bin/python3.9 /usr/bin/python3.10 /usr/bin/python3.11 /usr/bin/python3.12 /usr/bin/python3.13 /usr/bin/python3.14; do
+    for py in /opt/ciscvm-ansible/bin/python /opt/ciscvm-ansible/bin/python3 /usr/bin/python3 /usr/libexec/platform-python /usr/bin/python3.6 /usr/bin/python3.8 /usr/bin/python3.9 /usr/bin/python3.10 /usr/bin/python3.11 /usr/bin/python3.12 /usr/bin/python3.13 /usr/bin/python3.14; do
       if [ -x "$py" ]; then echo "$py"; exit 0; fi
     done
     echo "NOT_FOUND"; exit 1
