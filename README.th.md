@@ -60,8 +60,13 @@ engine ที่ให้มาด้วยทำการ CIS hardened, รั�
 git clone https://github.com/susunola/cis-cvm-image-builder.git
 cd cis-cvm-image-builder
 
-# รันได้ทันที (ไม่ต้อง pip install)
-python3 ciscvm.py --version
+# แนะนำ: ติดตั้งจาก repository (ได้คำสั่ง `ciscvm`)
+pip install .
+
+ciscvm --version
+
+# หรือรันโดยไม่ติดตั้ง (ที่ root ของ repo)
+python3 -m ciscvm --version
 
 # หรือติดตั้งเป็น package
 pip install -e ".[dev]"
@@ -81,21 +86,21 @@ export WINRM_PASSWORD=xxxx
 
 ```bash
 # 1. สร้างไฟล์ตั้งค่า
-python3 ciscvm.py init
+ciscvm init
 
 # 2. แก้ ciscvm.toml ใส่ค่า VPC, subnet, security group และ source image ID
 
 # 3. ตรวจก่อน build (ตรวจ config, credential และข้อกำหนดเบื้องต้น)
-python3 ciscvm.py preflight
+ciscvm preflight
 
 # 4. Dry-run (render template + packer validate)
-python3 ciscvm.py validate
+ciscvm validate
 
 # 5. Build image ที่ hardened แล้ว
-python3 ciscvm.py build
+ciscvm build
 
 # ไม่บังคับ: ล้างไฟล์ที่ render ออก
-python3 ciscvm.py clean
+ciscvm clean
 ```
 
 **ตัวอย่างผลลัพธ์ (`build`)**
@@ -123,11 +128,11 @@ python3 ciscvm.py clean
 
 | คำสั่ง | คำอธิบาย |
 |---|---|
-| `ciscvm.py init` | สร้าง `ciscvm.toml` ในไดเรกทอรีปัจจุบัน |
-| `ciscvm.py preflight` | ตรวจ config, credential และข้อกำหนดเบื้องต้น |
-| `ciscvm.py validate` | Render template และรัน `packer validate` |
-| `ciscvm.py build` | Render + `packer build` (สร้าง image) |
-| `ciscvm.py clean` | ลบไดเรกทอรี `.ciscvm-build/` |
+| `ciscvm init` | สร้าง `ciscvm.toml` ในไดเรกทอรีปัจจุบัน |
+| `ciscvm preflight` | ตรวจ config, credential และข้อกำหนดเบื้องต้น |
+| `ciscvm validate` | Render template และรัน `packer validate` |
+| `ciscvm build` | Render + `packer build` (สร้าง image) |
+| `ciscvm clean` | ลบไดเรกทอรี `.ciscvm-build/` |
 
 | Flag | ค่าเริ่มต้น | คำอธิบาย |
 |---|---|---|
@@ -203,7 +208,7 @@ benchmark = "CIS-v1.0.0"
 ```
 เครื่อง Build                              Tencent Cloud
 ┌─────────────┐                           ┌──────────────────┐
-│ ciscvm.py   │── packer build ──────────▶│ CVM ชั่วคราว       │
+│ ciscvm/     │── packer build ──────────▶│ CVM ชั่วคราว       │
 │             │                           │   (SSH port 22)  │
 │ ciscvm.toml │                           │ 1. ติดตั้ง ansible│
 │             │                           │    (dnf/apt/zypp)│
@@ -229,7 +234,7 @@ Packer รัน 3 เฟสบน CVM ชั่วคราวผ่าน `ans
 ```
 เครื่อง Build                              Tencent Cloud
 ┌─────────────┐                           ┌──────────────────┐
-│ ciscvm.py   │── packer build ──────────▶│ CVM ชั่วคราว       │
+│ ciscvm/     │── packer build ──────────▶│ CVM ชั่วคราว       │
 │             │                           │  (WinRM 5986)    │
 │             │                           │                  │
 │ roles/      │── ansible provisioner ───▶│ ใช้ CIS            │
@@ -247,7 +252,7 @@ Role ที่ให้มาด้วยมี `cis_engine.ps1` (PowerShell) �
 ### การตัดสินใจด้านดีไซน์
 
 **role ที่ให้มาด้วย, ไม่ใช้ Galaxy**
-cis-os engine role ทั้ง 14 ตัวถูกรวมไว้ใน `roles/` พร้อมกับ `ciscvm.py` ตอน build
+cis-os engine role ทั้ง 14 ตัวถูกรวมไว้ในแพ็กเกจที่ `ciscvm/roles/` ตอน build
 เครื่องมือจะคัดลอก role ที่เลือกไปยัง workspace ไม่มี dependency ด้าน network
 ไม่มี version drift
 
@@ -305,7 +310,7 @@ export TENCENTCLOUD_SECRET_KEY=xxx
 # Windows build:
 # export WINRM_PASSWORD=xxx
 
-python3 ciscvm.py build
+ciscvm build
 ```
 
 ให้ CVM / Auto Scaling / Terraform ฝั่ง downstream ชี้ไปที่ `image_id` ที่ออกมา

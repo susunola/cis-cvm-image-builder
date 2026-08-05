@@ -57,11 +57,13 @@
 git clone https://github.com/susunola/cis-cvm-image-builder.git
 cd cis-cvm-image-builder
 
-# 直接运行（无需 pip install）
-python3 ciscvm.py --version
+# 推荐：从仓库安装（提供 `ciscvm` 命令）
+pip install .
 
-# 可选：安装为 Python 包
-pip install -e ".[dev]"
+ciscvm --version
+
+# 或免安装直接运行（在仓库根目录）
+python3 -m ciscvm --version
 ```
 
 **设置凭据**（仅通过环境变量，不写入配置文件）
@@ -78,21 +80,21 @@ export WINRM_PASSWORD=xxxx
 
 ```bash
 # 1. 生成配置文件
-python3 ciscvm.py init
+ciscvm init
 
 # 2. 编辑 ciscvm.toml，填入 VPC、子网、安全组和源镜像 ID
 
 # 3. 构建前自检（校验配置、凭据和前置条件）
-python3 ciscvm.py preflight
+ciscvm preflight
 
 # 4. 干跑校验（渲染模板 + packer validate）
-python3 ciscvm.py validate
+ciscvm validate
 
 # 5. 构建加固镜像
-python3 ciscvm.py build
+ciscvm build
 
 # 可选：清理渲染产物
-python3 ciscvm.py clean
+ciscvm clean
 ```
 
 **构建输出示例（`build`）**
@@ -120,11 +122,11 @@ python3 ciscvm.py clean
 
 | 命令 | 说明 |
 |---|---|
-| `ciscvm.py init` | 在当前目录生成 `ciscvm.toml` |
-| `ciscvm.py preflight` | 校验配置、凭据和前置条件 |
-| `ciscvm.py validate` | 渲染模板并执行 `packer validate` |
-| `ciscvm.py build` | 渲染 + `packer build`（产出镜像） |
-| `ciscvm.py clean` | 删除 `.ciscvm-build/` 工作目录 |
+| `ciscvm init` | 在当前目录生成 `ciscvm.toml` |
+| `ciscvm preflight` | 校验配置、凭据和前置条件 |
+| `ciscvm validate` | 渲染模板并执行 `packer validate` |
+| `ciscvm build` | 渲染 + `packer build`（产出镜像） |
+| `ciscvm clean` | 删除 `.ciscvm-build/` 工作目录 |
 
 所有命令均支持以下参数：
 
@@ -202,7 +204,7 @@ benchmark = "CIS-v1.0.0"
 ```
 构建机                                     腾讯云
 ┌─────────────┐                           ┌──────────────────┐
-│ ciscvm.py   │── packer build ──────────▶│ 临时 CVM          │
+│ ciscvm/     │── packer build ──────────▶│ 临时 CVM          │
 │             │                           │   (SSH 端口 22)  │
 │ ciscvm.toml │                           │ 1. 安装 ansible   │
 │             │                           │    (dnf/apt/zypp)│
@@ -227,7 +229,7 @@ Packer 在临时 CVM 上通过 `ansible-local` 执行三个阶段：
 ```
 构建机                                     腾讯云
 ┌─────────────┐                           ┌──────────────────┐
-│ ciscvm.py   │── packer build ──────────▶│ 临时 CVM          │
+│ ciscvm/     │── packer build ──────────▶│ 临时 CVM          │
 │             │                           │  (WinRM 5986)    │
 │ ciscvm.toml │                           │                  │
 │             │                           │                  │
@@ -246,7 +248,7 @@ Windows 构建使用 Packer 的 `ansible` provisioner（控制器侧），通过
 ### 设计要点
 
 **捆绑角色，无 Galaxy。**
-14 个 cis-os 引擎角色全部随 `ciscvm.py` 一起发布在 `roles/` 目录下。构建时工具
+14 个 cis-os 引擎角色全部随包发布在 `ciscvm/roles/` 目录下。构建时工具
 将角色复制到工作目录。无网络依赖，无版本漂移。
 
 **`ansible-local`（Linux）— 实例内自包含。**
@@ -300,7 +302,7 @@ export TENCENTCLOUD_SECRET_KEY=xxx
 # Windows 构建：
 # export WINRM_PASSWORD=xxx
 
-python3 ciscvm.py build
+ciscvm build
 ```
 
 下游 CVM / 伸缩组 / Terraform 引用产出的 `image_id`。构建机固定专用 VPC + SG。

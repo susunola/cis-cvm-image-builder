@@ -44,7 +44,11 @@ dev = [
 ]
 
 [tool.setuptools]
-py-modules = ["ciscvm"]
+packages = ["ciscvm"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+ciscvm = ["py.typed", "roles/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -54,11 +58,14 @@ pythonpath = ["."]
 strict = true
 python_version = "3.11"
 ignore_missing_imports = true
-exclude = ["tests/"]
+# tests/ and the vendored cis-os engine (roles/) are not part of the CLI type surface.
+exclude = ["tests/", "ciscvm/roles/"]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 110
+# The bundled cis-os engine under ciscvm/roles/ is vendored verbatim — do not lint it.
+extend-exclude = ["ciscvm/roles"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "C4"]

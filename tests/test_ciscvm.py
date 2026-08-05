@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 import subprocess
-import tempfile
 import tomllib
 from pathlib import Path
 from unittest import mock
@@ -15,23 +13,20 @@ import pytest
 
 import ciscvm
 from ciscvm import (
+    PROFILES,
+    SAMPLE_CONFIG,
     ConfigError,
     PackerResult,
     ResolvedConfig,
-    PROFILES,
-    SAMPLE_CONFIG,
+    _bundle_role,
+    _check_bundled_role,
     _clean_is_safe,
     _color,
     _format_hcl_value,
     _validate_value_present,
-    _bundle_role,
-    _check_bundled_role,
     build_parser,
-    cmd_build,
     cmd_clean,
     cmd_init,
-    cmd_preflight,
-    cmd_validate,
     load_config,
     main,
     render_all,
@@ -383,6 +378,27 @@ class TestCheckBundledRole:
         """Directory traversal attempts should return False."""
         assert _check_bundled_role("../../etc") is False
         assert _check_bundled_role("/etc/passwd") is False
+
+
+class TestPackaging:
+    """Guard the package layout so `pip install` ships the bundled roles.
+
+    Regression: roles/ must live *inside* the ciscvm package (next to
+    __init__.py), otherwise wheels omit them and `ciscvm build` fails after
+    a clean install.
+    """
+
+    def test_roles_dir_inside_package(self):
+        pkg_dir = Path(ciscvm.__file__).parent
+        assert (pkg_dir / "roles").is_dir()
+        assert (pkg_dir / "py.typed").is_file()
+
+    def test_all_profile_roles_resolve(self):
+        """Every profile's bundled role directory must exist on disk."""
+        missing = [
+            p["role_dir"] for p in PROFILES.values() if not _check_bundled_role(p["role_dir"])
+        ]
+        assert missing == [], f"Bundled roles missing: {missing}"
 
 
 # ---------------------------------------------------------------------------
