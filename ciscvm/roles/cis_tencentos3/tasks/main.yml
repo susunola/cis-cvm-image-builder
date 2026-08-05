@@ -8,7 +8,7 @@
   tags: [cis, scan, apply]
 
 - name: Render the compliance report
-  ansible.builtin.import_tasks: report.yml
+  ansible.builtin.include_tasks: report.yml
   when: cis_report_html or cis_report_json or cis_report_csv
   tags: [cis, report]
 
