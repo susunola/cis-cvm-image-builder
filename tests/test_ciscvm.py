@@ -351,6 +351,11 @@ class TestCheckBundledRole:
     def test_not_exists(self):
         assert _check_bundled_role("no_such_role") is False
 
+    def test_path_traversal_rejected(self):
+        """Directory traversal attempts should return False."""
+        assert _check_bundled_role("../../etc") is False
+        assert _check_bundled_role("/etc/passwd") is False
+
 
 # ---------------------------------------------------------------------------
 # Preflight

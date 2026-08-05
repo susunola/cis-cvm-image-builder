@@ -16,4 +16,8 @@ packer_cache/
 # Python
 __pycache__/
 *.pyc
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.python-version
 

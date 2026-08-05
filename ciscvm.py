@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 ciscvm — CIS-hardened Golden Image Builder (Packer × Tencent Cloud CVM)
 
@@ -419,7 +418,18 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
 # ---------------------------------------------------------------------------
 def _bundle_role(workdir: Path, role_dir: str) -> None:
     """Copy bundled role from roles/<role_dir>/ to workdir/ansible/roles/<role_dir>/."""
-    src = Path(__file__).parent / "roles" / role_dir
+    project_root = Path(__file__).parent.resolve()
+    src = (project_root / "roles" / role_dir).resolve()
+
+    # Defence-in-depth: ensure the resolved path is within our project roles/ dir.
+    # This prevents directory traversal via malformed or unexpected role_dir values.
+    roles_root = (project_root / "roles").resolve()
+    try:
+        src.relative_to(roles_root)
+    except ValueError:
+        warn(f"Role directory resolves outside of {roles_root}: {src}. Skipping.")
+        return
+
     if not src.is_dir():
         warn(f"Bundled role directory not found: {src}. "
              f"Ensure roles/{role_dir}/ exists alongside ciscvm.py.")
@@ -431,8 +441,14 @@ def _bundle_role(workdir: Path, role_dir: str) -> None:
 
 
 def _check_bundled_role(role_dir: str) -> bool:
-    """Return True if the bundled role directory exists alongside ciscvm.py."""
-    return (Path(__file__).parent / "roles" / role_dir).is_dir()
+    """Return True if the bundled role directory exists and is under our project root."""
+    project_root = Path(__file__).parent.resolve()
+    src = (project_root / "roles" / role_dir).resolve()
+    try:
+        src.relative_to((project_root / "roles").resolve())
+    except ValueError:
+        return False
+    return src.is_dir()
 
 
 # ---------------------------------------------------------------------------
@@ -705,40 +721,27 @@ def _format_hcl_value(value: Any) -> str:
 
 def render_pkrvars(r: ResolvedConfig) -> str:
     """Generate auto.pkrvars.hcl content."""
+    flat: dict[str, Any] = {
+        "region": r.region,
+        "zone": r.zone,
+        "instance_type": r.instance_type,
+        "source_image_id": r.source_image_id,
+        "vpc_id": r.vpc_id,
+        "subnet_id": r.subnet_id,
+        "security_group_id": r.security_group_id,
+        "associate_public_ip_address": r.associate_public_ip,
+        "image_name_prefix": r.image_name_prefix,
+        "image_copy_regions": r.image_copy_regions,
+        "cis_level": r.cis_level_tag,
+        "image_os_tag": r.image_os_tag,
+        "image_benchmark": r.image_benchmark,
+    }
+
     if r.family == "windows":
-        flat = {
-            "region": r.region,
-            "zone": r.zone,
-            "instance_type": r.instance_type,
-            "source_image_id": r.source_image_id,
-            "winrm_username": r.winrm_username,
-            "vpc_id": r.vpc_id,
-            "subnet_id": r.subnet_id,
-            "security_group_id": r.security_group_id,
-            "associate_public_ip_address": r.associate_public_ip,
-            "image_name_prefix": r.image_name_prefix,
-            "image_copy_regions": r.image_copy_regions,
-            "cis_level": r.cis_level_tag,
-            "image_os_tag": r.image_os_tag,
-            "image_benchmark": r.image_benchmark,
-        }
+        flat["winrm_username"] = r.winrm_username
     else:
-        flat = {
-            "region": r.region,
-            "zone": r.zone,
-            "instance_type": r.instance_type,
-            "source_image_id": r.source_image_id,
-            "ssh_username": r.ssh_username,
-            "vpc_id": r.vpc_id,
-            "subnet_id": r.subnet_id,
-            "security_group_id": r.security_group_id,
-            "associate_public_ip_address": r.associate_public_ip,
-            "image_name_prefix": r.image_name_prefix,
-            "image_copy_regions": r.image_copy_regions,
-            "cis_level": r.cis_level_tag,
-            "image_os_tag": r.image_os_tag,
-            "image_benchmark": r.image_benchmark,
-        }
+        flat["ssh_username"] = r.ssh_username
+
     return "\n".join(f"{k} = {_format_hcl_value(v)}" for k, v in flat.items()) + "\n"
 
 
@@ -772,6 +775,17 @@ def render_site(p: dict[str, Any], level: int) -> str:
         )
 
 
+def _assert_no_markers(content: str, filename: str) -> None:
+    """Ensure no unreplaced __...__ template markers remain in rendered output."""
+    import re as _re
+    markers = _re.findall(r"__[A-Z_]+__", content)
+    if markers:
+        raise RuntimeError(
+            f"Unreplaced markers in {filename}: {', '.join(sorted(set(markers)))}. "
+            f"This is a bug — please report it."
+        )
+
+
 def render_all(workdir: Path, r: ResolvedConfig) -> None:
     """Render the complete build directory."""
     p = r.profile
@@ -788,18 +802,23 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
         hcl = HCL_WIN_TEMPLATE.replace("__WINRM_PASSWORD_ENV__", r.winrm_password_env)
     else:
         hcl = HCL_LINUX_TEMPLATE.replace("__CLEAN_CMD__", str(p["clean_cmd"]))
+    _assert_no_markers(hcl, "main.pkr.hcl")
     (workdir / "packer" / "main.pkr.hcl").write_text(hcl, encoding="utf-8")
 
     # 3. Vars
     (workdir / "packer" / "auto.pkrvars.hcl").write_text(render_pkrvars(r), encoding="utf-8")
 
     # 4. Ansible playbook
-    (workdir / "ansible" / "site.yml").write_text(render_site(p, r.level), encoding="utf-8")
+    site = render_site(p, r.level)
+    _assert_no_markers(site, "site.yml")
+    (workdir / "ansible" / "site.yml").write_text(site, encoding="utf-8")
 
     # 5. Install script (Linux only)
     if family != "windows":
+        install = render_install(p)
+        _assert_no_markers(install, "install-ansible.sh")
         install_path = workdir / "packer" / "scripts" / "install-ansible.sh"
-        install_path.write_text(render_install(p), encoding="utf-8")
+        install_path.write_text(install, encoding="utf-8")
         install_path.chmod(0o755)
 
 
@@ -860,8 +879,9 @@ def run_packer(
                 stdout_lines=res.stdout.splitlines() if res.stdout else [],
             )
         else:
-            res = subprocess.run(cmd, cwd=workdir, timeout=timeout)
-            return PackerResult(exit_code=res.returncode)
+            # Inherit stdout/stderr from parent (live output).
+            cp = subprocess.run(cmd, cwd=workdir, timeout=timeout)
+            return PackerResult(exit_code=cp.returncode)
     except subprocess.TimeoutExpired:
         fail(f"packer {subcmd} timed out after {timeout // 60} minutes.")
         return PackerResult(exit_code=1)
@@ -939,7 +959,7 @@ def run_preflight(r: ResolvedConfig) -> bool:
 def _is_interactive(stream: Any = sys.stdin) -> bool:
     """Check if the terminal is interactive (TTY)."""
     try:
-        return stream.isatty()
+        return bool(stream.isatty())
     except (AttributeError, OSError):
         return False
 
@@ -1137,7 +1157,7 @@ def main(argv: list[str] | None = None) -> int:
     _setup_logging()
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    return int(args.func(args))
 
 
 if __name__ == "__main__":
