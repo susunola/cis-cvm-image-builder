@@ -509,7 +509,11 @@ def c_file_perm(ctx, p):
 def f_file_perm(ctx, p):
     path = p["path"]
     if not exists(path):
-        return False, "%s does not exist" % path
+        if p.get("kind") == "dir":
+            os.makedirs(path, exist_ok=True)
+            ctx.changed_files.append(path)
+        else:
+            return False, "%s does not exist" % path
     acts = []
     if p.get("mode") is not None:
         os.chmod(path, int(p["mode"], 8))
@@ -1378,6 +1382,19 @@ def _sshd_compare(cur, op, want):
         return n is not None and w is not None and n >= w
     if op == "in":
         return cur.strip().lower() in [x.lower() for x in want]
+    if op == "deny_list":
+        denied = set(x.strip().lower() for x in str(want).split(",") if x.strip())
+        current = set(x.strip().lower() for x in cur.split(",") if x.strip())
+        return not (current & denied)
+    if op == "maxstartups":
+        cur_parts = [as_int(x.strip()) for x in cur.split(":")]
+        want_parts = [as_int(x.strip()) for x in str(want).split(":")]
+        if None in cur_parts or None in want_parts \
+           or len(cur_parts) < 3 or len(want_parts) < 3:
+            return False
+        return (cur_parts[0] <= want_parts[0]
+                and cur_parts[1] <= want_parts[1]
+                and cur_parts[2] <= want_parts[2])
     return cur.strip() == str(want)
 
 
@@ -1422,12 +1439,26 @@ def _sshd_write(ctx, pairs):
         for k, v in old.values():
             body.append("%s %s" % (k, v))
         write_file(ctx, SSHD_DROPIN, "\n".join(body) + "\n", 0o600)
-        # make sure the Include line exists and comes first
-        main = read("/etc/ssh/sshd_config") or ""
-        if not re.search(r"^\s*Include\s+/etc/ssh/sshd_config\.d/", main, re.M | re.I):
+        # ensure Include directive exists; comment out conflicting directives
+        # so the drop-in (60-cis-hardening.conf) always takes precedence
+        main_lines = readlines("/etc/ssh/sshd_config")
+        has_include = any(
+            re.search(r"^\s*Include\s+/etc/ssh/sshd_config\.d/", ln, re.I)
+            for ln in main_lines)
+        if not has_include:
+            main_lines.insert(0, "Include /etc/ssh/sshd_config.d/*.conf")
+        keys_lower = {k.lower() for k, v in pairs}
+        commented = False
+        for i, ln in enumerate(main_lines):
+            m = re.match(r"^\s*(\w+)\s+", ln)
+            if m and m.group(1).lower() in keys_lower \
+               and not ln.lstrip().startswith("#"):
+                main_lines[i] = "# " + ln
+                commented = True
+        if not has_include or commented:
             backup(ctx, "/etc/ssh/sshd_config")
             write_file(ctx, "/etc/ssh/sshd_config",
-                       "Include /etc/ssh/sshd_config.d/*.conf\n" + main, 0o600)
+                       "\n".join(main_lines).rstrip("\n") + "\n", 0o600)
         tgt = SSHD_DROPIN
     else:
         for k, v in pairs:
@@ -1445,7 +1476,20 @@ def _sshd_write(ctx, pairs):
 @fix("sshd_param")
 def f_sshd_param(ctx, p):
     items = p.get("params") or [{"key": p.get("key"), "value": p.get("value")}]
-    pairs = [(it["key"], str(it["value"])) for it in items]
+    pairs = []
+    for it in items:
+        if it.get("op") == "deny_list":
+            denied = set(x.strip().lower()
+                         for x in str(it["value"]).split(",") if x.strip())
+            cur_val = _sshd_one(ctx, it["key"])
+            if cur_val:
+                cur_set = [x.strip() for x in cur_val.split(",") if x.strip()]
+                allowed = [x for x in cur_set if x.lower() not in denied]
+                pairs.append((it["key"], ",".join(allowed)))
+            else:
+                pairs.append((it["key"], ""))
+        else:
+            pairs.append((it["key"], str(it["value"])))
     tgt, err = _sshd_write(ctx, pairs)
     if err:
         return False, "sshd config test failed: %s" % err[:200]
@@ -3191,6 +3235,45 @@ def f_user_audit(ctx, p):
             lines.insert(0, insert)
         write_file(ctx, path, "\n".join(lines).rstrip("\n") + "\n")
         return True, "restricted su to the empty group 'sugroup' in /etc/pam.d/su"
+    if kind == "root_path":
+        # Create missing directories in root's PATH (e.g. /root/bin)
+        rc, o, _ = sh(
+            "sudo -Hiu root env 2>/dev/null | grep '^PATH=' || echo \"PATH=$PATH\"",
+            60)
+        path_str = o.split("=", 1)[1] if "=" in o else ""
+        created = []
+        for d in path_str.split(":"):
+            d = d.strip()
+            if not d or d == ".":
+                continue
+            if not os.path.isdir(d):
+                os.makedirs(d, exist_ok=True)
+                os.chown(d, 0, 0)
+                os.chmod(d, 0o755)
+                created.append(d)
+        if not created:
+            return False, "nothing to change"
+        return True, "created directories: " + ", ".join(created)
+    if kind == "unowned":
+        # Assign unowned files to root:root
+        cmd = ("df --local -P 2>/dev/null | awk '{if (NR!=1) print $6}' | "
+               "while read -r m; do find \"$m\" -xdev \\( -nouser -o -nogroup \\) "
+               "2>/dev/null; done | head -50")
+        res = out(cmd, 300)
+        if not res:
+            return False, "no unowned files found"
+        done = []
+        for f in res.strip().split("\n"):
+            f = f.strip()
+            if f and os.path.lexists(f):
+                try:
+                    os.chown(f, 0, 0)
+                    done.append(os.path.basename(f))
+                except OSError:
+                    ctx.notes.append("cannot chown %s" % f)
+        if not done:
+            return False, "could not chown any unowned path"
+        return True, "assigned root:root to %d path(s)" % len(done)
     return False, ("finding requires human judgement (accounts, ownership or data "
                    "loss risk); remediate manually")
 
