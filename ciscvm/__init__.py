@@ -762,8 +762,8 @@ SITE_YML_TEMPLATE = r"""---
     cis_profile: __CIS_LEVEL__
     cis_platform: server
     cis_allow_disruptive: false
-    cis_fail_on_findings: true
-    cis_min_score: 0
+    cis_fail_on_findings: false
+    cis_min_score: 85
     cis_org_name: ""
   roles:
     - role: __ROLE_DIR__
@@ -782,8 +782,8 @@ SITE_YML_WIN_TEMPLATE = r"""---
     cis_mode: apply
     cis_profile: __CIS_LEVEL__
     cis_platform: server
-    cis_fail_on_findings: true
-    cis_min_score: 0
+    cis_fail_on_findings: false
+    cis_min_score: 85
     cis_org_name: ""
   roles:
     - role: __ROLE_DIR__
