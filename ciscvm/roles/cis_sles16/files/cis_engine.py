@@ -435,7 +435,28 @@ def c_partition(ctx, p):
     if p.get("require_tmpfs") and fst != "tmpfs":
         return "fail", "%s is %s, tmpfs required" % (mp, fst)
     return "pass", "%s is a separate mount (%s)" % (mp, fst)
-# partition has no safe automated remediation -> no fix registered
+
+
+@fix("partition")
+def f_partition(ctx, p):
+    mp = p["mount"]
+    if mp in _mounts(ctx):
+        return True, "%s already a separate mount point" % mp
+    if not p.get("allow_tmpfs"):
+        return False, "%s needs a dedicated partition; cannot create automatically" % mp
+    # Mount as tmpfs with CIS-recommended options (noexec,nosuid,nodev)
+    if exists("/etc/fstab"):
+        backup(ctx, "/etc/fstab")
+        fstab_line = "tmpfs  %s  tmpfs  defaults,noexec,nosuid,nodev  0 0" % mp
+        with open("/etc/fstab", "a", encoding="utf-8") as fh:
+            fh.write("\n" + fstab_line + "\n")
+        ctx.changed_files.append("/etc/fstab")
+    os.makedirs(mp, exist_ok=True)
+    rc, _, err = sh(["mount", "-t", "tmpfs", "-o", "noexec,nosuid,nodev", "tmpfs", mp])
+    ctx.invalidate("mounts")
+    if rc != 0:
+        return False, "tmpfs mount of %s failed: %s" % (mp, err)
+    return True, "%s mounted as tmpfs (noexec,nosuid,nodev)" % mp
 
 
 @check("sysctl")
