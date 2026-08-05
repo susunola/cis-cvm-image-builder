@@ -627,6 +627,7 @@ build {
 
   # 2. CIS apply (ansible-local: gate inside role via cis_fail_on_findings)
   provisioner "ansible-local" {
+    command         = "/opt/ciscvm-ansible/bin/ansible-playbook"
     playbook_dir    = "ansible"
     playbook_file   = "ansible/site.yml"
     extra_arguments = [
