@@ -800,9 +800,40 @@ export DEBIAN_FRONTEND=noninteractive
 __PKG_UPDATE__
 __PKG_INSTALL__
 
-# 2. Ansible in a dedicated venv so we do not mutate system pip
+# 2. Pick a Python >=3.8 (ansible-core >=2.12 requires it; RHEL 8 / TencentOS 3 ship 3.6)
+PY=
+for candidate in python3.12 python3.11 python3.10 python3.9 python3; do
+    if command -v "$candidate" &>/dev/null && \
+       "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3,8) else 1)' 2>/dev/null; then
+        PY="$candidate"
+        break
+    fi
+done
+
+if [ -z "$PY" ]; then
+    echo "==> No Python >=3.8 found, trying to install python39..."
+    (sudo dnf install -y python39 2>/dev/null || \
+     sudo yum install -y python39 2>/dev/null || \
+     (sudo apt-get update -qq && sudo apt-get install -y python3.9 python3.9-venv) 2>/dev/null || \
+     sudo zypper --non-interactive install -y python39 2>/dev/null || true)
+    for candidate in python3.9 python3.10 python3.11 python3.12; do
+        if command -v "$candidate" &>/dev/null && \
+           "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3,8) else 1)' 2>/dev/null; then
+            PY="$candidate"
+            break
+        fi
+    done
+fi
+
+if [ -z "$PY" ]; then
+    echo "ERROR: Failed to find or install Python >=3.8.  Install it manually and retry." >&2
+    exit 1
+fi
+echo "==> Using $($PY --version) for ansible venv"
+
+# 3. Ansible in a dedicated venv so we do not mutate system pip
 VENV=/opt/ciscvm-ansible
-sudo python3 -m venv "$VENV"
+sudo "$PY" -m venv "$VENV"
 sudo "$VENV/bin/python" -m pip install --upgrade pip __PIP_INDEX_FLAG__
 sudo "$VENV/bin/python" -m pip install __PIP_INDEX_FLAG__ '__ANSIBLE_CORE_SPEC__' pexpect passlib
 
