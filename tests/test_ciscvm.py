@@ -699,7 +699,7 @@ class TestCmdBuildOutput:
         packer_lines = ["==> building", "Created image ID: img-q", "done"]
         captured_quiet: dict[str, object] = {}
 
-        def fake_run_packer(workdir, subcmd, quiet=False, capture=False, timeout=None):
+        def fake_run_packer(workdir, subcmd, quiet=False, capture=False, timeout=None, debug=False):
             captured_quiet["quiet"] = quiet
             captured_quiet["capture"] = capture
             return PackerResult(exit_code=0, stdout_lines=packer_lines)
@@ -765,7 +765,7 @@ class TestCmdValidateOutput:
         wd = tmp_path / "build"
         seen: dict[str, object] = {}
 
-        def fake_run_packer(workdir, subcmd, quiet=False, capture=False, timeout=None):
+        def fake_run_packer(workdir, subcmd, quiet=False, capture=False, timeout=None, debug=False):
             seen["subcmd"] = subcmd
             seen["workdir"] = Path(workdir)
             return PackerResult(exit_code=0)
