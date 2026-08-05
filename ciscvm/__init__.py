@@ -102,6 +102,7 @@ def banner(title: str) -> None:
 #   benchmark     CIS benchmark version
 #   pkg_update    Package index update command
 #   pkg_install   Dependencies install command (must include python3-pip)
+#   ansible_core_spec  pip constraint for ansible-core (default "ansible-core>=2.15")
 #   clean_cmd     Post-build package cache cleanup
 #
 # Windows profiles (family: "windows"):
@@ -144,6 +145,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "ssh_username": "root",
         "os_tag": "rhel-8",
         "benchmark": "CIS-v1.0.0",
+        "ansible_core_spec": "ansible-core>=2.11",
         "pkg_update": "sudo dnf makecache",
         "pkg_install": "sudo dnf install -y python3-pip git",
         "clean_cmd": "sudo dnf clean all",
@@ -173,6 +175,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "ssh_port": 36000,
         "os_tag": "tencentos-3",
         "benchmark": "CIS-v1.0.0",
+        "ansible_core_spec": "ansible-core>=2.11",
         "pkg_update": "sudo dnf makecache",
         "pkg_install": "sudo dnf install -y python3-pip git",
         "clean_cmd": "sudo dnf clean all",
@@ -767,7 +770,7 @@ __PKG_INSTALL__
 
 # 2. Ansible
 sudo python3 -m pip install --upgrade pip
-sudo python3 -m pip install 'ansible-core>=2.15' pexpect passlib
+sudo python3 -m pip install '__ANSIBLE_CORE_SPEC__' pexpect passlib
 
 echo "ansible ready (cis-os engine)"
 """
@@ -825,6 +828,7 @@ def render_install(p: dict[str, Any]) -> str:
         INSTALL_SH_TEMPLATE
         .replace("__PKG_UPDATE__", str(p.get("pkg_update", "")))
         .replace("__PKG_INSTALL__", str(p.get("pkg_install", "")))
+        .replace("__ANSIBLE_CORE_SPEC__", str(p.get("ansible_core_spec", "ansible-core>=2.15")))
     )
 
 
