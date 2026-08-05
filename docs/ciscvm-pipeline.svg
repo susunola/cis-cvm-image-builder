@@ -1,0 +1,73 @@
+<svg width="960" height="560" viewBox="0 0 960 560" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'SF Mono', Menlo, monospace">
+  <rect width="960" height="560" fill="#fff"/>
+  <text x="40" y="38" font-size="17" font-weight="600" fill="#111">ciscvm build — one image, one config</text>
+  <text x="40" y="58" font-size="12" fill="#666">ciscvm.toml → Packer → Ansible CIS → Goss → hardened CVM image</text>
+  <text x="40" y="92" font-size="10" font-weight="700" fill="#888" letter-spacing="1">CONTROLLER (your laptop / CI runner)</text>
+  <text x="540" y="92" font-size="10" font-weight="700" fill="#888" letter-spacing="1">CVM (Packer-launched, ephemeral)</text>
+  <line x1="500" y1="80" x2="500" y2="400" stroke="#ddd" stroke-dasharray="3 3"/>
+  <g transform="translate(40, 110)">
+    <rect width="140" height="50" rx="3" fill="#fff" stroke="#333" stroke-width="1"/>
+    <text x="70" y="22" text-anchor="middle" font-size="13" font-weight="600" fill="#111">ciscvm.toml</text>
+    <text x="70" y="38" text-anchor="middle" font-size="11" fill="#666">profile + params</text>
+  </g>
+  <g transform="translate(40, 200)">
+    <rect width="140" height="50" rx="3" fill="#fff" stroke="#333" stroke-width="1"/>
+    <text x="70" y="22" text-anchor="middle" font-size="13" font-weight="600" fill="#111">ciscvm preflight</text>
+    <text x="70" y="38" text-anchor="middle" font-size="11" fill="#666">creds · packer · WinRM</text>
+  </g>
+  <g transform="translate(40, 290)">
+    <rect width="140" height="50" rx="3" fill="#fff" stroke="#333" stroke-width="1"/>
+    <text x="70" y="22" text-anchor="middle" font-size="13" font-weight="600" fill="#111">ciscvm build</text>
+    <text x="70" y="38" text-anchor="middle" font-size="11" fill="#666">render → packer init+build</text>
+  </g>
+  <g transform="translate(220, 290)">
+    <rect width="240" height="50" rx="3" fill="#fafafa" stroke="#999" stroke-width="1" stroke-dasharray="3 2"/>
+    <text x="120" y="22" text-anchor="middle" font-size="12" fill="#111">.ciscvm-build/packer/</text>
+    <text x="120" y="38" text-anchor="middle" font-size="11" fill="#666">main.pkr.hcl · site.yml · install.sh</text>
+  </g>
+  <g transform="translate(540, 110)">
+    <rect width="180" height="50" rx="3" fill="#fff" stroke="#333" stroke-width="1"/>
+    <text x="90" y="22" text-anchor="middle" font-size="13" font-weight="600" fill="#111">ephemeral CVM</text>
+    <text x="90" y="38" text-anchor="middle" font-size="11" fill="#666">cloned from source_image_id</text>
+  </g>
+  <g transform="translate(540, 200)">
+    <rect width="180" height="50" rx="3" fill="#fff" stroke="#333" stroke-width="1"/>
+    <text x="90" y="22" text-anchor="middle" font-size="13" font-weight="600" fill="#111">ansible-local</text>
+    <text x="90" y="38" text-anchor="middle" font-size="11" fill="#666">ubtu22cis_*, rhel8_cis, ...</text>
+  </g>
+  <g transform="translate(540, 290)">
+    <rect width="180" height="50" rx="3" fill="#fff" stroke="#333" stroke-width="1"/>
+    <text x="90" y="22" text-anchor="middle" font-size="13" font-weight="600" fill="#111">goss audit</text>
+    <text x="90" y="38" text-anchor="middle" font-size="11" fill="#666">fail &gt; max_failures → abort</text>
+  </g>
+  <g transform="translate(760, 200)">
+    <rect width="160" height="50" rx="3" fill="#f0fdf4" stroke="#15803d" stroke-width="1.2"/>
+    <text x="80" y="22" text-anchor="middle" font-size="13" font-weight="600" fill="#15803d">hardened image</text>
+    <text x="80" y="38" text-anchor="middle" font-size="11" fill="#666">img-xxxxxxxx</text>
+  </g>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#333"/>
+    </marker>
+    <marker id="arrg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#15803d"/>
+    </marker>
+  </defs>
+  <line x1="110" y1="160" x2="110" y2="198" stroke="#333" stroke-width="1" marker-end="url(#arr)"/>
+  <line x1="110" y1="250" x2="110" y2="288" stroke="#333" stroke-width="1" marker-end="url(#arr)"/>
+  <line x1="180" y1="315" x2="218" y2="315" stroke="#333" stroke-width="1" marker-end="url(#arr)"/>
+  <path d="M 340 290 L 340 135 L 538 135" fill="none" stroke="#333" stroke-width="1" marker-end="url(#arr)"/>
+  <text x="348" y="200" font-size="11" fill="#666">tencentcloud-cvm</text>
+  <text x="348" y="214" font-size="11" fill="#666">builder</text>
+  <line x1="630" y1="160" x2="630" y2="198" stroke="#333" stroke-width="1" marker-end="url(#arr)"/>
+  <line x1="630" y1="250" x2="630" y2="288" stroke="#333" stroke-width="1" marker-end="url(#arr)"/>
+  <path d="M 720 315 L 750 315 L 750 225 L 758 225" fill="none" stroke="#15803d" stroke-width="1.2" marker-end="url(#arrg)"/>
+  <text x="724" y="308" font-size="11" fill="#15803d">pass</text>
+  <g transform="translate(40, 430)">
+    <rect width="880" height="100" rx="3" fill="#fffbeb" stroke="#a16207" stroke-width="1" stroke-dasharray="4 3"/>
+    <text x="20" y="26" font-size="13" font-weight="600" fill="#111">Windows Server 2019 / 2022 / 2025</text>
+    <text x="20" y="50" font-size="12" fill="#444">— same `ciscvm build`, just set `profile = win19 | win22 | win25` in ciscvm.toml</text>
+    <text x="20" y="70" font-size="12" fill="#444">— CVM uses the WinRM communicator, ansible runs on the <tspan font-weight="600">controller</tspan> (not in-VM)</text>
+    <text x="20" y="90" font-size="12" fill="#444">— no goss gate; the Windows CIS role is the audit</text>
+  </g>
+</svg>
