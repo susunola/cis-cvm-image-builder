@@ -340,6 +340,7 @@ class TestRenderAll:
         hcl = (wd / "packer" / "main.pkr.hcl").read_text()
         assert "__CLEAN_CMD__" not in hcl
         assert "__WINRM_PASSWORD_ENV__" not in hcl
+        assert ";" not in hcl, "semicolons are not valid in HCL"
 
     def test_windows_renders_correctly(self, tmp_path):
         r = resolve(_make_win_toml("win2022"))
