@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 240" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 260" fill="none">
   <defs>
     <linearGradient id="shield-grad" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#006EFF"/>
@@ -19,7 +19,7 @@
   </defs>
 
   <!-- Icon: Shield + Layers -->
-  <g transform="translate(40, 20)">
+  <g transform="translate(40, 30)">
     <!-- Shield outline -->
     <path d="M100 0 L170 18 L170 80 Q170 140 100 170 Q30 140 30 80 L30 18 Z"
           fill="url(#shield-grad)" opacity="0.12"/>
@@ -27,7 +27,6 @@
           stroke="url(#shield-grad)" stroke-width="3.5" fill="none"
           stroke-linejoin="round"/>
 
-    <!-- Stacked layers representing image building -->
     <!-- Layer 3 (bottom) -->
     <rect x="52" y="118" width="96" height="32" rx="4"
           fill="url(#layer-3)" stroke="#006EFF" stroke-width="1.5" stroke-opacity="0.35"/>
@@ -50,28 +49,24 @@
           stroke-linejoin="round" fill="none"/>
   </g>
 
-  <!-- Text: ciscvm -->
-  <g transform="translate(230, 72)">
-    <text x="0" y="0" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
-          font-size="52" font-weight="700" letter-spacing="-1.5">
-      <tspan fill="#1A1A2E">cis</tspan><tspan fill="#006EFF">cvm</tspan>
-    </text>
-    <text x="2" y="28" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
-          font-size="14" font-weight="400" letter-spacing="4" fill="#6B7280">
-      IMAGE BUILDER
+  <!-- Wordmark area -->
+  <g transform="translate(230, 82)">
+    <!-- SecX Series brand line (top) -->
+    <text x="0" y="-26" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
+          font-size="13" font-weight="600" letter-spacing="5" fill="#006EFF">
+      SECX SERIES
     </text>
 
-    <!-- SecX badge -->
-    <g transform="translate(2, 44)">
-      <rect x="0" y="-13" width="68" height="22" rx="6"
-            fill="#006EFF" opacity="0.12"/>
-      <rect x="0" y="-13" width="68" height="22" rx="6"
-            stroke="#006EFF" stroke-width="1" stroke-opacity="0.5" fill="none"/>
-      <text x="34" y="3" text-anchor="middle"
-            font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
-            font-size="12" font-weight="600" fill="#006EFF" letter-spacing="1">
-        SecX 系列
-      </text>
-    </g>
+    <!-- Main wordmark: ciscvm -->
+    <text x="0" y="14" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
+          font-size="56" font-weight="700" letter-spacing="-1.5">
+      <tspan fill="#1A1A2E">cis</tspan><tspan fill="#006EFF">cvm</tspan>
+    </text>
+
+    <!-- Subtitle: CIS-hardened Image Builder -->
+    <text x="2" y="44" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
+          font-size="14" font-weight="400" letter-spacing="3" fill="#6B7280">
+      CIS-HARDENED IMAGE BUILDER
+    </text>
   </g>
 </svg>
