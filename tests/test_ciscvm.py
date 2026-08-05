@@ -506,6 +506,77 @@ class TestRunPacker:
             result = run_packer(wd, "build", capture=True)
             assert result.exit_code == 1
 
+    def test_init_failure_surfaces_output(self, tmp_path, capsys):
+        """packer init failure must print its captured output itself."""
+        wd = tmp_path / "build"
+        wd.mkdir()
+        (wd / "packer").mkdir()
+        (wd / "packer" / "main.pkr.hcl").write_text("")
+
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(
+                [], 1, stdout="plugin registry unreachable", stderr=""
+            )
+            result = run_packer(wd, "validate", capture=True)
+        assert result.exit_code == 1
+        err = capsys.readouterr().err
+        assert "plugin registry unreachable" in err
+
+    def test_subcmd_failure_returns_error(self, tmp_path):
+        """init succeeds but the sub-command (validate/build) fails."""
+        wd = tmp_path / "build"
+        wd.mkdir()
+        (wd / "packer").mkdir()
+        (wd / "packer" / "main.pkr.hcl").write_text("")
+
+        with (
+            mock.patch("subprocess.run") as mock_run,
+            mock.patch("subprocess.Popen") as mock_popen,
+        ):
+            mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            mock_proc = mock.MagicMock()
+            mock_proc.returncode = 2
+            mock_proc.stdout = ["Error: invalid config\n"]
+            mock_proc.__enter__.return_value = mock_proc
+            mock_popen.return_value = mock_proc
+            result = run_packer(wd, "validate", capture=True)
+        assert result.exit_code == 2
+        assert "Error: invalid config" in result.stdout_lines[0]
+
+    def test_quiet_captures_but_does_not_stream(self, tmp_path, capsys):
+        """--quiet must capture lines for parsing but NOT stream them to stderr."""
+        wd = tmp_path / "build"
+        wd.mkdir()
+        (wd / "packer").mkdir()
+        (wd / "packer" / "main.pkr.hcl").write_text("")
+
+        with (
+            mock.patch("subprocess.run") as mock_run,
+            mock.patch("subprocess.Popen") as mock_popen,
+        ):
+            mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            mock_proc = mock.MagicMock()
+            mock_proc.returncode = 0
+            mock_proc.stdout = ["Created image ID: img-quiet\n"]
+            mock_proc.__enter__.return_value = mock_proc
+            mock_popen.return_value = mock_proc
+            result = run_packer(wd, "build", quiet=True, capture=True)
+        err = capsys.readouterr().err
+        # Captured for image-ID parsing, but suppressed from live stderr.
+        assert result.stdout_lines == ["Created image ID: img-quiet"]
+        assert "Created image ID" not in err
+
+    def test_packer_not_found(self, tmp_path):
+        """Missing packer binary is reported as exit code 1, not a crash."""
+        wd = tmp_path / "build"
+        wd.mkdir()
+        (wd / "packer").mkdir()
+        (wd / "packer" / "main.pkr.hcl").write_text("")
+
+        with mock.patch("subprocess.run", side_effect=FileNotFoundError):
+            result = run_packer(wd, "validate", capture=True)
+        assert result.exit_code == 1
+
 
 # ---------------------------------------------------------------------------
 # CLI commands
@@ -614,6 +685,135 @@ class TestCmdBuildOutput:
         assert rc == 0
         # Image ID is surfaced via the logger (stderr), captured by caplog elsewhere;
         # here we just confirm the command succeeded and did not crash on parsing.
+
+    def test_build_quiet_does_not_dump_log(self, tmp_path, capsys):
+        """--quiet build shows only the summary, never the packer log."""
+        from ciscvm import PackerResult, cmd_build
+
+        r, wd = self._prep(tmp_path)
+        packer_lines = ["==> building", "Created image ID: img-q", "done"]
+        captured_quiet: dict[str, object] = {}
+
+        def fake_run_packer(workdir, subcmd, quiet=False, capture=False, timeout=None):
+            captured_quiet["quiet"] = quiet
+            captured_quiet["capture"] = capture
+            return PackerResult(exit_code=0, stdout_lines=packer_lines)
+
+        with (
+            mock.patch("ciscvm._load_resolve_preflight", return_value=(r, wd)),
+            mock.patch("ciscvm.render_all"),
+            mock.patch("ciscvm.run_packer", side_effect=fake_run_packer),
+        ):
+            rc = cmd_build(mock.MagicMock(config="x", workdir=str(wd), yes=True, quiet=True))
+        assert rc == 0
+        # cmd_build must forward quiet=True and still capture (for image-ID parsing).
+        assert captured_quiet == {"quiet": True, "capture": True}
+        out = capsys.readouterr().out
+        assert "==> building" not in out
+        assert "done" not in out
+
+    def test_build_returns_packer_exit_code(self, tmp_path):
+        """A failed packer build must propagate a non-zero exit code."""
+        from ciscvm import PackerResult, cmd_build
+
+        r, wd = self._prep(tmp_path)
+        with (
+            mock.patch("ciscvm._load_resolve_preflight", return_value=(r, wd)),
+            mock.patch("ciscvm.render_all"),
+            mock.patch(
+                "ciscvm.run_packer",
+                return_value=PackerResult(exit_code=1, stdout_lines=["Error"]),
+            ),
+        ):
+            rc = cmd_build(mock.MagicMock(config="x", workdir=str(wd), yes=True, quiet=False))
+        assert rc == 1
+
+    def test_build_aborts_when_preflight_fails(self, tmp_path):
+        """If preflight fails, cmd_build must not render or invoke packer."""
+        from ciscvm import cmd_build
+
+        with (
+            mock.patch("ciscvm._load_resolve_preflight", return_value=None),
+            mock.patch("ciscvm.render_all") as mock_render,
+            mock.patch("ciscvm.run_packer") as mock_run,
+        ):
+            rc = cmd_build(mock.MagicMock(config="x", workdir="wd", yes=True, quiet=False))
+        assert rc == 1
+        mock_render.assert_not_called()
+        mock_run.assert_not_called()
+
+
+class TestCmdValidateOutput:
+    """cmd_validate end-to-end with real rendering + mocked packer."""
+
+    def test_validate_renders_and_invokes_packer(self, valid_toml, tmp_path, monkeypatch):
+        from ciscvm import PackerResult, cmd_validate
+
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "test-id")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "test-key")
+        valid_toml["build"]["source_image_id"] = "img-abc123"
+        valid_toml["build"]["vpc_id"] = "vpc-abc123"
+        valid_toml["build"]["subnet_id"] = "subnet-abc123"
+        valid_toml["build"]["security_group_id"] = "sg-abc123"
+
+        cfg = _write_config(tmp_path, valid_toml)
+        wd = tmp_path / "build"
+        seen: dict[str, object] = {}
+
+        def fake_run_packer(workdir, subcmd, quiet=False, capture=False, timeout=None):
+            seen["subcmd"] = subcmd
+            seen["workdir"] = Path(workdir)
+            return PackerResult(exit_code=0)
+
+        with (
+            mock.patch("shutil.which", return_value="/usr/bin/packer"),
+            mock.patch("ciscvm.run_packer", side_effect=fake_run_packer),
+        ):
+            rc = cmd_validate(
+                mock.MagicMock(config=str(cfg), workdir=str(wd), quiet=False)
+            )
+        assert rc == 0
+        # Real rendering happened before packer was invoked.
+        assert (wd / "packer" / "main.pkr.hcl").exists()
+        assert (wd / "packer" / "auto.pkrvars.hcl").exists()
+        assert (wd / "ansible" / "site.yml").exists()
+        assert seen["subcmd"] == "validate"
+        assert seen["workdir"] == wd
+
+    def test_validate_propagates_failure(self, valid_toml, tmp_path, monkeypatch):
+        from ciscvm import PackerResult, cmd_validate
+
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "test-id")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "test-key")
+        valid_toml["build"]["source_image_id"] = "img-abc123"
+        valid_toml["build"]["vpc_id"] = "vpc-abc123"
+        valid_toml["build"]["subnet_id"] = "subnet-abc123"
+        valid_toml["build"]["security_group_id"] = "sg-abc123"
+
+        cfg = _write_config(tmp_path, valid_toml)
+        wd = tmp_path / "build"
+
+        with (
+            mock.patch("shutil.which", return_value="/usr/bin/packer"),
+            mock.patch("ciscvm.run_packer", return_value=PackerResult(exit_code=3)),
+        ):
+            rc = cmd_validate(
+                mock.MagicMock(config=str(cfg), workdir=str(wd), quiet=False)
+            )
+        assert rc == 3
+
+    def test_validate_aborts_when_preflight_fails(self, tmp_path):
+        from ciscvm import cmd_validate
+
+        with (
+            mock.patch("ciscvm._load_resolve_preflight", return_value=None),
+            mock.patch("ciscvm.render_all") as mock_render,
+            mock.patch("ciscvm.run_packer") as mock_run,
+        ):
+            rc = cmd_validate(mock.MagicMock(config="x", workdir="wd", quiet=False))
+        assert rc == 1
+        mock_render.assert_not_called()
+        mock_run.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
