@@ -35,10 +35,10 @@
 
 - name: Determine effective privilege level
   ansible.builtin.set_fact:
-    cis_is_root: "{{ ansible_user == 'root' }}"
+    cis_is_root: "{{ ansible_user_id == 'root' }}"
     cis_is_become_root: "{{ (ansible_become | default(false)) and (ansible_become_user | default('root') == 'root') }}"
     cis_is_become: "{{ ansible_become | default(false) }}"
-    cis_has_privilege: "{{ ansible_user == 'root' or ((ansible_become | default(false)) and (ansible_become_user | default('root') == 'root')) }}"
+    cis_has_privilege: "{{ ansible_user_id == 'root' or ((ansible_become | default(false)) and (ansible_become_user | default('root') == 'root')) }}"
 
 - name: Require root or sudo-become-root for apply mode
   ansible.builtin.fail:
