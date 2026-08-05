@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=59", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,7 +9,7 @@ description = "CIS-hardened golden image builder for Tencent Cloud — config-dr
 license = {text = "MIT"}
 readme = "README.md"
 authors = [{name = "ciscvm contributors"}]
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 keywords = ["cis", "hardening", "tencent-cloud", "packer", "ansible", "golden-image", "devops", "security"]
 classifiers = [
     "Development Status :: 4 - Beta",
