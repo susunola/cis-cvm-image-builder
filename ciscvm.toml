@@ -1,28 +1,26 @@
-# ciscvm.toml — 唯一事实来源，所有构建参数都在这里改
+# ciscvm.toml — single source of truth for all build parameters
 [build]
-profile             = "ubuntu22"          # ubuntu22 | ubuntu24 | rhel8 | rhel9 | centos8 | centos9 | tencentos3 | tencentos4 | windows2019 | windows2022 | windows2025
+profile             = "tencentos3"         # tencentos3 | tencentos4
 region              = "ap-guangzhou"
 zone                = "ap-guangzhou-4"
 instance_type       = "S5.MEDIUM2"
-source_image_id     = "img-xxxxxxxx"       # 替换为官方 Ubuntu 22.04 公共镜像 ID
+source_image_id     = "img-xxxxxxxx"       # replace with real TencentOS public image ID
 vpc_id              = "vpc-xxxxxxxx"
 subnet_id           = "subnet-xxxxxxxx"
 security_group_id   = "sg-xxxxxxxx"
 associate_public_ip = true
 
 [image]
-name_prefix  = "ubuntu-2204-cis"
-copy_regions = ["ap-shanghai"]            # 留空 [] 不跨地域复制
+name_prefix  = "tencentos3-cis"
+copy_regions = ["ap-shanghai"]            # empty [] to skip cross-region copy
 
 [cis]
-level        = 1                          # 1 或 2
-max_failures = 0                          # 审计失败项容忍上限，超过则 build 失败
-audit_dir    = "/opt/ubuntu22_cis"        # 必须与角色审计输出目录一致
+level = 1                                 # 1 or 2
 
 [cloud]
 secret_id_env  = "TENCENTCLOUD_SECRET_ID"
 secret_key_env = "TENCENTCLOUD_SECRET_KEY"
 
 [meta]
-os_tag    = "ubuntu-22.04"                # 镜像 tag 用，一般随 profile 默认即可
-benchmark = "CIS-v2.0.0"
+os_tag    = "tencentos-3"                # image tag, set by profile default
+benchmark = "CIS-v1.0.0"
