@@ -43,11 +43,36 @@ function Write-Result {
     }
 }
 
+
+function Protect-TempFile($Path) {
+    <#
+    Restrict a temporary file to the current user. Secedit exports contain
+    security-policy settings and user-rights memberships; they should not be
+    readable by other users while they exist.
+    #>
+    try {
+        $acl = Get-Acl -Path $Path
+        $acl.SetAccessRuleProtection($true, $false)
+        $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        $administrators = New-Object System.Security.Principal.SecurityIdentifier "S-1-5-32-544"
+        $system = New-Object System.Security.Principal.SecurityIdentifier "S-1-5-18"
+        $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+        foreach ($sid in ($currentSid, $system, $administrators)) {
+            $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                $sid, "FullControl", "Allow"
+            )
+            $acl.AddAccessRule($rule)
+        }
+        Set-Acl -Path $Path -AclObject $acl
+    } catch { Write-Debug "Protect-TempFile failed: $_" }
+}
+
 function Get-SecPol {
     param($Area, $Key)
     $tmp = $null
     try {
         $tmp = "$env:TEMP\secpol_$([Guid]::NewGuid()).inf"
+                Protect-TempFile $tmp
         secedit /export /cfg $tmp /areas $Area 2>$null | Out-Null
         if (Test-Path $tmp) {
             $content = Get-Content $tmp -Raw
@@ -155,6 +180,7 @@ function Invoke-Check {
             $tmp = $null
             try {
                 $tmp = "$env:TEMP\ur_$([Guid]::NewGuid()).inf"
+                Protect-TempFile $tmp
                 secedit /export /cfg $tmp /areas USER_RIGHTS 2>$null | Out-Null
                 if (Test-Path $tmp) {
                     $content = Get-Content $tmp -Raw
@@ -365,6 +391,7 @@ function Invoke-Fix {
             if ($isOk) { return "already" }
             try {
                 $tmpInf = "$env:TEMP\secpol_fix_$([Guid]::NewGuid()).inf"
+                Protect-TempFile $tmpInf
                 secedit /export /cfg $tmpInf /areas SECURITYPOLICY 2>$null | Out-Null
                 $c = Get-Content $tmpInf -Raw
                 if ($c -match "(?m)^(\s*[^\s=]*\s*=\s*).+$") {
@@ -392,6 +419,7 @@ function Invoke-Fix {
             if ($isOk) { return "already" }
             try {
                 $tmpInf = "$env:TEMP\secpol_fix_$([Guid]::NewGuid()).inf"
+                Protect-TempFile $tmpInf
                 secedit /export /cfg $tmpInf /areas SECURITYPOLICY 2>$null | Out-Null
                 $c = Get-Content $tmpInf -Raw
                 if ($c -match "(?m)^(\s*$key\s*=\s*).+$") {
@@ -455,6 +483,7 @@ function Invoke-Fix {
             $tmp = $null
             try {
                 $tmp = "$env:TEMP\ur_$([Guid]::NewGuid()).inf"
+                Protect-TempFile $tmp
                 secedit /export /cfg $tmp /areas USER_RIGHTS 2>$null | Out-Null
                 $members = @()
                 if (Test-Path $tmp) {
@@ -466,6 +495,7 @@ function Invoke-Fix {
                     Remove-Item $tmp -Force -ErrorAction SilentlyContinue
                 }
                 $tmp2 = "$env:TEMP\ur_fix_$([Guid]::NewGuid()).inf"
+                Protect-TempFile $tmp2
                 secedit /export /cfg $tmp2 /areas USER_RIGHTS 2>$null | Out-Null
                 $c = Get-Content $tmp2 -Raw
                 if ($members -notcontains $expectedSid.Trim()) {
@@ -528,6 +558,7 @@ function Invoke-Fix {
                     Start-Service -Name $name -ErrorAction SilentlyContinue
                 } elseif ($expected -eq "Auto") {
                     Set-Service -Name $name -StartupType Automatic
+                    Start-Service -Name $name -ErrorAction SilentlyContinue
                 }
                 return "applied"
             } catch {

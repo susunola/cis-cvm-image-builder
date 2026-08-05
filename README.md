@@ -322,13 +322,11 @@ Point downstream CVM / Auto Scaling / Terraform at the output `image_id`. Pin th
 
 ## Roadmap
 
-- [ ] CI pipeline (GitHub Actions) for automated image builds
+- [x] CI pipeline (GitHub Actions)
+- [ ] PyPI package (`pip install ciscvm`)
 - [ ] `ciscvm list` — enumerate available profiles with metadata
 - [ ] `ciscvm scan` — audit-only mode (no remediation, gate on findings)
-- [ ] Custom rule selection (`rules_include` / `rules_exclude`)
-- [ ] PyPI package (`pip install ciscvm`)
-
----
+- [ ] Custom rule selection (`rules_include` / `rules_exclude` in `ciscvm.toml`)
 
 ## Contributing
 
