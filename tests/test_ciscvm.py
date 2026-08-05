@@ -146,6 +146,10 @@ class TestValidateValuePresent:
     def test_placeholder(self):
         assert _validate_value_present("x", "img-xxxxxxxx") is not None
 
+    def test_real_id_with_x(self):
+        # Real IDs like "img-xxxxxxxx01" should not be flagged
+        assert _validate_value_present("x", "img-xxxxxxxx01") is None
+
     def test_valid(self):
         assert _validate_value_present("x", "img-abc123") is None
 
