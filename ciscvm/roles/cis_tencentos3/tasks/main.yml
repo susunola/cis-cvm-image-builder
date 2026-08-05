@@ -7,11 +7,6 @@
   ansible.builtin.import_tasks: run.yml
   tags: [cis, scan, apply]
 
-- name: Render the compliance report
-  ansible.builtin.include_tasks: report.yml
-  when: cis_report_html or cis_report_json or cis_report_csv
-  tags: [cis, report]
-
 - name: Enforce the compliance gate
   ansible.builtin.import_tasks: gate.yml
   when: cis_fail_on_findings or (cis_min_score | int) > 0
