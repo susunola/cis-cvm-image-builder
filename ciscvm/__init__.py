@@ -103,6 +103,7 @@ def banner(title: str) -> None:
 #   pkg_update    Package index update command
 #   pkg_install   Dependencies install command (must include python3-pip)
 #   ansible_core_spec  pip constraint for ansible-core (default "ansible-core>=2.15")
+#   pip_index_url PyPI mirror URL (empty = default PyPI; use Tencent Cloud internal mirror for VPC instances)
 #   clean_cmd     Post-build package cache cleanup
 #
 # Windows profiles (family: "windows"):
@@ -176,6 +177,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "os_tag": "tencentos-3",
         "benchmark": "CIS-v1.0.0",
         "ansible_core_spec": "ansible-core>=2.11",
+        "pip_index_url": "https://mirrors.cloud.tencent.com/pypi/simple/",
         "pkg_update": "sudo dnf makecache",
         "pkg_install": "sudo dnf install -y python3-pip git",
         "clean_cmd": "sudo dnf clean all",
@@ -186,6 +188,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "ssh_port": 36000,
         "os_tag": "tencentos-4",
         "benchmark": "CIS-v1.0.0",
+        "pip_index_url": "https://mirrors.cloud.tencent.com/pypi/simple/",
         "pkg_update": "sudo dnf makecache",
         "pkg_install": "sudo dnf install -y python3-pip git",
         "clean_cmd": "sudo dnf clean all",
@@ -769,8 +772,8 @@ __PKG_UPDATE__
 __PKG_INSTALL__
 
 # 2. Ansible
-sudo python3 -m pip install --upgrade pip
-sudo python3 -m pip install '__ANSIBLE_CORE_SPEC__' pexpect passlib
+sudo python3 -m pip install --upgrade pip __PIP_INDEX_FLAG__
+sudo python3 -m pip install __PIP_INDEX_FLAG__ '__ANSIBLE_CORE_SPEC__' pexpect passlib
 
 echo "ansible ready (cis-os engine)"
 """
@@ -824,11 +827,14 @@ def render_pkrvars(r: ResolvedConfig) -> str:
 
 def render_install(p: dict[str, Any]) -> str:
     """Generate install-ansible.sh for Linux profiles."""
+    index_url = str(p.get("pip_index_url", ""))
+    index_flag = f"-i {index_url}" if index_url else ""
     return (
         INSTALL_SH_TEMPLATE
         .replace("__PKG_UPDATE__", str(p.get("pkg_update", "")))
         .replace("__PKG_INSTALL__", str(p.get("pkg_install", "")))
         .replace("__ANSIBLE_CORE_SPEC__", str(p.get("ansible_core_spec", "ansible-core>=2.15")))
+        .replace("__PIP_INDEX_FLAG__", index_flag)
     )
 
 
