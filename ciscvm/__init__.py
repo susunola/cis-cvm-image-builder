@@ -323,7 +323,8 @@ def _validate_value_present(label: str, value: Any) -> str | None:
     """Return an error message if *value* looks like a placeholder, else None."""
     if value is None or (isinstance(value, str) and not value):
         return f"{label}: cannot be empty"
-    if isinstance(value, str) and "xxxxxxxx" in value:
+    if (isinstance(value, str)
+            and re.search(r"(?<![0-9a-f])x{8,}(?![0-9a-f])", value, re.IGNORECASE)):
         return f"{label}: still placeholder '{value}'"
     return None
 
@@ -548,7 +549,7 @@ build {
   # 2. CIS apply (ansible-local: gate inside role via cis_fail_on_findings)
   provisioner "ansible-local" {
     playbook_file   = "ansible/site.yml"
-    extra_arguments = ["--tags", var.cis_level]
+    extra_arguments = []
   }
 
   # 3. Cleanup package cache before snapshot
@@ -1153,7 +1154,15 @@ def _clean_is_safe(workdir: Path) -> str | None:
     """Return an error message if *workdir* is unsafe to delete, else None."""
     wd = workdir.resolve()
 
-    # 1. Reject known system / home directories
+    # 1. Require at least one ciscvm marker file (guard against accidental path)
+    markers = [
+        wd / "packer" / "main.pkr.hcl",
+        wd / "ansible" / "site.yml",
+    ]
+    if not any(m.exists() for m in markers):
+        return f"Not a ciscvm working directory (no packer/main.pkr.hcl or ansible/site.yml): {wd}"
+
+    # 2. Reject known system / home root directories
     for forbidden in _FORBIDDEN_CLEAN_PREFIXES:
         try:
             fr = forbidden.resolve()
@@ -1161,14 +1170,6 @@ def _clean_is_safe(workdir: Path) -> str | None:
             continue
         if wd == fr or str(wd).startswith(str(fr) + os.sep):
             return f"Refusing to clean system/home path: {wd}"
-
-    # 2. Require at least one ciscvm marker file (guard against accidental path)
-    markers = [
-        wd / "packer" / "main.pkr.hcl",
-        wd / "ansible" / "site.yml",
-    ]
-    if not any(m.exists() for m in markers):
-        return f"Not a ciscvm working directory (no packer/main.pkr.hcl or ansible/site.yml): {wd}"
 
     return None
 

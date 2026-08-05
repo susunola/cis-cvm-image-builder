@@ -27,6 +27,6 @@ cis_backup_dir: C:\Windows\Temp\cis-backups
 cis_fail_on_findings: false
 cis_min_score: 0
 
-cis_benchmark_name: "CIS Microsoft Windows Server 2022 Benchmark"
+cis_benchmark_name: "CIS Microsoft Windows Server 2019 Benchmark"
 cis_benchmark_version: "v1.0.0"
 cis_org_name: ""
