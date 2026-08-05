@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ciscvm — Packer × 腾讯云 CVM × CIS 镜像构建小工具
+ciscvm — Packer × Tencent Cloud CVM × CIS Image Builder
 
-把「起临时 CVM → ansible-local 跑 CIS 角色 → goss 审计 gate → 打镜像」整条流水线
-收敛成一个配置驱动的单命令工具。HCL / playbook / 脚本全部由 config 渲染生成，
-config（ciscvm.toml）是唯一的「事实来源」，不用再手改 HCL。
+A configuration-driven CLI tool that automates the CIS-hardened golden image pipeline:
+  ephemeral CVM → run CIS hardening (ansible-lockdown / cis_engine) → audit gate → image.
 
-依赖：Python ≥ 3.11（仅标准库），以及构建机上装有 packer。
+All HCL, playbooks, and shell scripts are rendered from ciscvm.toml — the single
+source of truth. No manual Packer template editing required.
 
-用法：
-    python3 ciscvm.py init [--target DIR]      # 生成示例 ciscvm.toml
-    python3 ciscvm.py preflight [--config F]   # 构建前自检（凭据/网络/插件/参数）
-    python3 ciscvm.py validate  [--config F]   # 渲染 + packer init + packer validate
-    python3 ciscvm.py build     [--config F]   # 渲染 + packer build（产出镜像）
-    python3 ciscvm.py clean     [--config F]   # 删除渲染工作目录
+Dependencies: Python ≥ 3.11 (stdlib only), Packer ≥ 1.9 on the build machine.
+
+Usage:
+    python3 ciscvm.py init [--target DIR]      # Generate ciscvm.toml
+    python3 ciscvm.py preflight [--config F]   # Pre-flight check (credentials, network, plugins)
+    python3 ciscvm.py validate  [--config F]   # Render + packer init + packer validate
+    python3 ciscvm.py build     [--config F]   # Render + packer build (produce image)
+    python3 ciscvm.py clean     [--config F]   # Remove rendered working directory
 """
 from __future__ import annotations
 
@@ -1266,7 +1268,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="ciscvm", parents=[common],
-        description="Packer × 腾讯云 CVM × CIS 镜像构建小工具")
+        description="Packer × Tencent Cloud CVM × CIS Image Builder")
     parser.add_argument("--version", action="version",
                         version=f"ciscvm {VERSION}")
     sub = parser.add_subparsers(dest="command", required=True)

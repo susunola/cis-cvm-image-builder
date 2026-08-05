@@ -2,274 +2,317 @@
   <a href="README.md">English</a> | <b>简体中文</b>
 </p>
 
-# ciscvm — Packer × 腾讯云 CVM × CIS 镜像构建工具
+# ciscvm — Packer × 腾讯云 CVM × CIS 镜像构建
 
-用 Packer 起临时 CVM，通过 provisioner 跑
-[ansible-lockdown](https://github.com/ansible-lockdown) 的 CIS 角色做系统加固（remediation），
-最终产出符合 CIS 基准的自定义镜像（golden image）。
+在腾讯云上自动化产出 CIS 加固的黄金镜像。配置驱动的 CLI 工具：起一台临时 CVM →
+应用 CIS 基准加固 → 审计门禁校验 → 捕获为自定义镜像。全部由 `ciscvm.toml` 驱动。
 
-- **Linux**（Ubuntu / RHEL / CentOS）：通过 `ansible-local` provisioner **在实例内**执行加固，
-  goss 审计做 build 期 gate。
-- **TencentOS 3 / 4**：使用**自研 CIS 引擎**（`cis_engine.py` + `rules.json`），角色目录随工具内置——
-  不依赖 ansible-lockdown；合规 gate 由 Ansible 角色内部 `cis_fail_on_findings` 完成，
-  不需要额外的 goss 审计。
-- **Windows Server**（2019 / 2022 / 2025，*preview*）：使用 **WinRM** + 远程 `ansible` provisioner
-  （Ansible 在控制器侧执行，不是在 VM 里）；Windows 没有 goss 审计——见
-  [Windows Server（preview）](#windows-serverpreview)。
+**Linux** 镜像通过 `ansible-local` provisioner 在实例内加固，构建期 goss 审计门禁
+确保不达标不入库。三种后端：
 
-整套流程收敛成一个**配置驱动的单命令工具**：`ciscvm.toml` 是唯一事实来源，
-HCL / playbook / 脚本全部在构建时由配置渲染生成，不用手改 HCL。
+| 后端 | 适用系统 | CIS 引擎 |
+|---|---|---|
+| ansible-lockdown | Ubuntu 22/24、RHEL 8/9、CentOS 8/9 | 社区 Ansible 角色 + goss 审计 |
+| cis-os（捆绑） | TencentOS Server 3/4 | 捆绑 `cis_engine.py` + `rules.json`，角色内门禁 |
+| ansible（远程） | Windows Server 2019/2022/2025 | 远程 Ansible over WinRM，无 build 期审计 |
 
-> **默认目标**：Ubuntu 22.04 + CIS Level 1。换 OS / Level 见下方「换操作系统」
-> （Ubuntu 24 / RHEL 8/9 / CentOS 8/9 / TencentOS 3/4 / Windows Server 2019/2022/2025）。
-
-## 流程概览
-
-![流程图](docs/ciscvm-pipeline.png)
-
-中间那根虚线把**控制器**（本机 / CI runner）和 **CVM**（Packer 临时拉起的机器）分开。
-全流程由 `ciscvm.toml` 一个文件驱动，CLI 只是把 HCL / playbook / 脚本渲染进
-`.ciscvm-build/` 再交给 Packer，最右边的 `hardened image` 就是产物。
-
-Windows 的唯一区别：CVM 走 WinRM，ansible 跑在**控制器**上（不在 VM 里），没有 goss gate
-—— Windows CIS 角色本身就是审计。
+> 默认：Ubuntu 22.04 LTS + CIS Level 1。完整列表见[画像一览](#画像一览)。
 
 ## 项目结构
 
 ```
 cis-cvm-image/
-├── ciscvm.py                    # 工具本体（纯标准库，单文件，python3 直接跑）
-├── README.md                    # 英文版
-├── README.zh-CN.md              # 本文件（中文）
-├── LICENSE                      # MIT
-├── ciscvm.toml                  # init 后生成的配置文件（单事实来源）
-├── roles/
-│   ├── cis_tencentos3/           #   TencentOS 3 内置 CIS 角色（见「换操作系统」）
-│   └── cis_tencentos4/           #   TencentOS 4 内置 CIS 角色
-├── docs/
-│   ├── ciscvm-pipeline.png      #   静态 PNG，已嵌入本 README
-│   └── ciscvm-pipeline.svg      #   上方流程图的可编辑源
-└── .ciscvm-build/               # 渲染出来的 HCL / playbook（gitignored）
+├── ciscvm.py                 # CLI 工具（纯标准库，单文件）
+├── ciscvm.toml               # 构建配置（`init` 生成）
+├── README.md / README.zh-CN.md
+├── LICENSE                   # MIT
+├── roles/                    # 捆绑 Ansible 角色（TencentOS cis-os 引擎）
+│   ├── cis_tencentos3/
+│   └── cis_tencentos4/
+└── .ciscvm-build/            # 渲染产物（git 忽略）
+    ├── packer/
+    │   ├── main.pkr.hcl
+    │   ├── auto.pkrvars.hcl
+    │   └── scripts/
+    │       ├── install-ansible.sh
+    │       └── verify-cis.sh
+    └── ansible/
+        ├── site.yml
+        └── roles/            # 构建时从 ../roles/ 复制（cis-os 画像）
 ```
 
 ## 前置条件
 
-1. Python ≥ 3.11（仅用标准库，`ciscvm.py` 不依赖任何 pip 包）。
-2. 构建机装 [Packer](https://developer.hashicorp.com/packer/install)（≥ 1.9）。
-3. 一个**子账号** AK/SK，最小权限：`cvm:RunInstances`、`cvm:CreateImage`、
-   `cvm:DescribeImages`、`cvm:CopyImage`（若用跨地域复制）、镜像共享权限（若用共享）。
-   **凭据只走环境变量，绝不写进任何文件**：
-   ```bash
-   export TENCENTCLOUD_SECRET_ID=AKIDxxxx
-   export TENCENTCLOUD_SECRET_KEY=xxxx
-   ```
-4. 一个**专用构建 VPC + 子网 + 安全组**（SG 放行 22 入站，来源限定你的构建机出口 IP）。
-5. 你所选 OS 的官方公共镜像 ID（`source_image_id`）。控制台镜像页查看，
-   或 `tccli cvm DescribeImages --Filters '[{"Name":"image-type","Values":["PUBLIC_IMAGE"]}]'`。
+| 条件 | 说明 |
+|---|---|
+| **Python** | ≥ 3.11，仅用标准库，无 pip 依赖 |
+| **Packer** | ≥ 1.9，需 `packer-plugin-tencentcloud` 插件 |
+| **腾讯云** | 子账号，最少权限：`cvm:RunInstances`、`cvm:CreateImage`、`cvm:DescribeImages`、`cvm:CopyImage`* |
+| **网络** | 专用构建 VPC + 子网 + 安全组（放行 22 入站，来源限定构建机出口 IP） |
+| **源镜像** | 目标 OS 的公共镜像 ID |
 
-## 用法
+\* 跨地域复制才需要 `cvm:CopyImage`。
+
+凭据仅通过环境变量传入，不落盘：
 
 ```bash
-# 1. 生成示例配置（写入 ciscvm.toml + .gitignore）
+export TENCENTCLOUD_SECRET_ID=AKIDxxxx
+export TENCENTCLOUD_SECRET_KEY=xxxx
+```
+
+## 快速开始
+
+```bash
+# 1. 生成配置文件
 python3 ciscvm.py init
 
-# 2. 编辑 ciscvm.toml：选 profile、填 VPC / 子网 / SG / 源镜像ID；凭据仍走环境变量
+# 2. 编辑 ciscvm.toml，填入 VPC / 子网 / SG / 源镜像 ID
 
-# 3. 构建前自检（凭据/网络/插件/参数是否就位）
+# 3. 构建前自检
 python3 ciscvm.py preflight
 
-# 4. 只校验（渲染到 .ciscvm-build/ 后跑 packer init + validate）
+# 4. 校验：渲染 + packer validate
 python3 ciscvm.py validate
 
-# 5. 真正构建（产出镜像，自动解析并回显镜像 ID）
+# 5. 构建加固镜像
 python3 ciscvm.py build
 
-# 可选：删除渲染工作目录
+# 可选：清理渲染产物
 python3 ciscvm.py clean
 ```
 
-常用参数：`--config <path>`（默认 `./ciscvm.toml`）、`--workdir <dir>`（默认 `./.ciscvm-build`）、
-`validate/build` 的 `--quiet`（只输出 packer 结果）。
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `--config <path>` | `./ciscvm.toml` | 配置文件路径 |
+| `--workdir <dir>` | `./.ciscvm-build` | 渲染输出目录 |
+| `--quiet` | — | 精简输出（validate / build） |
 
-构建成功后镜像出现在对应 region；若 `image.copy_regions` 非空会自动复制到其它地域。
+构建成功后镜像出现在目标地域；`image.copy_regions` 非空时自动复制到其他地域。
 
-## 关键设计点
+## 配置文件
 
-### 1. CIS 怎么 apply 进去的
-
-Packer 只负责起机器、跑 provisioner、打镜像。真正的加固是 `ansible-local` provisioner
-在临时 CVM 内执行 ansible-lockdown 的 CIS 角色，逐条按 CIS 编号 remediation。
-选 `ansible-local`（而非 `ansible`）是不让 Packer 控制机需要能 SSH 进云内网——
-playbook 和角色都直接在实例里跑。
-
-### 2. 云环境例外（务必保留，否则会把自己锁死）
-
-各 OS 的**变量前缀不同**（如 Ubuntu 22 是 `ubtu22cis_`、RHEL 9 是 `rhel9cis_`——
-注意 Ubuntu 是 `ubtu` 不是 `ubuntu`）。渲染出的 `ansible/site.yml` 已自动处理这些云例外：
-
-- **引导/GRUB 密码显式关闭**（`<role>_set_grub_user_pass: false` / `<role>_set_boot_pass: false`），
-  避免误配把系统锁死。
-- **RHEL / CentOS** 关掉了 `rule_5_2_2`（「禁止 root 登录」那条），让加固后构建期的 shell
-  provisioner 还能用 SSH 连上。
-- **CentOS**（RHEL 派生、非 RHEL 本体）设 `os_check: false`，避免 RHEL 角色在 OS 检测时中止。
-- `cloud-init` / IMDS 相关控制项保持角色默认（不被禁用）。
-
-> SSH **公钥**登录默认保留，因为 CIS 本身要求 `PubkeyAuthentication yes`；工具不需要专门的
-> 「保留 key」开关。
-
-### 3. Build 期 gate（不达标就失败）
-
-`verify-cis.sh` 在加固后跑 goss 审计，解析失败项数；超过 `cis.max_failures`（默认 0）
-就 `exit 1`，让 `packer build` 失败、镜像不入库存。审计目录默认 `/opt/<role>_cis`，
-如与你的角色版本不符，改 `ciscvm.toml` 的 `[cis].audit_dir` 即可。（若目录不存在，gate 会
-带告警软跳过，避免路径猜错把构建卡死；确认路径后它才是硬 gate。）
-
-### 4. 凭据 / 网络 / 治理
-
-- AK/SK 只走环境变量，`sensitive = true`，绝不入库。
-- 专用构建 VPC + SG，临时机器用完自动回收。
-- 镜像名带日期与 Level，`image_tags` 记录 CIS 等级 / OS / benchmark，便于溯源。
-- 跨地域用 `image.copy_regions`、跨账号用 `image_share_accounts`（需手工在控制台或
-  tccli 共享，本工具产出镜像 ID 后接 Terraform / 伸缩组引用）。
-
-## 换操作系统
-
-工具是 **profile 驱动渲染**的：HCL / playbook / 脚本都不用手改，换 OS 只动配置或加一个字典项。
-
-### 内置画像一览
-
-| profile | OS | 角色 | 登录 | 状态 |
-|---|---|---|---|---|---|
-| `ubuntu22` | Ubuntu 22.04 | `ansible-lockdown.ubuntu22_cis` | ubuntu (ssh) | 完整支持（已验证） |
-| `ubuntu24` | Ubuntu 24.04 | `ansible-lockdown.ubuntu24_cis` | ubuntu (ssh) | Preview* |
-| `rhel8` | RHEL 8 | `ansible-lockdown.rhel8_cis` | root (ssh) | Preview* |
-| `rhel9` | RHEL 9 | `ansible-lockdown.rhel9_cis` | root (ssh) | Preview* |
-| `centos8` | CentOS 8（映射 RHEL 8 角色） | `ansible-lockdown.rhel8_cis` | root (ssh) | Preview* |
-| `centos9` | CentOS 9（映射 RHEL 9 角色） | `ansible-lockdown.rhel9_cis` | root (ssh) | Preview* |
-| `windows2019` | Windows Server 2019 | `Windows-2019-CIS` | Administrator (WinRM) | Preview** |
-| `windows2022` | Windows Server 2022 | `Windows-2022-CIS` | Administrator (WinRM) | Preview** |
-| `windows2025` | Windows Server 2025 | `Windows-2025-CIS` | Administrator (WinRM) | Preview** |
-| `tencentos3` | TencentOS Server 3 | **内置** `cis_tencentos3`（cis_engine.py） | root (ssh) | Preview† |
-| `tencentos4` | TencentOS Server 4 | **内置** `cis_tencentos4`（cis_engine.py） | root (ssh) | Preview† |
-
-\* 角色名与变量前缀均已对照 ansible-lockdown 源码核实，但尚未在腾讯云端到端实跑。
-按 preview 对待：核对你角色版本的 `[cis].audit_dir`，验证后把 `role_version` 固定。
-\*\* Windows 在架构上有本质不同（WinRM + 远程 ansible，不在 VM 里跑 ansible、
-无 goss 审计）。WinRM 的 provisioner 接线、成员服务器 L1/L2 变量
-（`win22cis_l1_ms` / `win19cis_l1_ms`）需用真实的 Windows 构建来验证——见下方。
-† TencentOS 使用来自 [susunola/cis-os](https://github.com/susunola/cis-os) 的**自研 CIS 引擎**：
-`cis_tencentos3` / `cis_tencentos4` 角色目录已内置在 `roles/`，不走 ansible-galaxy。合规 gate
-由角色内的 `cis_fail_on_findings` 控制，没有 goss 审计步骤。通过 level 配置切换
-`cis_mode: apply` + `cis_profile: L1` 或 `L2`。
-
-### 情况 A：用内置已支持的
-
-只改 `ciscvm.toml` 一行：
+`ciscvm.toml` 是唯一事实来源：
 
 ```toml
 [build]
-profile         = "rhel9"                      # 换成内置画像名
-source_image_id = "img-真实Rhel9公共镜像ID"     # 必须换成该 OS 的腾讯云公共镜像
+profile             = "ubuntu22"          # 见下方画像一览
+region              = "ap-guangzhou"
+zone                = "ap-guangzhou-4"
+instance_type       = "S5.MEDIUM2"
+source_image_id     = "img-xxxxxxxx"      # 替换为实际公共镜像 ID
+vpc_id              = "vpc-xxxxxxxx"
+subnet_id           = "subnet-xxxxxxxx"
+security_group_id   = "sg-xxxxxxxx"
+associate_public_ip = true
+
+[image]
+name_prefix  = "ubuntu-2204-cis"
+copy_regions = ["ap-shanghai"]            # 留空 [] 不跨地域
+
+[cis]
+level        = 1                          # 1 或 2
+max_failures = 0                          # 审计失败容忍上限（仅 Linux 生效）
+audit_dir    = "/opt/ubuntu22_cis"        # 需与角色审计目录一致
+
+[cloud]
+secret_id_env  = "TENCENTCLOUD_SECRET_ID"
+secret_key_env = "TENCENTCLOUD_SECRET_KEY"
+winrm_password_env = "WINRM_PASSWORD"     # 仅 Windows 需要
+
+[meta]
+os_tag    = "ubuntu-22.04"
+benchmark = "CIS-v2.0.0"
 ```
 
-SSH 用户、CIS 角色名、包管理器、审计目录等 profile 已带，自动渲染，其余命令不变。
+## 画像一览
 
-### 情况 B：全新 OS（内置没有）
+### 内置画像
 
-在 `ciscvm.py` 的 `PROFILES` 字典里加一项，再在 `ciscvm.toml` 用它的 key。模板
-（RHEL 系示例；非 RHEL 去掉 `os_check_var` / `root_login_rule_var`；
-Windows 模板参考 `PROFILES` 已有的 `windows2019` / `windows2022` / `windows2025` 项）：
+| Profile | 操作系统 | 后端 | 登录用户 | 状态 |
+|---|---|---|---|---|
+| `ubuntu22` | Ubuntu 22.04 LTS | ansible-lockdown | ubuntu | 稳定 |
+| `ubuntu24` | Ubuntu 24.04 LTS | ansible-lockdown | ubuntu | 预览 |
+| `rhel8` | RHEL 8 | ansible-lockdown | root | 预览 |
+| `rhel9` | RHEL 9 | ansible-lockdown | root | 预览 |
+| `centos8` | CentOS 8 | ansible-lockdown（套用 RHEL 8 角色）† | root | 预览 |
+| `centos9` | CentOS 9 | ansible-lockdown（套用 RHEL 9 角色）† | root | 预览 |
+| `tencentos3` | TencentOS Server 3 | cis-os（捆绑角色） | root | 稳定 |
+| `tencentos4` | TencentOS Server 4 | cis-os（捆绑角色） | root | 稳定 |
+| `windows2019` | Windows Server 2019 | ansible（远程） | Administrator | 预览 |
+| `windows2022` | Windows Server 2022 | ansible（远程） | Administrator | 预览 |
+| `windows2025` | Windows Server 2025 | ansible（远程） | Administrator | 预览 |
+
+† CentOS 套用对应 RHEL 角色，并关闭 `os_check`。
+
+**稳定** — 已在腾讯云端到端验证。
+**预览** — 角色名与变量前缀已对照上游源码核实，尚未在腾讯云端到端跑过。
+验证后建议固定 `role_version`。
+
+### 切换画像
+
+仅改 `ciscvm.toml` 一行：
+
+```toml
+[build]
+profile         = "rhel9"
+source_image_id = "img-实际RHEL9镜像ID"
+```
+
+SSH 用户、后端、包管理器、审计目录等随画像自动确定，其余步骤不变。
+
+### 新增自定义画像
+
+在 `ciscvm.py` 的 `PROFILES` 字典中添加一项，在 `ciscvm.toml` 引用其 key。
+以 RHEL 系为例：
 
 ```python
 "almalinux9": {
     "ssh_username": "root",
-    "role": "ansible-lockdown.rhel9_cis",        # Galaxy 上的确切角色名
-    "role_version": "",                          # "" = 最新；固定版本以可复现
-    "audit_dir": "/opt/rhel9_cis",               # 与角色审计输出目录一致
+    "role": "ansible-lockdown.rhel9_cis",
+    "role_version": "",
+    "audit_dir": "/opt/rhel9_cis",
     "os_tag": "almalinux-9",
     "benchmark": "CIS-v2.0.0",
     "pkg_update": "sudo dnf makecache",
     "pkg_install": "sudo dnf install -y python3-pip git",
     "clean_cmd": "sudo dnf clean all",
-    "level1_var": "rhel9cis_level_1",            # 等级变量前缀随角色而变
+    "level1_var": "rhel9cis_level_1",
     "level2_var": "rhel9cis_level_2",
-    "boot_pass_var": "rhel9cis_set_boot_pass",   # 显式关闭引导/GRUB 密码
-    "os_check_var": None,                         # None=不设（仅 RHEL 派生系需要）
-    "root_login_rule_var": "rhel9cis_rule_5_2_2",# 保留 root SSH 以便构建期连上
-    "preview": True,                             # 未逐一验证就标 True，preflight 会提醒
+    "boot_pass_var": "rhel9cis_set_boot_pass",
+    "os_check_var": None,
+    "root_login_rule_var": "rhel9cis_rule_5_2_2",
+    "preview": True,
 },
 ```
 
-然后 `ciscvm.toml` 里 `profile = "almalinux9"`。
+三个必须与真实角色对齐的字段（否则加固 / 审计静默失效）：
 
-### 三个必须和真实角色对齐的点（否则加固/审计会静默失效）
+1. **角色名** — `ansible-galaxy` 上的确切名称。不存在时改用
+   `git+https://github.com/ansible-lockdown/<REPO>.git`。
+2. **等级变量前缀** — `ubtu22cis_`（注意是 `ubtu` 不是 `ubuntu`），
+   以角色 `defaults/main.yml` 为准。
+3. **审计输出目录** — 需与角色写入 goss 结果的路径一致。
 
-1. **角色名 + 版本**（`ansible-galaxy` 上的确切写法；版本不存在时可改
-   `git+https://github.com/ansible-lockdown/<REPO>.git` 兜底）。
-2. **等级变量前缀**（`ubtu22cis_` / `rhel9cis_` 等——**Ubuntu 是 `ubtu` 不是 `ubuntu`**；
-   看角色 `defaults/main.yml`）。
-3. **审计输出目录**（`audit_dir`，即 `ciscvm.toml` 的 `[cis].audit_dir`）。
+### 切换 CIS Level
 
-### 换 CIS Level
+`ciscvm.toml` 设 `[cis].level = 2`。Level 2 要求额外分区
+（`/var`、`/var/tmp`、`/var/log`、`/var/log/audit`、`/home` 均需 `nodev`、`nosuid`、
+`noexec`），需在源镜像或 `user_data` 中配置好分区再构建。
 
-`[cis].level = 2`。注意 **Level 2 要求额外分区**
-`/var /var/tmp /var/log /var/log/audit /home`（带 `nodev/nosuid/noexec`），
-公共镜像默认不满足，需先在源镜像或 user_data 里分好区再 build。
+## 架构
 
-之后照旧：`preflight` → `validate` → `build`。
+### 构建流水线
 
-## Windows Server（preview）
+```
+构建机                                     腾讯云
+┌─────────────┐                           ┌──────────────────┐
+│ ciscvm.py   │── packer build ──────────▶│ 临时 CVM          │
+│             │                           │                  │
+│ ciscvm.toml │                           │ 1. 安装 ansible   │
+│             │                           │ 2. CIS 角色（加固）│
+│             │                           │ 3. 审计门禁       │
+│             │                           │                  │
+│             │◀── image-id ──────────────│ 4. CreateImage    │
+└─────────────┘                           └──────────────────┘
+```
 
-Windows 镜像不能用 `ansible-local` / SSH，也没有 goss 审计。因此工具对 `windows2019` / `windows2022` / `windows2025`
-渲染的是**不同的流水线**：
+Packer 在临时 CVM 上执行三个阶段：
+
+1. **安装** — 在实例内安装 ansible-core 和 CIS 角色。
+2. **加固** — `ansible-local` 执行 CIS 角色 remediation。云环境例外项
+   （引导密码、RHEL/CentOS 的 root SSH、派生系统 OS 校验）已写入渲染后的 `site.yml`。
+3. **校验** — 运行审计。失败项超过 `cis.max_failures` 则 Packer 退出 1，镜像不入库。
+
+### 设计要点
+
+**选择 `ansible-local` 而非 `ansible`。**
+Packer 控制器不需要能 SSH 进云内网，playbook 和角色全部在实例内执行。
+
+**云环境例外。**
+引导 / GRUB 密码显式关闭防锁死。RHEL / CentOS 保留 root SSH 登录。CentOS
+关闭 `os_check` 防止 RHEL 角色中止。SSH 公钥登录由 CIS 默认保留。
+
+**构建期合规门禁。**
+加固后运行 goss 审计。审计目录不存在 → 告警软跳过；路径确认后即为硬门禁，
+失败项超限阻止镜像入库。
+
+**凭据与治理。**
+AK/SK 仅通过环境变量传入（HCL `sensitive = true`）。临时实例打标并自动回收。
+镜像标签记录 CIS 等级、OS 和 benchmark。
+
+## TencentOS Server（cis-os 后端）
+
+TencentOS 3/4 使用自定义 CIS 引擎（`cis_engine.py` + `rules.json`）替代
+ansible-lockdown。角色**本地捆绑**在 `roles/cis_tencentos3/` 和
+`roles/cis_tencentos4/`，无需 Ansible Galaxy 安装。构建时工具将角色目录
+复制到渲染工作区。
+
+与 ansible-lockdown 后端的主要区别：
+
+| | ansible-lockdown | cis-os（TencentOS） |
+|---|---|---|
+| 角色来源 | Ansible Galaxy | 本地 `roles/` 捆绑 |
+| CIS 引擎 | 社区 Ansible 角色 | `cis_engine.py` + `rules.json` |
+| 审计门禁 | goss（`verify-cis.sh`） | 角色内（`cis_fail_on_findings`） |
+| 角色安装 | `ansible-galaxy install` | 复制到工作目录 |
+| 变量 | `<role>_level_1/2` | `cis_mode: apply`、`cis_profile: L1/L2` |
+
+门禁机制：角色设 `cis_fail_on_findings: true` 和 `cis_min_score: 0`，加固后
+仍有残留发现项则 `ansible-playbook` 非零退出，Packer 构建失败。无需独立
+verify 脚本。
+
+## Windows Server（预览）
+
+Windows 镜像无法使用 `ansible-local` / SSH，也没有 goss。对
+`windows2019` / `windows2022` / `windows2025` 渲染不同流水线：
 
 | | Linux | Windows |
 |---|---|---|
-| 通信方式 | SSH | **WinRM**（`communicator = "winrm"`） |
-| Provisioner | `ansible-local`（VM 内执行） | `ansible`（远程，控制器 → 客户机走 WinRM） |
-| 角色安装 | 临时 CVM 内（`install-ansible.sh`） | **控制器侧**，`packer build` 前自动 `ansible-galaxy role install git+…` |
-| Build 期 gate | goss 审计（`verify-cis.sh`） | **无**（验证方式见下方） |
-| 等级选择 | `<role>_level_1/2` + `--tags` | 成员服务器变量 `win22cis_l1_ms` / `win19cis_l1_ms` |
+| 通信 | SSH | WinRM |
+| Provisioner | `ansible-local`（VM 内） | `ansible`（控制器 → 客户机） |
+| 角色安装 | CVM 内部 | 控制器侧（`packer build` 前） |
+| 审计门禁 | goss | 无（构建后验证） |
+| 等级选择 | `<role>_level_1/2` + `--tags` | `win22cis_l1_ms` / `l2_ms` |
 
-### 构建 Windows CIS 镜像
+### 构建 Windows 镜像
 
 ```toml
 [build]
 profile         = "windows2022"
-source_image_id = "img-真实Windows2022公共镜像ID"
+source_image_id = "img-实际Windows2022镜像ID"
 
 [cloud]
-winrm_password_env = "WINRM_PASSWORD"   # Windows 管理员密码（环境变量名）
+winrm_password_env = "WINRM_PASSWORD"
 ```
 
 ```bash
 export TENCENTCLOUD_SECRET_ID=AKIDxxxx
 export TENCENTCLOUD_SECRET_KEY=xxxx
-export WINRM_PASSWORD='<符合复杂度要求的 Windows Administrator 密码>'
-# 控制器需要有 ansible + pywinrm：
-pip install 'ansible' pywinrm
+export WINRM_PASSWORD='<符合 Windows 复杂度要求的密码>'
+pip install ansible pywinrm
 python3 ciscvm.py preflight && python3 ciscvm.py build
 ```
 
-渲染出的 `ansible/site.yml` 会设 `win22cis_ansible_remediation: true` /
-`win22cis_create_gpos: false`（GPO / 域相关变量保持关闭，适配独立 golden image）以及
-成员服务器 Level（`win22cis_l1_ms: true`，Level 2 则是 `l2_ms`）。WinRM **不会被**加固关掉——
-关掉会导致 provisioner 连不上。
+渲染的 playbook 设置 `win22cis_ansible_remediation: true`、
+`win22cis_create_gpos: false` 及成员服务器等级变量。GPO 和域变量默认关闭。
+WinRM 不会被加固禁用。
 
-### 验证（Windows 没有 goss）
+### 构建后验证
 
-因为 goss 不支持 Windows，build 期 gate **对 Windows 不生效**。在镜像产出**之后**做合规验证：
+Windows 无 build 期审计门禁，在镜像产出后验证：
 
-- 用 **Microsoft Policy Analyzer** 或 **CIS-CAT Pro** 扫描产出的镜像，或
-- 用角色自带的上报（按你的角色版本设置 `win22cis_run_audit` / section 级别检查）。
+- 用 **Microsoft Policy Analyzer** 或 **CIS-CAT Pro** 扫描产出的镜像。
+- 使用角色自带的上报功能（`win22cis_run_audit` / section 级别检查）。
 
-在真实的 Windows 构建验证 WinRM 接线和 L1/L2 成员服务器变量之前，`windows2019` / `windows2022` / `windows2025`
-均按 **preview** 对待，跑前请以角色 `defaults/main.yml` 为准。
+## 对接 CI
 
-## 接 CI
+```bash
+export TENCENTCLOUD_SECRET_ID=xxx
+export TENCENTCLOUD_SECRET_KEY=xxx
+python3 ciscvm.py build
+```
 
-在 CNB / 工蜂流水线里：`export` 凭据 → `python3 ciscvm.py build`，下游 CVM / 伸缩组 /
-Terraform 用产出的 `image_id` 引用。建议构建机固定专用 VPC + SG。
+下游 CVM / 伸缩组 / Terraform 引用产出的 `image_id`。建议构建机固定专用 VPC + SG。
 
 ## 许可证
 
