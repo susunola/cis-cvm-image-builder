@@ -43,7 +43,7 @@
 | 条件 | 说明 |
 |---|---|
 | **Python** | >= 3.11，仅用标准库，零 pip 依赖 |
-| **Packer** | >= 1.9，需 `packer-plugin-tencentcloud` 插件 |
+| **Packer** | >= 1.12 |
 | **ansible-core** | >= 2.15（Windows 构建需在控制器本地安装） |
 | **腾讯云** | 子账号，最少权限：`cvm:RunInstances`、`cvm:CreateImage`、`cvm:DescribeImages`、`cvm:CopyImage`* |
 | **网络** | 专用构建 VPC + 子网 + 安全组（Linux: SSH/22，Windows: WinRM/5986），来源限定构建机出口 IP |
@@ -101,7 +101,7 @@ ciscvm clean
 
 ```
 ════════════════════════════════════════════════════════
-  ciscvm 0.4.0 — tencentos3 (L1) → ap-guangzhou-4
+  ciscvm 0.5.0 — tencentos3 (L1) → ap-guangzhou-4
 ════════════════════════════════════════════════════════
 [packer]  tencentcloud-cvm: output will be in this color
 [packer]  ==> tencentcloud-cvm: Creating temporary keypair...
@@ -312,7 +312,7 @@ ciscvm build
 | 症状 | 可能原因 | 解决 |
 |---|---|---|
 | `preflight` 报凭据错误 | 未 export `TENCENTCLOUD_SECRET_ID` / `_KEY` | 在 shell 中 `export TENCENTCLOUD_SECRET_ID=...` |
-| `validate` 报 "plugin not found" | 缺少 `packer-plugin-tencentcloud` | `packer plugins install github.com/tencentcloud/tencentcloud` |
+| `validate` 报插件下载错误 | `packer init` 失败（如构建机无网络） | 联网重新执行 `ciscvm validate`，Packer 首次下载后会缓存插件 |
 | Packer 等待 SSH 超时 | 安全组未对构建机放行 22 端口 | 添加入站规则：TCP/22，来源为构建机出口 IP |
 | `ansible-playbook` 报 "python3 not found" | 构建实例 OS 未预装 Python | 确保源镜像包含 Python >= 3.6 |
 | Windows 构建 WinRM 连接失败 | 未设 `WINRM_PASSWORD` 或网络不通 | export 密码 + 确保 TCP/5986 对构建 IP 放行 |
