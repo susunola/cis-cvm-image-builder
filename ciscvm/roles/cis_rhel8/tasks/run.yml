@@ -33,23 +33,25 @@
 
 - name: Assemble engine command
   ansible.builtin.set_fact:
-    _cmd: >-
-      {{ cis_python_real }} {{ _cis_tmp.path }}/{{ cis_engine_file }}
-      --catalog {{ _cis_tmp.path }}/{{ cis_rules_file }}
-      --mode {{ cis_mode_effective }}
-      --profile {{ cis_profile }}
-      --platform {{ cis_platform }}
-      {% if cis_include | length > 0 %}--include {{ cis_include | join(',') }}{% endif %}
-      {% if cis_exclude | length > 0 %}--exclude {{ cis_exclude | join(',') }}{% endif %}
-      {% if cis_sections | length > 0 %}--sections {{ cis_sections | join(',') }}{% endif %}
-      {% if cis_families | length > 0 %}--families {{ cis_families | join(',') }}{% endif %}
-      {% if cis_mode == 'apply' %}--backup-dir {{ cis_backup_dir }}{% endif %}
-      {% if cis_allow_disruptive %}--allow-disruptive{% endif %}
-      --benchmark "{{ cis_benchmark_name }} {{ cis_benchmark_version }}"
-      --out {{ _cis_tmp.path }}/result.json
+    cis_engine_argv: >-
+      {{ [cis_python_real,
+          _cis_tmp.path ~ '/' ~ cis_engine_file,
+          '--catalog', _cis_tmp.path ~ '/' ~ cis_rules_file,
+          '--mode', cis_mode_effective,
+          '--profile', cis_profile,
+          '--platform', cis_platform]
+         + (['--include', cis_include | join(',')] if cis_include | length > 0 else [])
+         + (['--exclude', cis_exclude | join(',')] if cis_exclude | length > 0 else [])
+         + (['--sections', cis_sections | join(',')] if cis_sections | length > 0 else [])
+         + (['--families', cis_families | join(',')] if cis_families | length > 0 else [])
+         + (['--backup-dir', cis_backup_dir] if cis_mode == 'apply' else [])
+         + (['--allow-disruptive'] if cis_allow_disruptive else [])
+         + ['--benchmark', cis_benchmark_name ~ ' ' ~ cis_benchmark_version,
+            '--out', _cis_tmp.path ~ '/result.json'] }}
 
 - name: Run benchmark
-  ansible.builtin.command: "{{ _cmd }}"
+  ansible.builtin.command:
+    argv: "{{ cis_engine_argv }}"
   register: _cis_run
   changed_when: cis_mode == 'apply'
   timeout: "{{ cis_engine_timeout }}"
