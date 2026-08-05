@@ -53,6 +53,14 @@
   ansible.builtin.set_fact:
     cis_result: "{{ cis_result_raw.content | b64decode | from_json }}"
 
+- name: Fetch result JSON from target
+  ansible.builtin.fetch:
+    src: "{{ cis_remote_tmp }}\cis-run\result.json"
+    dest: "{{ cis_report_dir }}/{{ inventory_hostname }}/raw/"
+    flat: true
+    fail_on_missing: false
+  when: cis_report_json | bool
+
 - name: Remove the working directory
   ansible.windows.win_file:
     path: "{{ cis_remote_tmp }}\\cis-run"
@@ -64,7 +72,7 @@
 - name: Record assessment summary
   ansible.builtin.debug:
     msg: >-
-      {{ inventory_hostname }}: score={{ cis_result.score }}%,
+      {{ inventory_hostname }}: score={{ cis_result.summary.all.score }}%,
       {{ cis_result.summary.all.pass }} pass, {{ cis_result.summary.all.fail }} fail,
       {{ cis_result.summary.all.manual }} manual, {{ cis_result.summary.all.error }} error
   changed_when: false

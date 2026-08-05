@@ -1,75 +1,83 @@
 ---
 - name: Validate cis_mode
-  ansible.builtin.assert:
-    that: cis_mode in ['scan', 'apply']
-    fail_msg: >-
-      cis_mode must be 'scan' or 'apply' (got '{{ cis_mode }}').
-      Example: ansible-playbook site.yml -e cis_mode=apply
-    quiet: true
+  ansible.builtin.fail:
+    msg: "cis_mode must be 'scan' or 'apply', got: {{ cis_mode }}"
+  when: cis_mode not in ['scan', 'apply']
 
 - name: Validate cis_profile
-  ansible.builtin.assert:
-    that: cis_profile in ['L1', 'L2']
-    fail_msg: >-
-      cis_profile must be 'L1' or 'L2' (got '{{ cis_profile }}').
-      L2 is a superset of L1.
-    quiet: true
+  ansible.builtin.fail:
+    msg: "cis_profile must be 'L1' or 'L2', got: {{ cis_profile }}"
+  when: cis_profile not in ['L1', 'L2']
 
 - name: Validate cis_platform
-  ansible.builtin.assert:
-    that: cis_platform in ['server', 'workstation', 'all']
-    fail_msg: "cis_platform must be server, workstation or all (got '{{ cis_platform }}')"
-    quiet: true
+  ansible.builtin.fail:
+    msg: "cis_platform must be 'server', 'workstation', or 'all', got: {{ cis_platform }}"
+  when: cis_platform not in ['server', 'workstation', 'all']
 
-- name: Warn when the target does not look like TencentOS Linux 4
-  ansible.builtin.debug:
-    msg: >-
-      WARNING: {{ inventory_hostname }} reports
-      '{{ ansible_facts.distribution | default("unknown") }}
-      {{ ansible_facts.distribution_major_version | default("?") }}'.
-      This role targets TencentOS Linux 4 (EL8 lineage); checks may misreport.
-  when:
-    - ansible_facts.distribution_major_version is defined
-    - ansible_facts.distribution_major_version != '8'
-  changed_when: false
-
-- name: Locate a usable Python 3 interpreter on the target
-  ansible.builtin.raw: >-
-    for p in {{ cis_python }} /usr/bin/python3 /usr/libexec/platform-python
-    /usr/local/bin/python3 python3; do
-    command -v "$p" >/dev/null 2>&1 && "$p" -c 'import sys;exit(0 if sys.version_info>=(3,6) else 1)'
-    >/dev/null 2>&1 && { command -v "$p"; break; }; done
-  register: cis_python_probe
+- name: Locate Python 3 interpreter
+  ansible.builtin.shell: |
+    for py in /usr/bin/python3 /usr/libexec/platform-python /usr/bin/python3.6 /usr/bin/python3.8 /usr/bin/python3.9 /usr/bin/python3.10 /usr/bin/python3.11 /usr/bin/python3.12 /usr/bin/python3.13 /usr/bin/python3.14; do
+      if [ -x "$py" ]; then echo "$py"; exit 0; fi
+    done
+    echo "NOT_FOUND"; exit 1
+  register: _py_probe
   changed_when: false
   failed_when: false
-  check_mode: false
 
-- name: Select the interpreter used by the engine
+- name: Verify Python 3 found
+  ansible.builtin.fail:
+    msg: "Python 3.6+ not found on target"
+  when: "_py_probe.stdout == 'NOT_FOUND' or _py_probe.rc != 0"
+
+- name: Set Python path
   ansible.builtin.set_fact:
-    cis_python_real: >-
-      {{ ((cis_python_probe.stdout_lines | default([]) | map('trim')
-           | select('search', 'python') | list) + [cis_python]) | first }}
+    cis_python_real: "{{ _py_probe.stdout.strip() }}"
 
-- name: Require Python 3.6 or newer on the target
-  ansible.builtin.assert:
-    that: cis_python_real | length > 0
-    fail_msg: >-
-      No Python 3.6+ interpreter found on {{ inventory_hostname }}.
-      Install python3 (dnf install -y python3) or point cis_python at one.
-    quiet: true
+- name: Determine effective privilege level
+  ansible.builtin.set_fact:
+    cis_is_root: "{{ ansible_user == 'root' }}"
+    cis_is_become_root: "{{ (ansible_become | default(false)) and (ansible_become_user | default('root') == 'root') }}"
+    cis_is_become: "{{ ansible_become | default(false) }}"
+    cis_has_privilege: "{{ ansible_user == 'root' or ((ansible_become | default(false)) and (ansible_become_user | default('root') == 'root')) }}"
 
-- name: Confirm privilege escalation is available for apply mode
-  ansible.builtin.assert:
-    that: ansible_facts.effective_user_id | default(0) | int == 0
-    fail_msg: >-
-      cis_mode=apply must run as root. Add 'become: true' to the play or
-      run with --become.
-    quiet: true
-  when: cis_mode == 'apply'
+- name: Require root or sudo-become-root for apply mode
+  ansible.builtin.fail:
+    msg: >
+      Apply mode requires root privileges.
+      Options:
+        A. Run as root directly (ansible_user=root)
+        B. Use --become with sudo to root (ansible-playbook apply.yml --become)
+        C. Set ansible_become=true and ansible_become_user=root in inventory
+  when:
+    - cis_mode == 'apply'
+    - not cis_has_privilege
 
-- name: Announce the run
+- name: Warn about become-as-role-user for apply mode
   ansible.builtin.debug:
-    msg: >-
-      {{ cis_benchmark_name }} {{ cis_benchmark_version }} |
-      mode={{ cis_mode }} profile={{ cis_profile }} platform={{ cis_platform }}
-      disruptive={{ cis_allow_disruptive }} python={{ cis_python_real }}
+    msg: >
+      Running apply mode with become as '{{ ansible_become_user }}' (not root).
+      Some system-level changes may fail. Consider using --become to root if available.
+  when:
+    - cis_mode == 'apply'
+    - cis_is_become | bool
+    - not cis_is_become_root
+
+- name: Warn about non-root scan limitations
+  ansible.builtin.debug:
+    msg: >
+      Running scan without root. File permission checks, kernel parameter reads,
+      and some package queries may be skipped or incomplete.
+      For full scan coverage, re-run with --become (Option B above).
+  when:
+    - cis_mode == 'scan'
+    - not cis_has_privilege
+
+- name: Announce benchmark run
+  ansible.builtin.debug:
+    msg:
+      - "======================================================"
+      - "  CIS Benchmark: CIS TencentOS Linux 4 Benchmark v1.0.0"
+      - "  Mode: {{ cis_mode }}  Profile: {{ cis_profile }}  Platform: {{ cis_platform }}"
+      - "  Allow disruptive: {{ cis_allow_disruptive }}"
+      - "  Target: {{ inventory_hostname }}"
+      - "======================================================"
