@@ -148,7 +148,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "benchmark": "CIS-v1.0.0",
         "ansible_core_spec": "ansible-core>=2.11",
         "pkg_update": "sudo dnf makecache",
-        "pkg_install": "sudo dnf install -y python3-pip python3-venv git",
+        "pkg_install": "sudo dnf install -y python3-pip git",
         "clean_cmd": "sudo dnf clean all",
     },
     "rhel9": {
@@ -157,7 +157,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "os_tag": "rhel-9",
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo dnf makecache",
-        "pkg_install": "sudo dnf install -y python3-pip python3-venv git",
+        "pkg_install": "sudo dnf install -y python3-pip git",
         "clean_cmd": "sudo dnf clean all",
     },
     "rhel10": {
@@ -166,7 +166,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "os_tag": "rhel-10",
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo dnf makecache",
-        "pkg_install": "sudo dnf install -y python3-pip python3-venv git",
+        "pkg_install": "sudo dnf install -y python3-pip git",
         "clean_cmd": "sudo dnf clean all",
     },
     # ── TencentOS Server ──
@@ -179,7 +179,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "ansible_core_spec": "ansible-core>=2.11",
         "pip_index_url": "https://mirrors.cloud.tencent.com/pypi/simple/",
         "pkg_update": "sudo dnf makecache",
-        "pkg_install": "sudo dnf install -y python3-pip python3-venv git",
+        "pkg_install": "sudo dnf install -y python3-pip git",
         "clean_cmd": "sudo dnf clean all",
     },
     "tencentos4": {
@@ -190,7 +190,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "benchmark": "CIS-v1.0.0",
         "pip_index_url": "https://mirrors.cloud.tencent.com/pypi/simple/",
         "pkg_update": "sudo dnf makecache",
-        "pkg_install": "sudo dnf install -y python3-pip python3-venv git",
+        "pkg_install": "sudo dnf install -y python3-pip git",
         "clean_cmd": "sudo dnf clean all",
     },
     # ── SLES ──
