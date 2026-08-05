@@ -1,6 +1,6 @@
 # ciscvm.toml — 唯一事实来源，所有构建参数都在这里改
 [build]
-profile             = "ubuntu22"          # ubuntu22 | ubuntu24 | rhel8 | rhel9 | centos8 | centos9 | windows2019 | windows2022 | windows2025
+profile             = "ubuntu22"          # ubuntu22 | ubuntu24 | rhel8 | rhel9 | centos8 | centos9 | tencentos3 | tencentos4 | windows2019 | windows2022 | windows2025
 region              = "ap-guangzhou"
 zone                = "ap-guangzhou-4"
 instance_type       = "S5.MEDIUM2"
