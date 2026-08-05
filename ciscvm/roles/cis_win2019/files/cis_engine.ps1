@@ -62,12 +62,19 @@ function Get-SecPol {
     return $null
 }
 
+$AuditPolicyRegMap = @{
+    "1" = @{ Path = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"; Name = "SCENoApplyLegacyAuditPolicy"; Value = 1; Summary = "Force audit policy subcategory settings" }
+    "2" = @{ Path = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"; Name = "CrashOnAuditFail"; Value = 0; Summary = "Shut down system if unable to log security audits" }
+}
+
 # ── Checks ─────────────────────────────────────────────────
 function Invoke-Check {
     param($Rule, $Ctx)
 
     $id = $Rule.id
     $family = $Rule.family
+    if ($family -eq "adv-audit") { $family = "audit-policy" }
+    if ($family -eq "firewall") { $family = "firewall-profile" }
     $params = $Rule.params
 
     switch ($family) {
@@ -113,12 +120,20 @@ function Invoke-Check {
 
         # ── 3. Audit Policy ──
         "audit-policy" {
+            if ($params.policy) {
+                $m = $AuditPolicyRegMap[$params.policy]
+                try {
+                    $val = Get-ItemProperty -Path $m.Path -Name $m.Name -ErrorAction Stop | Select-Object -ExpandProperty $m.Name
+                    $ok = ($val -eq $m.Value)
+                    return @{status=if($ok){"pass"}else{"fail"}; detail="$($m.Summary): $($m.Name)=$val (expected $($m.Value))"}
+                } catch { return @{status="error"; detail="Registry key not found: $($m.Path)\$($m.Name)"} }
+            }
             $subcategory = $params.subcategory
-            $expected = $params.expected
+            $expected = if ($params.expected) { $params.expected } else { "Success and Failure" }
             try {
                 $out = auditpol /get /subcategory:"$subcategory" 2>&1 | Out-String
-                if ($out -match "$subcategory\s+(.+)$") {
-                    $actual = $Matches[1].Trim()
+                if ($out -match "$([regex]::Escape($subcategory))\s+(.+)$") {
+                    $actual = $Matches[2].Trim()
                     $ok = ($actual -eq $expected)
                     return @{status=if($ok){"pass"}else{"fail"}; detail="$subcategory = $actual (expected $expected)"}
                 }
@@ -130,15 +145,16 @@ function Invoke-Check {
         "user-right" {
             $privilege = $params.privilege
             $expectedSid = $params.expected_sid
+            if (-not $expectedSid) { return @{status="error"; detail="No expected SID for $privilege"} }
             $tmp = $null
             try {
                 $tmp = "$env:TEMP\ur_$([Guid]::NewGuid()).inf"
                 secedit /export /cfg $tmp /areas USER_RIGHTS 2>$null | Out-Null
                 if (Test-Path $tmp) {
                     $content = Get-Content $tmp -Raw
-                    if ($content -match "(?m)^\s*$privilege\s*=\s*(.+)$") {
-                        $sids = $Matches[1].Trim() -split ','
-                        $ok = ($sids | Where-Object { $_.Trim() -eq $expectedSid })
+                    if ($content -match "(?m)^\s*$([regex]::Escape($privilege))\s*=\s*(.+)$") {
+                        $sids = $Matches[1].Trim() -split ',' | ForEach-Object { $_.Trim() }
+                        $ok = ($sids -contains $expectedSid.Trim())
                         return @{status=if($ok){"pass"}else{"fail"}; detail="$privilege members: $($Matches[1].Trim())"}
                     }
                 }
@@ -179,19 +195,19 @@ function Invoke-Check {
 
         # ── 6. Windows Firewall ──
         "firewall-profile" {
-            $profile = $params.profile
+            $fwProfile = $params.profile
+            $direction = if ($params.PSObject.Properties.Name -contains 'direction') { $params.direction } else { "Inbound" }
+            $expectedOut = if ($params.PSObject.Properties.Name -contains 'outbound') { $params.outbound } elseif ($direction -eq "Inbound") { "Allow" } else { "Block" }
             try {
-                $fw = Get-NetFirewallProfile -Name $profile -ErrorAction Stop
-                $enabled = $fw.Enabled
-                $defaultIn = $fw.DefaultInboundAction
-                $defaultOut = $fw.DefaultOutboundAction
-                $ok = ($enabled -eq "True" -and $defaultIn -eq "Block" -and $defaultOut -eq "Allow")
+                $fw = Get-NetFirewallProfile -Name $fwProfile -ErrorAction Stop
+                $ok = ($fw.Enabled -eq $true -and $fw.DefaultInboundAction -eq "Block")
+                if ($direction -eq "Outbound") { $ok = $ok -and ($fw.DefaultOutboundAction -eq $expectedOut) }
                 return @{
                     status = if($ok){"pass"}else{"fail"}
-                    detail = "${profile}: enabled=$enabled inbound=$defaultIn outbound=$defaultOut"
+                    detail = "${fwProfile}: enabled=$($fw.Enabled) inbound=$($fw.DefaultInboundAction) outbound=$($fw.DefaultOutboundAction) (expected out=$expectedOut)"
                 }
             } catch {
-                return @{status="error"; detail="Failed to query firewall profile $profile"}
+                return @{status="error"; detail="Failed to query firewall profile $fwProfile"}
             }
         }
 
@@ -201,7 +217,15 @@ function Invoke-Check {
             $expected = $params.state
             try {
                 $svc = Get-Service -Name $name -ErrorAction Stop
-                $ok = ($svc.Status -eq $expected -or $svc.StartType -eq $expected)
+                $startTypes = @("Automatic", "Manual", "Disabled", "Auto", "AutomaticDelayedStart")
+                $runStates  = @("Running", "Stopped", "Paused")
+                if ($startTypes -contains $expected) {
+                    $ok = ("$($svc.StartType)" -eq "$expected" -or ("$expected" -eq "Auto" -and "$($svc.StartType)" -eq "Automatic"))
+                } elseif ($runStates -contains $expected) {
+                    $ok = ("$($svc.Status)" -eq "$expected")
+                } else {
+                    $ok = ("$($svc.Status)" -eq "$expected" -or "$($svc.StartType)" -eq "$expected")
+                }
                 return @{
                     status = if($ok){"pass"}else{"fail"}
                     detail = "${name}: status=$($svc.Status) startType=$($svc.StartType) (expected $expected)"
@@ -319,6 +343,8 @@ function Invoke-Fix {
     param($Rule)
 
     $family = $Rule.family
+    if ($family -eq "adv-audit") { $family = "audit-policy" }
+    if ($family -eq "firewall") { $family = "firewall-profile" }
     $params = $Rule.params
 
     switch ($family) {
@@ -342,7 +368,7 @@ function Invoke-Fix {
                         $c += "`r`n$key = $expected"
                     }
                     [System.IO.File]::WriteAllText($tmpInf, $c)
-                    secedit /configure /db "$env:TEMP\secedit.sdb" /cfg $tmpInf /areas SECURITYPOLICY 2>$null | Out-Null
+                    secedit /configure /db "$env:TEMP\cis-secedit-$([Guid]::NewGuid()).sdb" /cfg $tmpInf /areas SECURITYPOLICY 2>$null | Out-Null
                 }
                 Remove-Item $tmpInf -Force -ErrorAction SilentlyContinue
                 return "applied"
@@ -368,20 +394,32 @@ function Invoke-Fix {
                     $c += "`r`n$key = $expected"
                 }
                 [System.IO.File]::WriteAllText($tmpInf, $c)
-                secedit /configure /db "$env:TEMP\secedit.sdb" /cfg $tmpInf /areas SECURITYPOLICY 2>$null | Out-Null
+                secedit /configure /db "$env:TEMP\cis-secedit-$([Guid]::NewGuid()).sdb" /cfg $tmpInf /areas SECURITYPOLICY 2>$null | Out-Null
                 Remove-Item $tmpInf -Force -ErrorAction SilentlyContinue
                 return "applied"
             } catch { return "failed: $($_.Exception.Message)" }
         }
 
         "audit-policy" {
-            $subcategory = $params.subcategory; $expected = $params.expected
+            if ($params.policy) {
+                $m = $AuditPolicyRegMap[$params.policy]
+                try { $cur = Get-ItemProperty -Path $m.Path -Name $m.Name -ErrorAction Stop | Select-Object -ExpandProperty $m.Name; if ($cur -eq $m.Value) { return "already" } } catch {}
+                try {
+                    if (-not (Test-Path $m.Path)) { New-Item -Path $m.Path -Force | Out-Null }
+                    Set-ItemProperty -Path $m.Path -Name $m.Name -Value $m.Value -Type DWord -Force
+                    return "applied"
+                } catch { return "failed: $($_.Exception.Message)" }
+            }
+            $subcategory = $params.subcategory
+            $expected = if ($params.expected) { $params.expected } else { "Success and Failure" }
             try {
                 $out = auditpol /get /subcategory:"$subcategory" 2>&1 | Out-String
-                if ($out -match "$subcategory\s+(.+)$") {
-                    if ($Matches[1].Trim() -eq $expected) { return "already" }
+                if ($out -match "$([regex]::Escape($subcategory))\s+(.+)$") {
+                    if ($Matches[2].Trim() -eq $expected) { return "already" }
                 }
-                auditpol /set /subcategory:"$subcategory" /success:enable /failure:enable 2>$null | Out-Null
+                $successArg = if ($expected -like "*Success*") { "enable" } else { "disable" }
+                $failureArg = if ($expected -like "*Failure*") { "enable" } else { "disable" }
+                auditpol /set /subcategory:"$subcategory" /success:$successArg /failure:$failureArg 2>$null | Out-Null
                 return "applied"
             } catch { return "failed: $($_.Exception.Message)" }
         }
@@ -389,27 +427,39 @@ function Invoke-Fix {
         "user-right" {
             $privilege = $params.privilege; $expectedSid = $params.expected_sid
             if (-not $expectedSid) { return "skipped: no expected SID defined" }
+            $tmp = $null
             try {
                 $tmp = "$env:TEMP\ur_$([Guid]::NewGuid()).inf"
                 secedit /export /cfg $tmp /areas USER_RIGHTS 2>$null | Out-Null
+                $members = @()
                 if (Test-Path $tmp) {
                     $c = Get-Content $tmp -Raw
                     if ($c -match "(?m)^\s*$([regex]::Escape($privilege))\s*=\s*(.+)$") {
-                        if ($Matches[1] -match [regex]::Escape($expectedSid)) { Remove-Item $tmp -Force; return "already" }
+                        $members = $Matches[1].Trim() -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+                        if ($members -contains $expectedSid.Trim()) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue; return "already" }
                     }
+                    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
                 }
-                Remove-Item $tmp -Force -ErrorAction SilentlyContinue
                 $tmp2 = "$env:TEMP\ur_fix_$([Guid]::NewGuid()).inf"
                 secedit /export /cfg $tmp2 /areas USER_RIGHTS 2>$null | Out-Null
                 $c = Get-Content $tmp2 -Raw
+                if ($members -notcontains $expectedSid.Trim()) {
+                    $members += $expectedSid.Trim()
+                }
+                $members = $members | Select-Object -Unique
+                $line = "$privilege = $($members -join ',')"
                 if ($c -match "(?m)^(\s*$([regex]::Escape($privilege))\s*=\s*).+$") {
-                    $c = $c -replace "(?m)^(\s*$([regex]::Escape($privilege))\s*=\s*).+$", "`${1}$expectedSid"
+                    $c = $c -replace "(?m)^(\s*$([regex]::Escape($privilege))\s*=\s*).+$", "`${1}$($members -join ',')"
                 } else {
-                    $c += "`r`n$privilege = $expectedSid"
+                    $c += "`r`n$line"
                 }
                 [System.IO.File]::WriteAllText($tmp2, $c)
-                secedit /configure /db "$env:TEMP\secedit.sdb" /cfg $tmp2 /areas USER_RIGHTS 2>$null | Out-Null
+                $seceditDb = "$env:TEMP\cis-secedit-$([Guid]::NewGuid()).sdb"
+                secedit /configure /db $seceditDb /cfg $tmp2 /areas USER_RIGHTS 2>$null | Out-Null
+                $rc = $LASTEXITCODE
+                Remove-Item $seceditDb -Force -ErrorAction SilentlyContinue
                 Remove-Item $tmp2 -Force -ErrorAction SilentlyContinue
+                if ($rc -ne 0) { return "failed: secedit exit code $rc" }
                 return "applied"
             } catch { return "failed: $($_.Exception.Message)" }
         }
@@ -428,11 +478,13 @@ function Invoke-Fix {
         }
 
         "firewall-profile" {
-            $profile = $params.profile
+            $fwProfile = $params.profile
+            $direction = if ($params.PSObject.Properties.Name -contains 'direction') { $params.direction } else { "Inbound" }
+            $expectedOut = if ($params.PSObject.Properties.Name -contains 'outbound') { $params.outbound } elseif ($direction -eq "Inbound") { "Allow" } else { "Block" }
             try {
-                $fw = Get-NetFirewallProfile -Name $profile -ErrorAction Stop
-                if ($fw.Enabled -eq "True" -and $fw.DefaultInboundAction -eq "Block") { return "already" }
-                Set-NetFirewallProfile -Name $profile -Enabled True -DefaultInboundAction Block -DefaultOutboundAction Allow
+                $fw = Get-NetFirewallProfile -Name $fwProfile -ErrorAction Stop
+                if ($fw.Enabled -eq $true -and $fw.DefaultInboundAction -eq "Block" -and $fw.DefaultOutboundAction -eq $expectedOut) { return "already" }
+                Set-NetFirewallProfile -Name $fwProfile -Enabled True -DefaultInboundAction Block -DefaultOutboundAction $expectedOut
                 return "applied"
             } catch { return "failed: $($_.Exception.Message)" }
         }
