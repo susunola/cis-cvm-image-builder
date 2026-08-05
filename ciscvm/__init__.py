@@ -631,6 +631,7 @@ build {
     playbook_dir    = "ansible"
     playbook_file   = "ansible/site.yml"
     extra_arguments = [
+      "-v",
       "-e", "ansible_python_interpreter=/opt/ciscvm-ansible/bin/python"
     ]
   }
