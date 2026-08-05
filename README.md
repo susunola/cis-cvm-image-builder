@@ -1,4 +1,8 @@
 <p align="center">
+  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-logo.png" alt="ciscvm — SecX Series" width="520">
+</p>
+
+<p align="center">
   <b>English</b> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.ja.md">日本語</a> | <a href="README.th.md">ภาษาไทย</a>
 </p>
 
@@ -8,14 +12,6 @@
   <img src="https://img.shields.io/badge/profiles-14-orange" alt="14 profiles">
   <img src="https://img.shields.io/badge/platform-Tencent%20Cloud-0052D9" alt="Tencent Cloud">
   <a href="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-</p>
-
-<p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-icon.png" alt="ciscvm icon" width="96">
-</p>
-
-<p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-logo.png" alt="ciscvm — SecX Series" width="520">
 </p>
 
 # ciscvm — CIS-hardened Golden Image Builder
