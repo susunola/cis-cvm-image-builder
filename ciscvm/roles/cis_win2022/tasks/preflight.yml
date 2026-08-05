@@ -43,12 +43,22 @@
       PowerShell 5.1 or newer is required on {{ inventory_hostname }}.
     quiet: true
 
+- name: Verify current user has Administrator rights
+  ansible.windows.win_powershell:
+    script: |
+      $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+      $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+      $Ansible.Result = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  register: _cis_admin_check
+  changed_when: false
+  when: cis_mode == 'apply'
+
 - name: Confirm privilege escalation is available for apply mode
   ansible.builtin.assert:
-    that: ansible_facts.is_system | default(false) | bool
+    that: _cis_admin_check.result | default(false) | bool
     fail_msg: >-
-      cis_mode=apply must run as Administrator. Add 'become: true' to
-      the play or run with --become.
+      cis_mode=apply must run as Administrator on {{ inventory_hostname }}.
+      Run the playbook as a member of the Administrators group or with SYSTEM privileges.
     quiet: true
   when: cis_mode == 'apply'
 

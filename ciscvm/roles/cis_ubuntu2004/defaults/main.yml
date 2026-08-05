@@ -22,6 +22,6 @@ cis_engine_timeout: 1800
 cis_backup_dir: /var/backups/cis-ubuntu2004
 cis_fail_on_findings: false
 cis_min_score: 0
-cis_benchmark_name: "CIS Ubuntu Linux 20.04 LTS Benchmark v3.0.0"
-cis_benchmark_version: "v1.0.0"
+cis_benchmark_name: "CIS Ubuntu Linux 20.04 LTS Benchmark"
+cis_benchmark_version: "v3.0.0"
 cis_org_name: ""

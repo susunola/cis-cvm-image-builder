@@ -148,7 +148,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "benchmark": "CIS-v1.0.0",
         "ansible_core_spec": "ansible-core>=2.11",
         "pkg_update": "sudo dnf makecache",
-        "pkg_install": "sudo dnf install -y python3-pip git",
+        "pkg_install": "sudo dnf install -y python3-pip python3-venv git",
         "clean_cmd": "sudo dnf clean all",
     },
     "rhel9": {
@@ -157,7 +157,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "os_tag": "rhel-9",
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo dnf makecache",
-        "pkg_install": "sudo dnf install -y python3-pip git",
+        "pkg_install": "sudo dnf install -y python3-pip python3-venv git",
         "clean_cmd": "sudo dnf clean all",
     },
     "rhel10": {
@@ -166,7 +166,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "os_tag": "rhel-10",
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo dnf makecache",
-        "pkg_install": "sudo dnf install -y python3-pip git",
+        "pkg_install": "sudo dnf install -y python3-pip python3-venv git",
         "clean_cmd": "sudo dnf clean all",
     },
     # ── TencentOS Server ──
@@ -179,7 +179,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "ansible_core_spec": "ansible-core>=2.11",
         "pip_index_url": "https://mirrors.cloud.tencent.com/pypi/simple/",
         "pkg_update": "sudo dnf makecache",
-        "pkg_install": "sudo dnf install -y python3-pip git",
+        "pkg_install": "sudo dnf install -y python3-pip python3-venv git",
         "clean_cmd": "sudo dnf clean all",
     },
     "tencentos4": {
@@ -190,7 +190,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "benchmark": "CIS-v1.0.0",
         "pip_index_url": "https://mirrors.cloud.tencent.com/pypi/simple/",
         "pkg_update": "sudo dnf makecache",
-        "pkg_install": "sudo dnf install -y python3-pip git",
+        "pkg_install": "sudo dnf install -y python3-pip python3-venv git",
         "clean_cmd": "sudo dnf clean all",
     },
     # ── SLES ──
@@ -200,7 +200,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "os_tag": "sles-15",
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo zypper refresh",
-        "pkg_install": "sudo zypper install -y python3-pip git",
+        "pkg_install": "sudo zypper install -y python3-pip python3-venv git",
         "clean_cmd": "sudo zypper clean --all",
     },
     "sles16": {
@@ -209,7 +209,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "os_tag": "sles-16",
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo zypper refresh",
-        "pkg_install": "sudo zypper install -y python3-pip git",
+        "pkg_install": "sudo zypper install -y python3-pip python3-venv git",
         "clean_cmd": "sudo zypper clean --all",
     },
     # ── Windows Server (winrm + controller-side ansible) ──
@@ -247,6 +247,7 @@ DEFAULT_WORKDIR = ".ciscvm-build"
 
 SAMPLE_CONFIG = """\
 # ciscvm.toml — single source of truth for all build parameters
+# Replace region/zone and image/network IDs with values for your account.
 [build]
 profile             = "tencentos3"
 #   Linux profiles: ubuntu2004 | ubuntu2204 | ubuntu2404 |
@@ -255,17 +256,17 @@ profile             = "tencentos3"
 #                   sles15 | sles16
 #   Windows:        win2016 | win2019 | win2022 | win2025
 region              = "ap-guangzhou"
-zone                = "ap-guangzhou-7"
+zone                = "ap-guangzhou-3"
 instance_type       = "S5.MEDIUM2"
 source_image_id     = "img-xxxxxxxx"       # replace with real public image ID
 vpc_id              = "vpc-xxxxxxxx"
 subnet_id           = "subnet-xxxxxxxx"
 security_group_id   = "sg-xxxxxxxx"
-associate_public_ip = true
+associate_public_ip = false               # set to true only if a public IP is required
 
 [image]
 name_prefix  = "tencentos3-cis"
-copy_regions = ["ap-shanghai"]            # empty [] to skip cross-region copy
+copy_regions = []                         # add regions (e.g. ["ap-shanghai"]) to copy the image
 
 [cis]
 level = 1                                 # 1 or 2
@@ -395,6 +396,32 @@ def load_config(path: Path) -> dict[str, Any]:
         warn(f"[build].security_group_id '{data['build']['security_group_id']}' "
              f"does not look like a security group ID (should start with 'sg-').")
 
+    if not isinstance(data["build"]["associate_public_ip"], bool):
+        raise ConfigError(
+            f"[build].associate_public_ip must be a boolean, got "
+            f"{type(data['build']['associate_public_ip']).__name__}. "
+            f"Use true/false without quotes."
+        )
+
+    copy_regions_raw = data["image"]["copy_regions"]
+    if not isinstance(copy_regions_raw, list):
+        raise ConfigError(
+            f"[image].copy_regions must be a list, got {type(copy_regions_raw).__name__}."
+        )
+    for region in copy_regions_raw:
+        region_str = str(region)
+        if not region_str or not all(c.isalnum() or c == "-" for c in region_str):
+            warn(f"[image].copy_regions entry '{region_str}' does not look like a Tencent region code.")
+
+    for label, key, prefix in [
+        ("source image ID", "source_image_id", "img-"),
+        ("VPC ID", "vpc_id", "vpc-"),
+        ("subnet ID", "subnet_id", "subnet-"),
+    ]:
+        val = str(data["build"][key])
+        if not val.startswith(prefix):
+            warn(f"[build].{key} '{val}' does not look like a {label} (should start with '{prefix}').")
+
     return data
 
 
@@ -515,11 +542,11 @@ HCL_LINUX_TEMPLATE = r"""packer {
   required_plugins {
     tencentcloud = {
       source  = "github.com/hashicorp/tencentcloud"
-      version = ">= 1.0.0"
+      version = ">= 1.0.0, < 2.0.0"
     }
     ansible = {
       source  = "github.com/hashicorp/ansible"
-      version = ">= 1.0.0"
+      version = ">= 1.0.0, < 2.0.0"
     }
   }
 }
@@ -558,7 +585,7 @@ variable "image_benchmark"             { type = string }
 
 locals {
   level_short = replace(var.cis_level, "-server", "")
-  image_name  = "${var.image_name_prefix}-${local.level_short}-${formatdate("YYYYMMDD", timestamp())}"
+  image_name  = "${var.image_name_prefix}-${local.level_short}-${formatdate("YYYYMMDD-hhmmss", timestamp())}"
 }
 
 source "tencentcloud-cvm" "default" {
@@ -602,7 +629,9 @@ build {
   provisioner "ansible-local" {
     playbook_dir    = "ansible"
     playbook_file   = "ansible/site.yml"
-    extra_arguments = []
+    extra_arguments = [
+      "-e", "ansible_python_interpreter=/opt/ciscvm-ansible/bin/python"
+    ]
   }
 
   # 3. Cleanup package cache before snapshot
@@ -621,11 +650,11 @@ HCL_WIN_TEMPLATE = r"""packer {
   required_plugins {
     tencentcloud = {
       source  = "github.com/hashicorp/tencentcloud"
-      version = ">= 1.0.0"
+      version = ">= 1.0.0, < 2.0.0"
     }
     ansible = {
       source  = "github.com/hashicorp/ansible"
-      version = ">= 1.0.0"
+      version = ">= 1.0.0, < 2.0.0"
     }
   }
 }
@@ -667,7 +696,7 @@ variable "image_benchmark"             { type = string }
 
 locals {
   level_short = replace(var.cis_level, "-server", "")
-  image_name  = "${var.image_name_prefix}-${local.level_short}-${formatdate("YYYYMMDD", timestamp())}"
+  image_name  = "${var.image_name_prefix}-${local.level_short}-${formatdate("YYYYMMDD-hhmmss", timestamp())}"
 }
 
 source "tencentcloud-cvm" "default" {
@@ -681,7 +710,7 @@ source "tencentcloud-cvm" "default" {
   winrm_username              = var.winrm_username
   winrm_password              = var.winrm_password
   winrm_use_ssl               = true
-  winrm_insecure              = true
+  winrm_insecure              = false
   winrm_timeout               = "10m"
   image_name                  = local.image_name
   vpc_id                      = var.vpc_id
@@ -711,7 +740,6 @@ build {
     use_proxy     = false
     extra_arguments = [
       "-e", "ansible_connection=winrm",
-      "-e", "ansible_winrm_server_cert_validation=ignore",
       "-e", "ansible_winrm_transport=basic",
       "--tags", var.cis_level
     ]
@@ -748,7 +776,6 @@ SITE_YML_WIN_TEMPLATE = r"""---
   gather_facts: true
   vars:
     ansible_connection: winrm
-    ansible_winrm_server_cert_validation: ignore
     ansible_winrm_transport: basic
     cis_mode: apply
     cis_profile: __CIS_LEVEL__
@@ -772,11 +799,13 @@ export DEBIAN_FRONTEND=noninteractive
 __PKG_UPDATE__
 __PKG_INSTALL__
 
-# 2. Ansible
-sudo python3 -m pip install --upgrade pip __PIP_INDEX_FLAG__
-sudo python3 -m pip install __PIP_INDEX_FLAG__ '__ANSIBLE_CORE_SPEC__' pexpect passlib
+# 2. Ansible in a dedicated venv so we do not mutate system pip
+VENV=/opt/ciscvm-ansible
+sudo python3 -m venv "$VENV"
+sudo "$VENV/bin/python" -m pip install --upgrade pip __PIP_INDEX_FLAG__
+sudo "$VENV/bin/python" -m pip install __PIP_INDEX_FLAG__ '__ANSIBLE_CORE_SPEC__' pexpect passlib
 
-echo "ansible ready (cis-os engine)"
+echo "ansible ready in $VENV (cis-os engine)"
 """
 
 
@@ -794,7 +823,12 @@ def _format_hcl_value(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False)
     # Escape backslashes and double quotes so arbitrary strings can't break
     # out of the HCL string literal (or inject HCL).
-    escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
+    text = str(value)
+    if "\n" in text:
+        raise ConfigError("HCL string values cannot contain newlines")
+    if "${" in text or "%%{" in text:
+        raise ConfigError("HCL string values cannot contain interpolation sequences (${ or %%{)")
+    escaped = text.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
 
 
@@ -1102,11 +1136,14 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     # Add .gitignore
     gi = target / ".gitignore"
-    ignore_line = f"{DEFAULT_WORKDIR}/\n"
+    ignore_lines = [f"{DEFAULT_WORKDIR}/", "ciscvm.toml", ""]
     if not gi.exists():
-        gi.write_text(ignore_line, encoding="utf-8")
-    elif ignore_line.strip() not in gi.read_text(encoding="utf-8"):
-        gi.write_text(gi.read_text(encoding="utf-8").rstrip() + "\n" + ignore_line, encoding="utf-8")
+        gi.write_text("\n".join(ignore_lines), encoding="utf-8")
+    else:
+        existing = gi.read_text(encoding="utf-8")
+        additions = [line for line in ignore_lines if line and line not in existing.splitlines()]
+        if additions:
+            gi.write_text(existing.rstrip() + "\n" + "\n".join(additions) + "\n", encoding="utf-8")
 
     banner("init")
     ok(f"Generated: {cfg}")

@@ -12,8 +12,7 @@
 
 # ciscvm — CIS-hardened Golden Image Builder
 
-> Build CIS-hardened golden images on Tencent Cloud in five commands. No Galaxy, no
-> network at build time, no manual template edits — just `ciscvm.toml`.
+> Build CIS-hardened images on Tencent Cloud from `ciscvm.toml`.
 
 **What it does:** spins up an ephemeral CVM, applies the bundled
 [cis-os](https://github.com/susunola/cis-os) engine for CIS hardening, runs an
@@ -46,7 +45,8 @@ templates, or Terraform image references.
 |---|---|
 | **Python** | >= 3.11 (stdlib only — zero pip dependencies) |
 | **Packer** | >= 1.12 |
-| **ansible-core** | >= 2.15 (required on the controller for Windows builds) |
+| **ansible-core** | >= 2.15 (controller, required for Windows builds) |
+| **ansible.windows** | `ansible-galaxy collection install ansible.windows` (controller, required for Windows builds) |
 | **Tencent Cloud** | Sub-account with `cvm:RunInstances`, `cvm:CreateImage`, `cvm:DescribeImages`, `cvm:CopyImage`* |
 | **Network** | Dedicated VPC + subnet + security group (Linux: SSH/22, Windows: WinRM/5986). Source-restricted to build machine egress IP. |
 | **Source Image** | Public image ID for the target OS |

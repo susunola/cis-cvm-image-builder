@@ -1,12 +1,13 @@
 ---
 galaxy_info:
   author: CIS Automation
-  description: CIS Benchmark assessment for SUSE Linux Enterprise 16
+  description: CIS Benchmark assessment for Windows 2019
   license: MIT
   min_ansible_version: "2.9"
   platforms:
-    - name: SLES
-      versions: ["16"]
+    - name: Windows
+      versions:
+        - "2019"
   galaxy_tags:
     - cis
     - security

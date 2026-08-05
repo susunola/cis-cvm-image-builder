@@ -1,6 +1,5 @@
 {#- Fleet overview across every host in the play. Language switchable.
     v2 — professional enterprise layout matching report template. -#}
-{%- macro L(zh, en) -%}{{ en }}{%- endmacro -%}
 {%- set hosts = [] -%}
 {%- for h in ansible_play_hosts | sort -%}
   {%- if hostvars[h].cis_result is defined -%}{%- set _ = hosts.append(hostvars[h]) -%}{%- endif -%}
@@ -27,7 +26,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ cis_benchmark_name }} {{ cis_benchmark_version }} · {{ 'Fleet Compliance Overview' }}</title>
+<title>{{ cis_benchmark_name |e }} {{ cis_benchmark_version |e }} · {{ 'Fleet Compliance Overview' |e }}</title>
 <style>
 :root{
   --bg:#f0f2f8;--card:#fff;--ink:#1a2332;--ink2:#4a5f7a;--ink3:#8896aa;
@@ -131,10 +130,10 @@ footer{margin-top:36px;padding-top:18px;border-top:1px solid var(--line);
 <header class="mast">
   <div class="mast-in">
     <div>
-      <h1>{{ cis_benchmark_name }} {{ cis_benchmark_version }} · {{ 'Fleet Compliance Overview' }}</h1>
-      <div class="sub">{{ hosts | length }} {{ 'hosts' }} · {{ 'profile' }} {{ cis_profile }} ·
-         {{ 'mode' }} {{ 'apply' if cis_mode_effective == 'apply' else 'scan' }} ·
-         {{ 'generated' }} {{ cis_run_human }}</div>
+      <h1>{{ cis_benchmark_name |e }} {{ cis_benchmark_version |e }} · {{ 'Fleet Compliance Overview' |e }}</h1>
+      <div class="sub">{{ hosts | length |e }} {{ 'hosts' |e }} · {{ 'profile' |e }} {{ cis_profile |e }} ·
+         {{ 'mode' |e }} {{ 'apply' if cis_mode_effective == 'apply' else 'scan' |e }} ·
+         {{ 'generated' |e }} {{ cis_run_human |e }}</div>
     </div>
     <div class="mbadges">
     </div>
@@ -142,33 +141,33 @@ footer{margin-top:36px;padding-top:18px;border-top:1px solid var(--line);
 </header>
 <div class="wrap">
   <div class="stats">
-    <div class="st"><div class="k">{{ 'Fleet Score' }}</div>
-      <div class="v" style="color:{{ '#0d7a53' if fleetscore >= 90 else ('#b86c00' if fleetscore >= 70 else '#c42a1e') }}">{{ fleetscore }}<span style="font-size:17px">%</span></div>
-      <div class="u">{{ tot['pass'] }} / {{ scored }} {{ 'passed' }}</div></div>
-    <div class="st"><div class="k">{{ 'To Fix' }}</div>
-      <div class="v" style="color:#c42a1e">{{ tot['fail'] }}</div>
-      <div class="u">{{ 'fleet-wide' }}</div></div>
-    <div class="st"><div class="k">{{ 'L1 Fixed' }}</div>
-      <div class="v" style="color:#1a50ba">{{ tot['l1applied'] }}</div>
-      <div class="u">{{ 'Level 1 rules' }}</div></div>
-    <div class="st"><div class="k">{{ 'L2 Fixed' }}</div>
-      <div class="v" style="color:#7c3aed">{{ tot['l2applied'] }}</div>
-      <div class="u">{{ 'Level 2 rules' }}</div></div>
-    <div class="st"><div class="k">{{ 'Manual' }}</div>
-      <div class="v" style="color:#4a5f7a">{{ tot['manual'] }}</div>
-      <div class="u">{{ 'needs review' }}</div></div>
-    <div class="st"><div class="k">{{ 'Fix Failed' }}</div>
-      <div class="v" style="color:{{ '#c42a1e' if tot['failedfix'] else '#8896aa' }}">{{ tot['failedfix'] }}</div>
-      <div class="u">{{ 'needs attention' }}</div></div>
+    <div class="st"><div class="k">{{ 'Fleet Score' |e }}</div>
+      <div class="v" style="color:{{ '#0d7a53' if fleetscore >= 90 else ('#b86c00' if fleetscore >= 70 else '#c42a1e') |e }}">{{ fleetscore |e }}<span style="font-size:17px">%</span></div>
+      <div class="u">{{ tot['pass'] |e }} / {{ scored |e }} {{ 'passed' |e }}</div></div>
+    <div class="st"><div class="k">{{ 'To Fix' |e }}</div>
+      <div class="v" style="color:#c42a1e">{{ tot['fail'] |e }}</div>
+      <div class="u">{{ 'fleet-wide' |e }}</div></div>
+    <div class="st"><div class="k">{{ 'L1 Fixed' |e }}</div>
+      <div class="v" style="color:#1a50ba">{{ tot['l1applied'] |e }}</div>
+      <div class="u">{{ 'Level 1 rules' |e }}</div></div>
+    <div class="st"><div class="k">{{ 'L2 Fixed' |e }}</div>
+      <div class="v" style="color:#7c3aed">{{ tot['l2applied'] |e }}</div>
+      <div class="u">{{ 'Level 2 rules' |e }}</div></div>
+    <div class="st"><div class="k">{{ 'Manual' |e }}</div>
+      <div class="v" style="color:#4a5f7a">{{ tot['manual'] |e }}</div>
+      <div class="u">{{ 'needs review' |e }}</div></div>
+    <div class="st"><div class="k">{{ 'Fix Failed' |e }}</div>
+      <div class="v" style="color:{{ '#c42a1e' if tot['failedfix'] else '#8896aa' |e }}">{{ tot['failedfix'] |e }}</div>
+      <div class="u">{{ 'needs attention' |e }}</div></div>
   </div>
 
-  <h2 class="sec">{{ 'Host Details' }}</h2>
+  <h2 class="sec">{{ 'Host Details' |e }}</h2>
   <div class="tblwrap">
     <table>
       <thead>
         <tr>
-          <th>{{ 'Host' }}</th><th>IPv4</th><th>MAC</th><th>{{ 'OS' }}</th>
-          <th>{{ 'Score' }}</th><th>{{ 'Pass / Fail' }}</th><th>{{ 'L1 Fixed' }}</th><th>{{ 'L2 Fixed' }}</th><th>{{ 'Report' }}</th>
+          <th>{{ 'Host' |e }}</th><th>IPv4</th><th>MAC</th><th>{{ 'OS' |e }}</th>
+          <th>{{ 'Score' |e }}</th><th>{{ 'Pass / Fail' |e }}</th><th>{{ 'L1 Fixed' |e }}</th><th>{{ 'L2 Fixed' |e }}</th><th>{{ 'Report' |e }}</th>
         </tr>
       </thead>
       <tbody>
@@ -183,17 +182,17 @@ footer{margin-top:36px;padding-top:18px;border-top:1px solid var(--line);
           <td>{{ hv.cis_host.os | e }}</td>
           <td>
             <div class="sc">
-              <span class="n" style="color:{{ col }}">{{ sc }}%</span>
-              <span class="t"><i style="background:{{ col }};width:{{ sc }}%"></i></span>
+              <span class="n" style="color:{{ col |e }}">{{ sc |e }}%</span>
+              <span class="t"><i style="background:{{ col |e }};width:{{ sc |e }}%"></i></span>
             </div>
           </td>
-          <td><span class="pill ok">{{ s.all['pass'] }}</span> /
-              <span class="pill {{ 'bad' if (s.all.fail | int) else 'na' }}">{{ s.all.fail }}</span></td>
-          <td><span class="pill {{ 'ok' if (s.L1.applied | int) else 'na' }}">{{ s.L1.applied }}</span>
-              {%- if s.L1.applied_pending | int %} <span class="pill warn">+{{ 'pending' }}</span>{% endif %}</td>
-          <td><span class="pill {{ 'ok' if (s.L2.applied | int) else 'na' }}">{{ s.L2.applied }}</span>
-              {%- if s.L2.applied_pending | int %} <span class="pill warn">+{{ 'pending' }}</span>{% endif %}</td>
-          <td><a href="{{ hv.cis_report_slug }}.html">{{ 'Open' }} &rsaquo;</a></td>
+          <td><span class="pill ok">{{ s.all['pass'] |e }}</span> /
+              <span class="pill {{ 'bad' if (s.all.fail | int) else 'na' |e }}">{{ s.all.fail |e }}</span></td>
+          <td><span class="pill {{ 'ok' if (s.L1.applied | int) else 'na' |e }}">{{ s.L1.applied |e }}</span>
+              {%- if s.L1.applied_pending | int %} <span class="pill warn">+{{ 'pending' |e }}</span>{% endif %}</td>
+          <td><span class="pill {{ 'ok' if (s.L2.applied | int) else 'na' |e }}">{{ s.L2.applied |e }}</span>
+              {%- if s.L2.applied_pending | int %} <span class="pill warn">+{{ 'pending' |e }}</span>{% endif %}</td>
+          <td><a href="{{ hv.cis_report_slug |e }}.html">{{ 'Open' |e }} &rsaquo;</a></td>
         </tr>
       {% endfor %}
       </tbody>
@@ -201,10 +200,10 @@ footer{margin-top:36px;padding-top:18px;border-top:1px solid var(--line);
   </div>
 
   <footer>
-    {{ cis_benchmark_name }} {{ cis_benchmark_version }} ·
-    {{ hosts | length }} {{ 'hosts' }} · {{ 'rules assessed' }} {{ tot['rules'] }} ·
-    {{ 'Engine' }} v{{ hosts[0].cis_result.engine_version if hosts else '-' }} ·
-    {{ 'generated' }} {{ cis_run_human }}
+    {{ cis_benchmark_name |e }} {{ cis_benchmark_version |e }} ·
+    {{ hosts | length |e }} {{ 'hosts' |e }} · {{ 'rules assessed' |e }} {{ tot['rules'] |e }} ·
+    {{ 'Engine' |e }} v{{ hosts[0].cis_result.engine_version if hosts else '-' |e }} ·
+    {{ 'generated' |e }} {{ cis_run_human |e }}
   </footer>
 </div>
 <script>

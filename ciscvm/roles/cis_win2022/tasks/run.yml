@@ -20,26 +20,30 @@
 - name: Assemble engine command line
   ansible.builtin.set_fact:
     cis_engine_argv: >-
-      {{ cis_powershell }} -NoProfile -ExecutionPolicy Bypass -File
-      {{ cis_remote_tmp }}\cis-run\{{ cis_engine_file }}
-      -Catalog {{ cis_remote_tmp }}\cis-run\{{ cis_rules_file }}
-      -Mode {{ cis_mode_effective }}
-      -Profile {{ cis_profile }}
-      -Platform {{ cis_platform }}
-      -Benchmark "{{ cis_benchmark_name }} {{ cis_benchmark_version }}"
-      -Out {{ cis_remote_tmp }}\cis-run\result.json
-      {% if cis_include %} -Include "{{ cis_include | join(',') }}"{% endif %}
-      {% if cis_exclude %} -Exclude "{{ cis_exclude | join(',') }}"{% endif %}
-      {% if cis_sections %} -Sections "{{ cis_sections | join(',') }}"{% endif %}
-      {% if cis_families %} -Families "{{ cis_families | join(',') }}"{% endif %}
-      {% if cis_mode_effective == 'apply' and cis_allow_disruptive | bool %}-AllowDisruptive{% endif %}
+      {{
+        [
+          cis_powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+          cis_remote_tmp ~ "\\cis-run\\" ~ cis_engine_file,
+          "-Catalog", cis_remote_tmp ~ "\\cis-run\\" ~ cis_rules_file,
+          "-Mode", cis_mode_effective,
+          "-Profile", cis_profile,
+          "-Platform", cis_platform,
+          "-Benchmark", cis_benchmark_name ~ " " ~ cis_benchmark_version,
+          "-Out", cis_remote_tmp ~ "\\cis-run\\result.json",
+        ]
+        + (["-Include", cis_include | join(",")] if cis_include else [])
+        + (["-Exclude", cis_exclude | join(",")] if cis_exclude else [])
+        + (["-Sections", cis_sections | join(",")] if cis_sections else [])
+        + (["-Families", cis_families | join(",")] if cis_families else [])
+        + (["-AllowDisruptive"] if cis_mode_effective == 'apply' and cis_allow_disruptive | bool else [])
+      }}
 
 - name: "Run the benchmark ({{ cis_mode_effective }} / {{ cis_profile }})"
-  ansible.windows.win_shell: "{{ cis_engine_argv }}"
-  args:
+  ansible.windows.win_command:
+    argv: "{{ cis_engine_argv }}"
     chdir: "{{ cis_remote_tmp }}\\cis-run"
   register: cis_engine_run
-  changed_when: false
+  changed_when: cis_mode_effective == 'apply'
   check_mode: false
   timeout: "{{ cis_engine_timeout | int }}"
 

@@ -51,7 +51,7 @@
 - name: Run benchmark
   ansible.builtin.command: "{{ _cmd }}"
   register: _cis_run
-  changed_when: false
+  changed_when: cis_mode == 'apply'
   timeout: "{{ cis_engine_timeout }}"
   environment:
     LC_ALL: C
@@ -76,5 +76,5 @@
     msg:
       - "CIS scan complete: {{ cis_result.summary.all.total }} rules"
       - "Pass: {{ cis_result.summary.all.pass }} / Fail: {{ cis_result.summary.all.fail }}"
-      - "Score: {{ cis_result.score }}%"
+      - "Score: {{ cis_result.summary.all.score | default(0) }}%"
   when: cis_result.summary.all.assessed | default(0) > 0
