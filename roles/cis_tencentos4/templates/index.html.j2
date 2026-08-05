@@ -18,7 +18,7 @@
         'l1applied': tot['l1applied'] + (s.L1.applied | int) + (s.L1.applied_pending | int),
         'l2applied': tot['l2applied'] + (s.L2.applied | int) + (s.L2.applied_pending | int),
         'pending':   tot['pending']   + (s.all.applied_pending | int),
-        'failedfix': tot['failedfix'] + (s.all.apply_failed | int)}) -%}
+        'failedfix': tot['failedfix'] + (s.all.apply_failed | default(0) | int)}) -%}
 {%- endfor -%}
 {%- set scored = tot['pass'] + tot['fail'] -%}
 {%- set fleetscore = (100.0 * tot['pass'] / scored) | round(1) if scored else 0.0 -%}

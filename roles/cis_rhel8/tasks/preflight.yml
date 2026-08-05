@@ -1,0 +1,52 @@
+---
+- name: Validate cis_mode
+  ansible.builtin.fail:
+    msg: "cis_mode must be 'scan' or 'apply', got: {{ cis_mode }}"
+  when: cis_mode not in ['scan', 'apply']
+
+- name: Validate cis_profile
+  ansible.builtin.fail:
+    msg: "cis_profile must be 'L1' or 'L2', got: {{ cis_profile }}"
+  when: cis_profile not in ['L1', 'L2']
+
+- name: Validate cis_platform
+  ansible.builtin.fail:
+    msg: "cis_platform must be 'server', 'workstation', or 'all', got: {{ cis_platform }}"
+  when: cis_platform not in ['server', 'workstation', 'all']
+
+- name: Locate Python 3 interpreter
+  ansible.builtin.shell: |
+    for py in /usr/bin/python3 /usr/libexec/platform-python /usr/bin/python3.6 /usr/bin/python3.8 /usr/bin/python3.9 /usr/bin/python3.10 /usr/bin/python3.11 /usr/bin/python3.12; do
+      if [ -x "$py" ]; then echo "$py"; exit 0; fi
+    done
+    echo "NOT_FOUND"; exit 1
+  register: _py_probe
+  changed_when: false
+  failed_when: false
+
+- name: Verify Python 3 found
+  ansible.builtin.fail:
+    msg: "Python 3.6+ not found on target"
+  when: "_py_probe.stdout == 'NOT_FOUND' or _py_probe.rc != 0"
+
+- name: Set Python path
+  ansible.builtin.set_fact:
+    cis_python_real: "{{ _py_probe.stdout.strip() }}"
+
+- name: Require root for apply mode
+  ansible.builtin.fail:
+    msg: "Apply mode requires root privileges. Use --become"
+  when:
+    - cis_mode == 'apply'
+    - ansible_user != 'root'
+    - not (ansible_become | default(false))
+
+- name: Announce benchmark run
+  ansible.builtin.debug:
+    msg:
+      - "======================================================"
+      - "  CIS Benchmark: CIS Red Hat Enterprise Linux 8 Benchmark v4.0.0 v1.0.0"
+      - "  Mode: {{ cis_mode }}  Profile: {{ cis_profile }}  Platform: {{ cis_platform }}"
+      - "  Allow disruptive: {{ cis_allow_disruptive }}"
+      - "  Target: {{ inventory_hostname }}"
+      - "======================================================"

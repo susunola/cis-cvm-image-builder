@@ -1,4 +1,4 @@
-"""Tests for ciscvm — TencentOS CIS Image Builder."""
+"""Tests for ciscvm — CIS-hardened Golden Image Builder."""
 
 from __future__ import annotations
 
@@ -41,6 +41,9 @@ from ciscvm import (
     run_preflight,
 )
 
+LINUX_PROFILES = [k for k, v in PROFILES.items() if v.get("family") != "windows"]
+WIN_PROFILES = [k for k, v in PROFILES.items() if v.get("family") == "windows"]
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -61,6 +64,28 @@ def _write_config(tmp_path: Path, data: dict) -> Path:
     path = tmp_path / "ciscvm.toml"
     path.write_text(tomli_w.dumps(data), encoding="utf-8")
     return path
+
+
+def _make_win_toml(profile_name: str) -> dict:
+    """Create a valid TOML dict for a Windows profile."""
+    return {
+        "build": {
+            "profile": profile_name,
+            "region": "ap-guangzhou",
+            "zone": "ap-guangzhou-4",
+            "instance_type": "S5.MEDIUM2",
+            "source_image_id": "img-abc123",
+            "vpc_id": "vpc-abc123",
+            "subnet_id": "subnet-abc123",
+            "security_group_id": "sg-abc123",
+            "associate_public_ip": True,
+        },
+        "image": {"name_prefix": "win-cis", "copy_regions": []},
+        "cis": {"level": 1},
+        "cloud": {"secret_id_env": "TENCENTCLOUD_SECRET_ID", "secret_key_env": "TENCENTCLOUD_SECRET_KEY",
+                  "winrm_password_env": "WINRM_PASSWORD"},
+        "meta": {"os_tag": "windows-2022", "benchmark": "CIS-v1.0.0"},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +180,7 @@ class TestFormatHCLValue:
 # resolve()
 # ---------------------------------------------------------------------------
 class TestResolve:
-    def test_tencentos3(self, valid_toml):
+    def test_linux_profile(self, valid_toml):
         r = resolve(valid_toml)
         assert isinstance(r, ResolvedConfig)
         assert r.profile_name == "tencentos3"
@@ -164,15 +189,7 @@ class TestResolve:
         assert r.ssh_username == "root"
         assert r.role_dir == "cis_tencentos3"
         assert r.associate_public_ip is True
-
-    def test_tencentos4(self, valid_toml):
-        valid_toml["build"]["profile"] = "tencentos4"
-        # Remove [meta] so the profile default os_tag is used
-        del valid_toml["meta"]
-        r = resolve(valid_toml)
-        assert r.profile_name == "tencentos4"
-        assert r.role_dir == "cis_tencentos4"
-        assert r.image_os_tag == "tencentos-4"
+        assert r.family == ""
 
     def test_level2(self, valid_toml):
         valid_toml["cis"]["level"] = 2
@@ -186,51 +203,86 @@ class TestResolve:
         assert r.image_os_tag == "custom-os"
         assert r.image_benchmark == "custom-v3"
 
+    def test_windows_profile(self):
+        data = _make_win_toml("win2022")
+        r = resolve(data)
+        assert r.family == "windows"
+        assert r.winrm_username == "Administrator"
+        assert r.winrm_password_env == "WINRM_PASSWORD"
+        assert r.role_dir == "cis_win2022"
+        assert r.ssh_username == ""
+
+    def test_ubuntu_uses_ssh_ubuntu(self, valid_toml):
+        valid_toml["build"]["profile"] = "ubuntu2204"
+        r = resolve(valid_toml)
+        assert r.ssh_username == "ubuntu"
+        assert r.family == ""
+
 
 # ---------------------------------------------------------------------------
 # Render functions
 # ---------------------------------------------------------------------------
 class TestRenderPkrvars:
-    def test_output(self, valid_toml):
+    def test_linux_output(self, valid_toml):
         r = resolve(valid_toml)
         out = render_pkrvars(r)
         assert "ssh_username" in out
-        assert "tencentos" in out or "root" in out
-        assert "true" in out or "false" in out
+        assert "root" in out
+
+    def test_windows_output(self):
+        r = resolve(_make_win_toml("win2022"))
+        out = render_pkrvars(r)
+        assert "winrm_username" in out
+        assert "ssh_username" not in out
 
 
 class TestRenderInstall:
-    def test_tencentos3(self):
+    def test_dnf(self):
         p = PROFILES["tencentos3"]
         out = render_install(p)
         assert "cis-os engine" in out
         assert "dnf makecache" in out
         assert "ansible-core" in out
 
-    def test_tencentos4(self):
-        p = PROFILES["tencentos4"]
+    def test_apt(self):
+        p = PROFILES["ubuntu2204"]
         out = render_install(p)
-        assert "cis-os engine" in out
-        assert "dnf makecache" in out
+        assert "apt-get update" in out
+        assert "apt-get install" in out
+
+    def test_zypper(self):
+        p = PROFILES["sles15"]
+        out = render_install(p)
+        assert "zypper refresh" in out
+        assert "zypper install" in out
 
 
 class TestRenderSite:
-    def test_level1(self):
+    def test_linux_level1(self):
         p = PROFILES["tencentos3"]
         out = render_site(p, level=1)
         assert "cis_fail_on_findings" in out
         assert "cis_profile: L1" in out
         assert "cis_tencentos3" in out
+        assert "localhost" in out
 
-    def test_level2(self):
+    def test_linux_level2(self):
         p = PROFILES["tencentos4"]
         out = render_site(p, level=2)
         assert "cis_profile: L2" in out
         assert "cis_tencentos4" in out
 
+    def test_windows_site_yml(self):
+        p = PROFILES["win2022"]
+        out = render_site(p, level=1)
+        assert "cis_profile: L1" in out
+        assert "cis_win2022" in out
+        assert "ansible_connection: winrm" in out
+        assert "hosts: all" in out
+
 
 class TestRenderAll:
-    def test_tencentos3(self, valid_toml, tmp_path):
+    def test_linux_renders_correctly(self, valid_toml, tmp_path):
         r = resolve(valid_toml)
         wd = tmp_path / "build"
         render_all(wd, r)
@@ -239,9 +291,7 @@ class TestRenderAll:
         assert (wd / "ansible" / "site.yml").exists()
         assert (wd / "packer" / "scripts" / "install-ansible.sh").exists()
         assert os.access(wd / "packer" / "scripts" / "install-ansible.sh", os.X_OK)
-        # Role was copied
         assert (wd / "ansible" / "roles" / "cis_tencentos3" / "tasks" / "main.yml").exists()
-        # No verify script (gate is in-role)
         assert not (wd / "packer" / "scripts" / "verify-cis.sh").exists()
 
     def test_no_unreplaced_markers(self, valid_toml, tmp_path):
@@ -252,22 +302,37 @@ class TestRenderAll:
         assert "__CLEAN_CMD__" not in hcl
         assert "__WINRM_PASSWORD_ENV__" not in hcl
 
-    def test_tencentos4(self, valid_toml, tmp_path):
-        valid_toml["build"]["profile"] = "tencentos4"
-        r = resolve(valid_toml)
+    def test_windows_renders_correctly(self, tmp_path):
+        r = resolve(_make_win_toml("win2022"))
         wd = tmp_path / "build"
         render_all(wd, r)
-        assert (wd / "ansible" / "roles" / "cis_tencentos4" / "tasks" / "main.yml").exists()
+        assert (wd / "packer" / "main.pkr.hcl").exists()
+        assert (wd / "packer" / "auto.pkrvars.hcl").exists()
+        assert (wd / "ansible" / "site.yml").exists()
+        # Windows: no install script
+        assert not (wd / "packer" / "scripts" / "install-ansible.sh").exists()
+        # Role copied
+        assert (wd / "ansible" / "roles" / "cis_win2022" / "tasks" / "main.yml").exists()
+        # HCL has winrm, not ssh
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        assert "winrm" in hcl
+        assert "WINRM_PASSWORD" in hcl
+        assert "ssh_username" not in hcl
 
 
 # ---------------------------------------------------------------------------
 # Bundled role helpers
 # ---------------------------------------------------------------------------
 class TestBundleRole:
-    def test_copies_role(self, tmp_path):
+    def test_copies_linux_role(self, tmp_path):
         wd = tmp_path / "build"
         _bundle_role(wd, "cis_tencentos3")
         assert (wd / "ansible" / "roles" / "cis_tencentos3" / "tasks" / "main.yml").exists()
+
+    def test_copies_windows_role(self, tmp_path):
+        wd = tmp_path / "build"
+        _bundle_role(wd, "cis_win2022")
+        assert (wd / "ansible" / "roles" / "cis_win2022" / "tasks" / "main.yml").exists()
 
     def test_missing_role_warns(self, tmp_path, caplog):
         caplog.set_level(logging.WARNING, logger="ciscvm")
@@ -279,6 +344,9 @@ class TestBundleRole:
 class TestCheckBundledRole:
     def test_exists(self):
         assert _check_bundled_role("cis_tencentos3") is True
+
+    def test_windows_exists(self):
+        assert _check_bundled_role("cis_win2022") is True
 
     def test_not_exists(self):
         assert _check_bundled_role("no_such_role") is False
@@ -298,6 +366,24 @@ class TestRunPreflight:
         r = resolve(valid_toml)
         with mock.patch("shutil.which", return_value="/usr/bin/packer"):
             assert run_preflight(r) is True
+
+    def test_passes_windows_with_winrm_password(self, monkeypatch):
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "test-id")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "test-key")
+        monkeypatch.setenv("WINRM_PASSWORD", "test-pass")
+        data = _make_win_toml("win2022")
+        r = resolve(data)
+        with mock.patch("shutil.which", return_value="/usr/bin/packer"):
+            assert run_preflight(r) is True
+
+    def test_fails_windows_without_winrm_password(self, monkeypatch):
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "test-id")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "test-key")
+        monkeypatch.delenv("WINRM_PASSWORD", raising=False)
+        data = _make_win_toml("win2022")
+        r = resolve(data)
+        with mock.patch("shutil.which", return_value="/usr/bin/packer"):
+            assert run_preflight(r) is False
 
     def test_fails_without_credentials(self, valid_toml, monkeypatch):
         monkeypatch.delenv("TENCENTCLOUD_SECRET_ID", raising=False)
@@ -431,6 +517,9 @@ class TestMain:
 # PROFILES integrity checks
 # ---------------------------------------------------------------------------
 class TestProfiles:
+    def test_count_is_14(self):
+        assert len(PROFILES) == 14, f"Expected 14 profiles, got {len(PROFILES)}"
+
     def test_all_have_os_tag(self):
         for name, p in PROFILES.items():
             assert p.get("os_tag"), f"{name}: missing os_tag"
@@ -443,18 +532,28 @@ class TestProfiles:
         for name, p in PROFILES.items():
             assert p.get("role_dir"), f"{name}: missing role_dir"
 
-    def test_all_have_ssh_username(self):
-        for name, p in PROFILES.items():
+    def test_linux_have_ssh_username(self):
+        for name in LINUX_PROFILES:
+            p = PROFILES[name]
             assert p.get("ssh_username"), f"{name}: missing ssh_username"
 
-    def test_all_have_pkg_install(self):
-        for name, p in PROFILES.items():
-            assert p.get("pkg_install"), f"{name}: missing pkg_install"
+    def test_windows_have_winrm_username(self):
+        for name in WIN_PROFILES:
+            p = PROFILES[name]
+            assert p.get("winrm_username"), f"{name}: missing winrm_username"
+
+    def test_linux_have_pkg_commands(self):
+        for name in LINUX_PROFILES:
+            p = PROFILES[name]
             assert p.get("pkg_update"), f"{name}: missing pkg_update"
+            assert p.get("pkg_install"), f"{name}: missing pkg_install"
             assert p.get("clean_cmd"), f"{name}: missing clean_cmd"
 
-    def test_count_is_2(self):
-        assert len(PROFILES) == 2, f"Expected 2 profiles, got {len(PROFILES)}"
+    def test_windows_have_no_pkg_commands(self):
+        for name in WIN_PROFILES:
+            p = PROFILES[name]
+            assert "pkg_update" not in p, f"{name}: should not have pkg_update"
+            assert "pkg_install" not in p, f"{name}: should not have pkg_install"
 
 
 # ---------------------------------------------------------------------------
@@ -463,12 +562,18 @@ class TestProfiles:
 class TestAllProfilesRender:
     @pytest.mark.parametrize("profile_name", list(PROFILES))
     def test_profile_renders(self, profile_name, valid_toml, tmp_path):
-        valid_toml["build"]["profile"] = profile_name
-        r = resolve(valid_toml)
+        if PROFILES[profile_name].get("family") == "windows":
+            data = _make_win_toml(profile_name)
+        else:
+            valid_toml["build"]["profile"] = profile_name
+            data = valid_toml
+
+        r = resolve(data)
         wd = tmp_path / "build"
         render_all(wd, r)
         assert (wd / "packer" / "main.pkr.hcl").exists(), f"{profile_name}: no main.pkr.hcl"
         assert (wd / "ansible" / "site.yml").exists(), f"{profile_name}: no site.yml"
 
         hcl = (wd / "packer" / "main.pkr.hcl").read_text()
-        assert "__CLEAN_CMD__" not in hcl, f"{profile_name}: unreplaced __CLEAN_CMD__"
+        if r.family != "windows":
+            assert "__CLEAN_CMD__" not in hcl, f"{profile_name}: unreplaced marker"

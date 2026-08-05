@@ -1,0 +1,82 @@
+---
+- name: Load guidance and sections data
+  ansible.builtin.set_fact:
+    cis_guidance: "{{ lookup('file', cis_guidance_file) | from_json }}"
+    cis_sections: "{{ lookup('file', cis_sections_file) | from_json }}"
+  delegate_to: localhost
+  run_once: true
+
+- name: Create report directory
+  ansible.builtin.file:
+    path: "{{ cis_report_dir }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  run_once: true
+
+- name: Set report timestamp
+  ansible.builtin.set_fact:
+    cis_run_stamp: "{{ ansible_date_time.date | replace('-', '') }}-{{ ansible_date_time.time | replace(':', '') }}"
+
+- name: Record fleet size
+  ansible.builtin.set_fact:
+    _fleet_count: "{{ ansible_play_hosts | length }}"
+
+- name: Build host identity block
+  ansible.builtin.set_fact:
+    cis_host:
+      inventory_name: "{{ inventory_hostname }}"
+      hostname: "{{ ansible_hostname | default(inventory_hostname) }}"
+      fqdn: "{{ ansible_fqdn | default(inventory_hostname) }}"
+      ipv4: "{{ ansible_default_ipv4.address | default('N/A') }}"
+      mac: "{{ ansible_default_ipv4.macaddress | default('N/A') }}"
+      interface: "{{ ansible_default_ipv4.interface | default('N/A') }}"
+      all_ipv4: "{{ ansible_all_ipv4_addresses | default([]) }}"
+      all_ipv6: "{{ ansible_all_ipv6_addresses | default([]) }}"
+      macs: "{{ ansible_interfaces | default([]) | map('extract', ansible_facts, 'macaddress') | select | list }}"
+      interfaces: "{{ ansible_interfaces | default([]) }}"
+      os: "{{ ansible_distribution | default('Linux') }} {{ ansible_distribution_version | default('') }}"
+      kernel: "{{ ansible_kernel | default('N/A') }}"
+      arch: "{{ ansible_architecture | default('N/A') }}"
+      virtualization: "{{ ansible_virtualization_type | default('bare-metal') }}"
+      uptime_seconds: "{{ (ansible_uptime_seconds | default(0)) | int }}"
+      ssh_address: "{{ ansible_host | default(inventory_hostname) }}"
+
+- name: Compose report slug
+  ansible.builtin.set_fact:
+    _slug: "{{ cis_host.hostname }}-{{ cis_profile }}-{{ cis_mode_effective | default(cis_mode) }}-{{ cis_run_stamp }}"
+
+- name: Write HTML report
+  ansible.builtin.template:
+    src: report.html.j2
+    dest: "{{ cis_report_dir }}/{{ _slug }}.html"
+    mode: "0644"
+  delegate_to: localhost
+
+- name: Write JSON result
+  ansible.builtin.copy:
+    content: "{{ cis_result | to_nice_json }}"
+    dest: "{{ cis_report_dir }}/{{ _slug }}.json"
+    mode: "0644"
+  delegate_to: localhost
+
+- name: Write CSV findings
+  ansible.builtin.template:
+    src: findings.csv.j2
+    dest: "{{ cis_report_dir }}/{{ _slug }}.csv"
+    mode: "0644"
+  delegate_to: localhost
+  when: cis_report_csv | default(false)
+
+- name: Write fleet index
+  ansible.builtin.template:
+    src: index.html.j2
+    dest: "{{ cis_report_dir }}/index-{{ cis_run_stamp }}.html"
+    mode: "0644"
+  delegate_to: localhost
+  run_once: true
+  when: cis_report_index | default(false)
+
+- name: Report output path
+  ansible.builtin.debug:
+    msg: "Report written to {{ cis_report_dir }}/{{ _slug }}.html"

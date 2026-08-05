@@ -363,7 +363,7 @@ footer b{color:var(--ink2)}
       </div>
     </div>
     <div class="mbadges">
-      <span class="mb {{ 'hot' if IS_APPLY else 'cool' }}">{{ '修复模式 APPLY' if IS_APPLY else '扫描模式 SCAN' }}</span>
+      <span class="mb {{ 'hot' if IS_APPLY else 'cool' }}">{{ 'Apply' if IS_APPLY else 'Scan' }}</span>
       <span class="mb cool">{{ 'Profile' }} {{ cis_profile }}</span>
       <span class="mb">{{ 'Platform' }} {{ cis_platform }}</span>
       {% if IS_APPLY %}<span class="mb">{{ 'Disruptive' }} {{ 'allowed' if cis_allow_disruptive | bool else 'blocked' }}</span>{% endif %}
@@ -411,7 +411,7 @@ footer b{color:var(--ink2)}
       </div>
     </div>
     <details class="idmore">
-      <summary>{{ 'NIC details' }}（{{ cis_host.interfaces | length }} {{ 'interfaces' }} · {{ cis_host.all_ipv4 | length }} {{ 'IPv4 addresses' }}） · Ansible {{ 'SSH' }} {{ cis_host.ssh_address | e }}</summary>
+      <summary>{{ 'NIC details' }} ({{ cis_host.interfaces | length }} {{ 'interfaces' }} · {{ cis_host.all_ipv4 | length }} {{ 'IPv4 addresses' }}) · Ansible {{ 'SSH' }} {{ cis_host.ssh_address | e }}</summary>
       <table class="iftab">
         <thead><tr><th>{{ 'Interface' }}</th><th>MAC</th><th>IPv4</th><th>IPv6</th></tr></thead>
         <tbody>
@@ -439,7 +439,7 @@ footer b{color:var(--ink2)}
     <!-- overall score -->
     <div class="card">
       <h3>{{ 'Overall Score' }}
-        <span class="pill {{ tone }}">{{ '优秀 Pass' if tone == 'ok' else ('待改进 Fair' if tone == 'warn' else '风险偏高 Risk') }}</span>
+        <span class="pill {{ tone }}">{{ 'Pass' if tone == 'ok' else ('Fair' if tone == 'warn' else 'Risk') }}</span>
       </h3>
       <div class="cap">{{ 'Pass ÷ (Pass + Fail)' }}</div>
       <div class="ring">
@@ -633,7 +633,7 @@ footer b{color:var(--ink2)}
           <td colspan="5">
             <div class="det">
               <h4>{{ 'Finding' }}</h4>
-              <div class="obs {{ sinfo.cls if sinfo.cls in ['bad', 'ok', 'warn'] else '' }}">{{ (r.detail or '（无输出）') | e }}</div>
+              <div class="obs {{ sinfo.cls if sinfo.cls in ['bad', 'ok', 'warn'] else '' }}">{{ (r.detail or '(no output)') | e }}</div>
               {% if r.apply_status not in ['n/a', 'already'] %}
               <h4>{{ 'Remediation' }} · {{ ainfo.en }}</h4>
               <div class="obs {{ ainfo.cls if ainfo.cls in ['bad', 'ok', 'warn'] else '' }}">{{ (r.apply_detail or '—') | e }}</div>
@@ -692,26 +692,17 @@ footer b{color:var(--ink2)}
 
   <footer>
     <b>{{ cis_benchmark_name }} {{ cis_benchmark_version }}</b> ·
-    {{ 'Target' }} <b>{{ cis_host.hostname | e }}</b>（{{ cis_host.ipv4 | e }} / {{ cis_host.mac | upper | e }}） ·
+    {{ 'Target' }} <b>{{ cis_host.hostname | e }}</b> ({{ cis_host.ipv4 | e }} / {{ cis_host.mac | upper | e }}) ·
     {{ 'Mode' }} <b>{{ 'apply' if IS_APPLY else 'scan' }}</b> ·
     {{ 'Profile' }} <b>{{ cis_profile }}</b> · {{ 'Platform' }} <b>{{ cis_platform }}</b><br>
     {{ 'Started' }} {{ R.started_at }} · {{ 'target' }} {{ R.duration_seconds }}s ·
     {{ 'Engine' }} v{{ R.engine_version }} · {{ 'rendered' }} {{ cis_run_human }}
-    （{{ 'controller time' }}）<br>
+    ({{ 'controller time' }})<br>
     {{ 'Score = Pass ÷ (Pass + Fail); rules marked Manual / N.A. are excluded from the denominator. This automated report does not replace a manual security audit.' }}
   </footer>
 </div>
 
 <script>
-(function () {
-    }
-  // Always start in Chinese; only respect localStorage if user explicitly toggled
-  var saved = '';
-  try { saved = localStorage.getItem('cis_lang') || ''; } catch(e) {}
-  if (saved) 
-  if (btn) { btn.addEventListener('click', function () {
-}); }
-
   var body = document.getElementById('tb-body');
   var rows = [].slice.call(body.querySelectorAll('tr.r'));
   var chips = [].slice.call(document.querySelectorAll('#tb .chip'));
@@ -776,7 +767,6 @@ footer b{color:var(--ink2)}
   });
 
   document.getElementById('bpr').addEventListener('click', function () { window.print(); });
-})();
 </script>
 </body>
 </html>

@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  author: CIS Automation
+  description: CIS Benchmark assessment for Ubuntu Linux 20.04 LTS
+  license: MIT
+  min_ansible_version: "2.9"
+  platforms:
+    - name: EL
+      versions: ["20.04"]
+  galaxy_tags:
+    - cis
+    - security
+    - compliance
+    - hardening
+dependencies: []
