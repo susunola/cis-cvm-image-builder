@@ -13,7 +13,7 @@ Engine:  Bundled cis_engine.py (Linux) / cis_engine.ps1 (Windows).
          In-role gate via cis_fail_on_findings — no external audit.
          Roles ship inside the package (ciscvm/roles/) — no network at build time.
 
-Dependencies: Python >= 3.11 (stdlib only), Packer >= 1.9, ansible-core >= 2.15.
+Dependencies: Python >= 3.11 (stdlib only), Packer >= 1.12, ansible-core >= 2.15.
 
 Usage:
     ciscvm init [--target DIR]      # Generate ciscvm.toml
@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -244,7 +244,7 @@ profile             = "tencentos3"
 #                   sles15 | sles16
 #   Windows:        win2016 | win2019 | win2022 | win2025
 region              = "ap-guangzhou"
-zone                = "ap-guangzhou-4"
+zone                = "ap-guangzhou-7"
 instance_type       = "S5.MEDIUM2"
 source_image_id     = "img-xxxxxxxx"       # replace with real public image ID
 vpc_id              = "vpc-xxxxxxxx"
@@ -419,7 +419,9 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
             f"[image].copy_regions must be a list, got {type(copy_regions_raw).__name__}. "
             f"Use [] for no copy or ['ap-shanghai'] for cross-region copy."
         )
-    copy_regions: list[str] = [str(r) for r in copy_regions_raw]
+    copy_regions: list[str] = [
+        _sanitize_region_zone(str(r), "[image].copy_regions") for r in copy_regions_raw
+    ]
 
     return ResolvedConfig(
         profile_name=profile_name,
