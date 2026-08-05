@@ -384,6 +384,27 @@ def load_config(path: Path) -> dict[str, Any]:
     return data
 
 
+_CIS_REGION_DASHES = str.maketrans({
+    "\u2010": "-",  # hyphen
+    "\u2011": "-",  # non-breaking hyphen
+    "\u2012": "-",  # figure dash
+    "\u2013": "-",  # en dash
+    "\u2014": "-",  # em dash
+    "\u2015": "-",  # horizontal bar
+    "\u2212": "-",  # minus sign
+    "\uFF0D": "-",  # fullwidth hyphen-minus
+})
+
+
+def _sanitize_region_zone(value: str, label: str) -> str:
+    """Replace non-ASCII dashes with regular ASCII hyphen '-'."""
+    cleaned = str(value).translate(_CIS_REGION_DASHES)
+    if cleaned != value:
+        warn(f"{label} '{value}' contains a non-ASCII dash — "
+             f"auto-corrected to '{cleaned}'")
+    return cleaned
+
+
 def resolve(data: dict[str, Any]) -> ResolvedConfig:
     """Flatten raw config + profile lookup into a ResolvedConfig."""
     profile_name: str = data["build"]["profile"]
@@ -404,8 +425,8 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         profile_name=profile_name,
         profile=p,
         family=family,
-        region=str(data["build"]["region"]),
-        zone=str(data["build"]["zone"]),
+        region=_sanitize_region_zone(str(data["build"]["region"]), "[build].region"),
+        zone=_sanitize_region_zone(str(data["build"]["zone"]), "[build].zone"),
         instance_type=str(data["build"]["instance_type"]),
         source_image_id=str(data["build"]["source_image_id"]),
         vpc_id=str(data["build"]["vpc_id"]),
