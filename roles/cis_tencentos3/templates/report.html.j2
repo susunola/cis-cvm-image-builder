@@ -1,0 +1,782 @@
+{#- ==========================================================================
+     CIS compliance report - rendered on the Ansible control node.
+     Self-contained: no external CSS, fonts, JS or images.
+     Risk filter + multi-host aware.
+     v2 — professional enterprise layout with fixed overflow & refined visuals.
+     ========================================================================== -#}
+{%- set R = cis_result -%}
+{%- set S = R.summary -%}
+{%- set SA = S.all -%}
+{%- set MODE = cis_mode_effective | default(R.mode) -%}
+{%- set IS_APPLY = (MODE == 'apply') -%}
+{%- set GUID = cis_guidance | default({}) -%}
+{%- set SEC = cis_sections | default({'chapters': {}, 'subsections': {}}) -%}
+{%- macro L(zh, en) -%}{{ en }}{%- endmacro -%}
+{%- set ST = {
+      'pass':          {'en': 'Pass',     'cls': 'ok'},
+      'fail':          {'en': 'Fail',     'cls': 'bad'},
+      'manual':        {'en': 'Manual',   'cls': 'man'},
+      'error':         {'en': 'Error',    'cls': 'err'},
+      'notapplicable': {'en': 'N/A',      'cls': 'na'},
+      'skipped':       {'en': 'Skipped',  'cls': 'na'}
+   } -%}
+{%- set AP = {
+      'applied':            {'en': 'Fixed',            'cls': 'ok'},
+      'applied_pending':    {'en': 'Changed·Pending',  'cls': 'warn'},
+      'already':            {'en': 'Already ok',       'cls': 'ok'},
+      'failed':             {'en': 'Failed',           'cls': 'bad'},
+      'skipped_disruptive': {'en': 'High-risk skip','cls': 'warn'},
+      'unsupported':        {'en': 'No auto-fix',      'cls': 'na'},
+      'skipped_scan':       {'en': 'Scan-only',        'cls': 'na'},
+      'n/a':                {'en': '—',               'cls': 'na'}
+   } -%}
+{%- set RISK = {
+      'safe':       {'en': 'Low · auto',       'cls': 'ok'},
+      'disruptive': {'en': 'High risk','cls': 'warn'},
+      'none':       {'en': 'N/A',             'cls': 'na'}
+   } -%}
+{#- overall scalars -#}
+{%- set a_total  = SA.total            | default(0) | int -%}
+{%- set a_pass   = SA['pass']          | default(0) | int -%}
+{%- set a_fail   = SA.fail             | default(0) | int -%}
+{%- set a_man    = SA.manual           | default(0) | int -%}
+{%- set a_err    = SA.error            | default(0) | int -%}
+{%- set a_na     = SA.notapplicable    | default(0) | int -%}
+{%- set a_skip   = SA.skipped_by_selection | default(0) | int -%}
+{%- set a_asses  = SA.assessed         | default(0) | int -%}
+{%- set a_appl   = SA.applied          | default(0) | int -%}
+{%- set a_pend   = SA.applied_pending  | default(0) | int -%}
+{%- set score    = SA.score            | default(0) | float -%}
+{%- set tone     = 'ok' if score >= 90 else ('warn' if score >= 70 else 'bad') -%}
+{#- chapter roll-up -#}
+{%- set chapters = {} -%}
+{%- set chorder = [] -%}
+{%- for r in R.results -%}
+  {%- set ch = r.id.split('.')[0] -%}
+  {%- if ch not in chapters -%}
+    {%- set _ = chapters.update({ch: {'total': 0, 'pass': 0, 'fail': 0, 'manual': 0,
+                                      'error': 0, 'notapplicable': 0, 'skipped': 0,
+                                      'applied': 0}}) -%}
+    {%- set _ = chorder.append(ch) -%}
+  {%- endif -%}
+  {%- set c = chapters[ch] -%}
+  {%- set _ = c.update({'total': c['total'] + 1}) -%}
+  {%- set _ = c.update({r.status: c.get(r.status, 0) + 1}) -%}
+  {%- if r.apply_status in ['applied', 'applied_pending'] -%}
+    {%- set _ = c.update({'applied': c['applied'] + 1}) -%}
+  {%- endif -%}
+{%- endfor -%}
+{%- set circ = 439.82 -%}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ cis_benchmark_name }} {{ cis_benchmark_version }} · {{ cis_host.hostname | e }}</title>
+<style>
+:root{
+  --bg:#f0f2f8; --card:#ffffff; --ink:#1a2332; --ink2:#4a5f7a; --ink3:#8896aa;
+  --line:#e1e6ef; --line2:#eef1f7; --brand:#1e3a6e; --brand2:#3b6fd9;
+  --ok:#0d7a53; --okbg:#eaf6f1; --okln:#a8d9bf;
+  --bad:#c42a1e; --badbg:#fdf1f0; --badln:#f0bfb9;
+  --warn:#b86c00; --warnbg:#fef8eb; --warnln:#f5d98f;
+  --man:#1a50ba; --manbg:#eef3fc; --manln:#b8cdf5;
+  --err:#8b3dd4; --errbg:#f5eeff; --errln:#d4bbf5;
+  --na:#64748b;  --nabg:#eef1f6;  --naln:#d0d8e2;
+  --shadow-sm:0 1px 3px rgba(15,23,42,.04);
+  --shadow-md:0 4px 16px rgba(15,23,42,.06);
+  --shadow-lg:0 8px 32px rgba(15,23,42,.08);
+  --radius-sm:8px;
+  --radius-md:12px;
+  --radius-lg:18px;
+  --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",
+    "Hiragino Sans GB","Microsoft YaHei",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{
+  background:var(--bg);color:var(--ink);
+  font:14px/1.65 var(--font-sans);
+  font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;
+}
+code,.mono{font-family:var(--font-mono)}
+.wrap{max-width:1200px;margin:0 auto;padding:0 28px 72px}
+
+/* ── masthead ── */
+.mast{
+  background:linear-gradient(135deg,#122240 0%,#1a3560 40%,#1e4580 100%);
+  color:#fff;position:relative;overflow:hidden;
+}
+.mast::before{
+  content:'';position:absolute;top:-40%;right:-10%;width:500px;height:500px;
+  background:radial-gradient(circle,rgba(59,111,217,.12) 0,transparent 70%);
+  pointer-events:none;
+}
+.mast-in{max-width:1200px;margin:0 auto;padding:32px 28px 38px;
+  display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;justify-content:space-between;
+  position:relative;z-index:1}
+.mast h1{margin:0;font-size:22px;font-weight:700;letter-spacing:.3px;line-height:1.3}
+.mast .sub{margin-top:8px;font-size:13px;color:#b8c8e0;line-height:1.6}
+.mast .org{font-size:11px;color:#8fa4c4;letter-spacing:1px;text-transform:uppercase;
+  margin-bottom:8px;font-weight:600;text-transform:uppercase}
+.mbadges{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.mb{display:inline-flex;align-items:center;padding:5px 12px;border-radius:999px;
+  font-size:11.5px;font-weight:600;background:rgba(255,255,255,.1);
+  border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(4px)}
+.mb.hot{background:rgba(245,180,50,.88);border-color:rgba(245,180,50,.9);color:#3d2800}
+.mb.cool{background:rgba(255,255,255,.92);color:#1a3058;border-color:transparent}
+/* ── host identity card ── */
+.idcard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-md);margin-top:-20px;position:relative;z-index:2;overflow:hidden}
+.idcard .strip{height:4px;background:linear-gradient(90deg,var(--brand2),#30b89a,#e8a828)}
+.idgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;
+  background:var(--line2);padding:1px}
+.idcell{background:var(--card);padding:18px 20px;min-width:0}
+.idcell .k{font-size:10.5px;color:var(--ink3);letter-spacing:.8px;text-transform:uppercase;
+  font-weight:700;margin-bottom:6px;display:block}
+.idcell .v{font-size:15px;font-weight:650;color:var(--ink);
+  line-height:1.4;word-break:break-word;overflow-wrap:anywhere}
+.idcell .v.mono{font-family:var(--font-mono);font-size:13.5px;
+  letter-spacing:-.2px}
+.idcell.hero .v{font-size:20px;color:var(--brand);letter-spacing:-.2px}
+.idcell .sm{font-size:13px;font-weight:550}
+.idmore{border-top:1px solid var(--line2);padding:0 20px}
+.idmore summary{cursor:pointer;padding:13px 0;font-size:12.5px;color:var(--ink2);
+  font-weight:600;list-style:none;display:flex;align-items:center;gap:8px}
+.idmore summary::-webkit-details-marker{display:none}
+.idmore summary::before{content:"\25B8";color:var(--ink3);transition:transform .15s;font-size:10px}
+.idmore[open] summary::before{transform:rotate(90deg)}
+.iftab{width:100%;border-collapse:collapse;margin-bottom:14px;font-size:12.5px}
+.iftab th{text-align:left;font-size:10.5px;color:var(--ink3);text-transform:uppercase;
+  letter-spacing:.7px;padding:7px 12px;border-bottom:2px solid var(--line);font-weight:700}
+.iftab td{padding:8px 12px;border-bottom:1px solid var(--line2);
+  font-family:var(--font-mono);font-size:12.5px}
+.iftab tr:last-child td{border-bottom:none}
+@media(max-width:720px){.idgrid{grid-template-columns:1fr 1fr}}
+@media(max-width:480px){.idgrid{grid-template-columns:1fr}}
+
+/* ── section headings ── */
+h2.sec{font-size:15.5px;font-weight:700;margin:36px 0 16px;color:var(--ink);
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+h2.sec::before{content:"";width:4px;height:18px;background:linear-gradient(180deg,var(--brand2),#60a5fa);
+  border-radius:3px}
+.hint{font-weight:450;font-size:12.5px;color:var(--ink3)}
+
+/* ── score + level cards ── */
+.deck{display:grid;grid-template-columns:300px 1fr 1fr;gap:18px;align-items:stretch}
+@media(max-width:1040px){.deck{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-md);
+  box-shadow:var(--shadow-sm);padding:24px;transition:box-shadow .2s}
+.card:hover{box-shadow:var(--shadow-md)}
+.card h3{margin:0 0 4px;font-size:13.5px;font-weight:700;letter-spacing:.3px;
+  display:flex;align-items:center;justify-content:space-between;gap:8px}
+.cap{font-size:11.5px;color:var(--ink3);margin-bottom:18px;line-height:1.55}
+
+.ring{position:relative;width:170px;height:170px;margin:4px auto 0}
+.ring svg{transform:rotate(-90deg);display:block}
+.ring .ctr{position:absolute;left:0;top:0;right:0;bottom:0;display:flex;
+  flex-direction:column;align-items:center;justify-content:center;gap:3px}
+.ring .val{font-size:36px;font-weight:800;line-height:1;letter-spacing:-1.5px}
+.ring .lab{font-size:12px;color:var(--ink3);font-weight:500}
+.dlegend{margin-top:20px;display:grid;gap:8px}
+.dlegend div{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--ink2)}
+.dot{width:9px;height:9px;border-radius:3px;flex:0 0 9px}
+.dlegend b{margin-left:auto;color:var(--ink);font-weight:700}
+
+.lvtag{display:inline-flex;align-items:center;padding:3px 10px;border-radius:6px;
+  font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase}
+.lvtag.l1{background:#e8f0fe;color:#1a50ba}
+.lvtag.l2{background:#f3e8ff;color:#7c3aed}
+
+.bigrow{display:flex;align-items:baseline;gap:12px;margin:6px 0 18px;flex-wrap:wrap}
+.bigrow .n{font-size:44px;font-weight:800;line-height:1;letter-spacing:-1.5px}
+.bigrow .u{font-size:12.5px;color:var(--ink3);font-weight:500}
+.bar{height:10px;border-radius:6px;background:var(--nabg);overflow:hidden;display:flex;
+  gap:2px}
+.bar i{display:block;height:100%;border-radius:5px;transition:width .6s ease}
+.barlabels{display:flex;justify-content:space-between;gap:10px;font-size:11.5px;
+  color:var(--ink3);margin-top:8px;flex-wrap:wrap}
+.kv{display:grid;grid-template-columns:1fr auto;margin-top:18px;
+  border-top:1px solid var(--line2);padding-top:4px}
+.kv .k,.kv .v{padding:8px 0;border-bottom:1px solid var(--line2);font-size:12.5px}
+.kv .k{color:var(--ink2);display:flex;align-items:center;gap:8px}
+.kv .v{text-align:right;font-weight:700;color:var(--ink);padding-left:14px}
+.kv .v.z{color:var(--ink3);font-weight:500}
+.pill{display:inline-flex;align-items:center;padding:2px 9px;border-radius:6px;
+  font-size:11px;font-weight:650;border:1px solid transparent;white-space:nowrap;
+  line-height:1.6}
+.pill.ok{background:var(--okbg);color:var(--ok);border-color:var(--okln)}
+.pill.bad{background:var(--badbg);color:var(--bad);border-color:var(--badln)}
+.pill.warn{background:var(--warnbg);color:var(--warn);border-color:var(--warnln)}
+.pill.man{background:var(--manbg);color:var(--man);border-color:var(--manln)}
+.pill.err{background:var(--errbg);color:var(--err);border-color:var(--errln)}
+.pill.na{background:var(--nabg);color:var(--na);border-color:var(--naln)}
+
+.notice{margin-top:16px;padding:11px 14px;border-radius:var(--radius-sm);font-size:12.5px;
+  background:var(--manbg);color:#163a8a;border:1px solid var(--manln);line-height:1.7}
+.notice.warn{background:var(--warnbg);color:var(--warn);border-color:var(--warnln)}
+.notice code{background:rgba(0,0,0,.05);padding:2px 6px;border-radius:4px;
+  font-size:11.5px;font-family:var(--font-mono)}
+
+/* ── chapter breakdown ── */
+.chaps{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-md);
+  box-shadow:var(--shadow-sm);padding:12px 24px 18px}
+.chap{display:grid;grid-template-columns:260px 1fr 140px;gap:16px;align-items:center;
+  padding:13px 0;border-bottom:1px solid var(--line2);transition:background .15s}
+.chap:last-child{border-bottom:none}
+.chap:hover{background:var(--line2);border-radius:var(--radius-sm)}
+@media(max-width:780px){.chap{grid-template-columns:1fr;gap:6px}}
+.chap .nm{font-size:13px;font-weight:650;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.chap .nm span{color:var(--ink3);font-weight:500}
+.chap .cnt{font-size:12.5px;color:var(--ink2);text-align:right;font-weight:600}
+.sbar{height:12px;border-radius:7px;overflow:hidden;display:flex;background:var(--nabg);gap:1.5px}
+.sbar i{height:100%;border-radius:6px}
+
+/* ── toolbar ── */
+.toolbar{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-md);
+  padding:12px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+  box-shadow:var(--shadow-sm);position:sticky;top:0;z-index:20;
+  backdrop-filter:blur(8px);background:rgba(255,255,255,.92)}
+.chip{border:1.5px solid var(--line);background:#fff;border-radius:999px;padding:5px 13px;
+  font-size:12px;cursor:pointer;color:var(--ink2);font-weight:600;
+  display:inline-flex;align-items:center;gap:6px;user-select:none;transition:all .15s}
+.chip:hover{border-color:var(--brand2);color:var(--brand)}
+.chip.on{background:var(--brand);border-color:var(--brand);color:#fff;
+  box-shadow:0 2px 8px rgba(30,58,110,.25)}
+.chip .c{font-size:10.5px;opacity:.7}
+.toolbar input[type=search],.toolbar select{
+  border:1.5px solid var(--line);border-radius:var(--radius-sm);padding:7px 11px;
+  font-size:12.5px;background:#fff;color:var(--ink);font-family:inherit;
+  transition:border-color .15s}
+.toolbar input[type=search]:focus,.toolbar select:focus{
+  outline:none;border-color:var(--brand2);box-shadow:0 0 0 3px rgba(59,111,217,.12)}
+.toolbar input[type=search]{flex:1;min-width:200px}
+.tbtn{border:1.5px solid var(--line);background:#fff;border-radius:var(--radius-sm);
+  padding:7px 13px;font-size:12px;cursor:pointer;color:var(--ink2);font-weight:600;
+  transition:all .15s}
+.tbtn:hover{border-color:var(--brand2);color:var(--brand);background:#fafcff}
+
+/* ── findings table ── */
+.tblwrap{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-md);
+  box-shadow:var(--shadow-sm);overflow:hidden;margin-top:14px}
+table.f{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed}
+table.f thead th{position:sticky;top:52px;background:#f5f7fc;z-index:10;
+  text-align:left;font-size:10.5px;letter-spacing:.7px;text-transform:uppercase;
+  color:var(--ink3);font-weight:750;padding:12px 14px;border-bottom:2px solid var(--line)}
+table.f thead th:nth-child(1){width:100px} /* ID */
+table.f thead th:nth-child(2){width:auto} /* Rule — gets remaining space */
+table.f thead th:nth-child(3){width:60px} /* Level */
+table.f thead th:nth-child(4){width:90px} /* Result */
+table.f thead th:nth-child(5){width:120px} /* Risk / Action */
+table.f tbody tr.r{border-bottom:1px solid var(--line2);cursor:pointer;
+  transition:background .12s}
+table.f tbody tr.r:hover{background:#f4f7fe}
+table.f tbody tr.r.open{background:#eef3fd}
+table.f td{padding:12px 14px;vertical-align:top}
+td.id{font-family:var(--font-mono);
+  font-size:12.5px;font-weight:700;color:var(--brand2);white-space:nowrap}
+td.ti{font-size:13px;line-height:1.55;word-break:break-word;overflow-wrap:anywhere}
+td.ti .fam{display:block;margin-top:4px;font-size:11px;color:var(--ink3)}
+td.c{white-space:nowrap}
+tr.d{display:none;background:#fafbfd}
+tr.d.show{display:table-row}
+tr.d td{padding:0 14px 18px}
+.det{border-left:3.5px solid var(--brand2);padding:4px 0 4px 16px;
+  border-radius:0 0 0 6px}
+.det h4{margin:14px 0 6px;font-size:11.5px;letter-spacing:.6px;text-transform:uppercase;
+  color:var(--ink3);font-weight:750}
+.det h4:first-child{margin-top:4px}
+.det p{margin:0 0 4px;font-size:13px;color:var(--ink2);line-height:1.7}
+.det pre{margin:0;padding:12px 14px;background:#0f172a;color:#dce8f8;border-radius:var(--radius-sm);
+  font-family:var(--font-mono);font-size:12px;
+  line-height:1.65;overflow-x:auto;white-space:pre-wrap;word-break:break-word}
+.det .obs{background:var(--nabg);color:var(--ink);border-radius:var(--radius-sm);
+  padding:10px 14px;font-family:var(--font-mono);font-size:12px;
+  white-space:pre-wrap;word-break:break-word;line-height:1.65}
+.det .obs.bad{background:var(--badbg);color:#8b1a1a}
+.det .obs.ok{background:var(--okbg);color:#0a5c3a}
+.det .obs.warn{background:var(--warnbg);color:#8a5a00}
+.empty{padding:48px;text-align:center;color:var(--ink3);font-size:14px;display:none}
+
+/* ── collapsibles ── */
+details.blk{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-md);
+  box-shadow:var(--shadow-sm);margin-top:14px;overflow:hidden}
+details.blk>summary{cursor:pointer;padding:14px 20px;font-size:13px;font-weight:700;
+  list-style:none;display:flex;align-items:center;gap:8px;transition:background .12s}
+details.blk>summary:hover{background:var(--line2)}
+details.blk>summary::-webkit-details-marker{display:none}
+details.blk>summary::before{content:"\25B8";color:var(--ink3);transition:transform .15s;font-size:10px}
+details.blk[open]>summary::before{transform:rotate(90deg)}
+details.blk>summary .n{margin-left:auto;color:var(--ink3);font-weight:600;font-size:12px}
+.blkbody{padding:0 20px 18px;font-size:13px;color:var(--ink2);line-height:1.75}
+.blkbody ul{margin:0;padding-left:20px;line-height:1.9}
+.blkbody code{font-size:11.5px;background:var(--nabg);padding:2px 6px;border-radius:4px;
+  font-family:var(--font-mono)}
+.exl{width:100%;border-collapse:collapse;font-size:12.5px}
+.exl td{padding:7px 10px;border-bottom:1px solid var(--line2);vertical-align:top}
+.exl tr:last-child td{border-bottom:none}
+.exl td:first-child{font-family:var(--font-mono);
+  white-space:nowrap;color:var(--brand2);font-weight:700;width:1%}
+.exl td:last-child{color:var(--ink3);white-space:nowrap;width:1%;text-align:right}
+
+/* ── fleet banner ── */
+.fleetbar{background:linear-gradient(135deg,#e8f0fe,#f0e8ff);border:1px solid #c8d8f0;
+  color:#1a3560;border-radius:var(--radius-md);
+  padding:14px 20px;font-size:13px;margin-top:32px;line-height:1.7;
+  font-weight:500;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.fleetbar a{color:var(--brand2);font-weight:700;text-decoration:none;
+  border-bottom:1.5px solid transparent;transition:border-color .15s}
+.fleetbar a:hover{border-bottom-color:var(--brand2)}
+.fleetbar code{background:rgba(30,58,110,.07);padding:2px 7px;border-radius:4px;
+  font-size:11.5px;font-family:var(--font-mono)}
+
+/* ── footer ── */
+footer{margin-top:40px;padding-top:20px;border-top:1px solid var(--line);
+  font-size:11.5px;color:var(--ink3);line-height:2}
+footer b{color:var(--ink2)}
+
+/* ── print ── */
+@media print{
+  body{background:#fff}
+  .toolbar,.mast{background:#122240 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .card,.chaps,.tblwrap,.idcard,details.blk{box-shadow:none;break-inside:avoid}
+  table.f thead th{position:static}
+  .fleetbar{border:1px solid #ccc;background:#f5f5f5 !important}
+}
+</style>
+</head>
+<body>
+
+<header class="mast">
+  <div class="mast-in">
+    <div>
+      {% if cis_org_name %}<div class="org">{{ cis_org_name | e }}</div>{% endif %}
+      <h1>{{ 'Compliance Report' }}
+        <span style="display:block;font-size:13px;font-weight:500;color:#b0c4e0;margin-top:7px;letter-spacing:0">{{ cis_benchmark_name }} {{ cis_benchmark_version }}</span>
+      </h1>
+      <div class="sub">
+        {{ cis_host.hostname | e }}
+        {%- if cis_host.fqdn and cis_host.fqdn != cis_host.hostname %} · {{ cis_host.fqdn | e }}{% endif %}
+        &nbsp;|&nbsp; {{ 'Generated' }} {{ cis_run_human }} &nbsp;|&nbsp; {{ 'collection' }} {{ R.duration_seconds }}s
+      </div>
+    </div>
+    <div class="mbadges">
+      <span class="mb {{ 'hot' if IS_APPLY else 'cool' }}">{{ '修复模式 APPLY' if IS_APPLY else '扫描模式 SCAN' }}</span>
+      <span class="mb cool">{{ 'Profile' }} {{ cis_profile }}</span>
+      <span class="mb">{{ 'Platform' }} {{ cis_platform }}</span>
+      {% if IS_APPLY %}<span class="mb">{{ 'Disruptive' }} {{ 'allowed' if cis_allow_disruptive | bool else 'blocked' }}</span>{% endif %}
+      <span class="mb">{{ 'Engine' }} v{{ R.engine_version }}</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  {% if cis_fleet_size is defined and cis_fleet_size | int > 1 %}
+  <div class="fleetbar">
+    {{ 'This report is one of' }} {{ cis_fleet_size }} {{ 'hosts assessed in this run.' }}
+    <a href="index-{{ cis_run_stamp }}.html">{{ 'View fleet overview →' }}</a>
+  </div>
+  {% endif %}
+
+  <!-- ============ host identity ============ -->
+  <section class="idcard">
+    <div class="strip"></div>
+    <div class="idgrid">
+      <div class="idcell hero">
+        <div class="k">{{ 'Hostname' }}</div>
+        <div class="v">{{ cis_host.hostname | e }}</div>
+      </div>
+      <div class="idcell hero">
+        <div class="k">{{ 'IPv4' }}</div>
+        <div class="v mono">{{ cis_host.ipv4 | e if cis_host.ipv4 else '—' }}</div>
+      </div>
+      <div class="idcell hero">
+        <div class="k">{{ 'MAC' }}</div>
+        <div class="v mono">{{ cis_host.mac | upper | e if cis_host.mac else '—' }}</div>
+      </div>
+      <div class="idcell">
+        <div class="k">{{ 'OS' }}</div>
+        <div class="v sm">{{ cis_host.os | e if cis_host.os else '—' }}</div>
+      </div>
+      <div class="idcell">
+        <div class="k">{{ 'Kernel / Arch' }}</div>
+        <div class="v mono" style="font-size:12.5px">{{ cis_host.kernel | e }}{% if cis_host.arch %} · {{ cis_host.arch | e }}{% endif %}</div>
+      </div>
+      <div class="idcell">
+        <div class="k">{{ 'Runtime' }}</div>
+        <div class="v sm">{{ cis_host.virtualization | e if cis_host.virtualization else '—' }}{% if cis_host.uptime_seconds | int > 0 %}<span style="color:var(--ink3);font-weight:500"> · {{ cis_host.uptime_seconds | int // 86400 }} {{ 'd' }} uptime</span>{% endif %}</div>
+      </div>
+    </div>
+    <details class="idmore">
+      <summary>{{ 'NIC details' }}（{{ cis_host.interfaces | length }} {{ 'interfaces' }} · {{ cis_host.all_ipv4 | length }} {{ 'IPv4 addresses' }}） · Ansible {{ 'SSH' }} {{ cis_host.ssh_address | e }}</summary>
+      <table class="iftab">
+        <thead><tr><th>{{ 'Interface' }}</th><th>MAC</th><th>IPv4</th><th>IPv6</th></tr></thead>
+        <tbody>
+        {% for dev, d in (cis_host.interfaces | dictsort) %}
+          <tr>
+            <td>{{ dev | e }}</td>
+            <td>{{ (d.mac | upper) if d.mac else '—' }}</td>
+            <td>{{ d.ipv4 | join(', ') if d.ipv4 else '—' }}</td>
+            <td>{{ d.ipv6 | join(', ') if d.ipv6 else '—' }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4">{{ 'No interface data — the' }} <code>ip</code> {{ 'command is missing on the target.' }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </details>
+  </section>
+
+  <!-- ============ score + L1/L2 ============ -->
+  <h2 class="sec">{{ 'Compliance Overview' }}
+    <span class="hint">{{ 'Evaluated' }} {{ a_total }} {{ 'rules,' }} {{ a_asses }} {{ 'auto-assessable' }}{% if a_skip %}{{ ';' }} {{ a_skip }} {{ 'excluded by profile / platform' }}{% endif %}</span>
+  </h2>
+
+  <div class="deck">
+    <!-- overall score -->
+    <div class="card">
+      <h3>{{ 'Overall Score' }}
+        <span class="pill {{ tone }}">{{ '优秀 Pass' if tone == 'ok' else ('待改进 Fair' if tone == 'warn' else '风险偏高 Risk') }}</span>
+      </h3>
+      <div class="cap">{{ 'Pass ÷ (Pass + Fail)' }}</div>
+      <div class="ring">
+        <svg width="170" height="170" viewBox="0 0 170 170">
+          <circle cx="85" cy="85" r="72" fill="none" stroke="#eef1f7" stroke-width="16"></circle>
+          <circle cx="85" cy="85" r="72" fill="none" stroke-linecap="round" stroke-width="16"
+                  stroke="{{ '#0d7a53' if tone == 'ok' else ('#c98a12' if tone == 'warn' else '#c42a1e') }}"
+                  stroke-dasharray="{{ (score / 100 * circ) | round(1) }} {{ circ }}"></circle>
+        </svg>
+        <div class="ctr">
+          <div class="val" style="color:{{ '#0d7a53' if tone == 'ok' else ('#c98a12' if tone == 'warn' else '#c42a1e') }}">{{ score }}<span style="font-size:18px">%</span></div>
+          <div class="lab">{{ a_pass }} / {{ a_asses }}</div>
+        </div>
+      </div>
+      <div class="dlegend">
+        <div><span class="dot" style="background:#0d7a53"></span>{{ 'Pass' }}<b>{{ a_pass }}</b></div>
+        <div><span class="dot" style="background:#c42a1e"></span>{{ 'Fail' }}<b>{{ a_fail }}</b></div>
+        <div><span class="dot" style="background:#1a50ba"></span>{{ 'Manual' }}<b>{{ a_man }}</b></div>
+        <div><span class="dot" style="background:#8b3dd4"></span>{{ 'Error' }}<b>{{ a_err }}</b></div>
+        <div><span class="dot" style="background:#cbd5e1"></span>{{ 'N/A' }}<b>{{ a_na }}</b></div>
+      </div>
+    </div>
+
+    {% for lv in ['L1', 'L2'] %}
+    {%- set D = S[lv] -%}
+    {%- set tot = D.total | default(0) | int -%}
+    {%- set npass = D['pass'] | default(0) | int -%}
+    {%- set nfail = D.fail | default(0) | int -%}
+    {%- set nman = D.manual | default(0) | int -%}
+    {%- set nerr = D.error | default(0) | int -%}
+    {%- set applied = D.applied | default(0) | int -%}
+    {%- set pending = D.applied_pending | default(0) | int -%}
+    {%- set afail = D.apply_failed | default(0) | int -%}
+    {%- set adisr = D.skipped_disruptive | default(0) | int -%}
+    {%- set auns = D.unsupported | default(0) | int -%}
+    {%- set alrd = D.already | default(0) | int -%}
+    {%- set tt = [tot, 1] | max -%}
+    <div class="card">
+      <h3>
+        <span><span class="lvtag {{ lv | lower }}">{{ lv }}</span>
+          &nbsp;{{ 'Level 1 · Baseline' if lv == 'L1' else 'Level 2 · Defense-in-depth' }}</span>
+        <span class="pill na">{{ 'This run' }} {{ tot }} {{ 'rules' }}</span>
+      </h3>
+      <div class="cap">
+        {% if IS_APPLY %}{{ 'Rules actually remediated by this run:' }} {{ lv }}{% else %}{{ 'scan makes no changes; these are pending fixes' }}{% endif %}
+      </div>
+
+      {% if IS_APPLY %}
+      <div class="bigrow">
+        <span class="n" style="color:{{ '#0d7a53' if applied > 0 else '#8896aa' }}">{{ applied }}</span>
+        <span class="u">{{ 'fixed' }}{% if pending %}{{ ' (' }}{{ pending }} {{ 'pending restart)' }}{% endif %}</span>
+      </div>
+      {% else %}
+      <div class="bigrow">
+        <span class="n" style="color:{{ '#c42a1e' if nfail > 0 else '#0d7a53' }}">{{ nfail }}</span>
+        <span class="u">{{ 'to fix / total' }} {{ tot }} {{ '' }}</span>
+      </div>
+      {% endif %}
+
+      <div class="bar">
+        <i style="background:#0d7a53;width:{{ (100.0 * npass / tt) | round(2) }}%"></i>
+        <i style="background:#c42a1e;width:{{ (100.0 * nfail / tt) | round(2) }}%"></i>
+        <i style="background:#1a50ba;width:{{ (100.0 * nman / tt) | round(2) }}%"></i>
+        <i style="background:#8b3dd4;width:{{ (100.0 * nerr / tt) | round(2) }}%"></i>
+      </div>
+      <div class="barlabels">
+        <span>{{ 'Compliance' }} <b style="color:var(--ink)">{{ D.score }}%</b></span>
+        <span>{{ npass }} {{ 'Pass' }} · {{ nfail }} {{ 'Fail' }} · {{ nman }} {{ 'Manual' }}</span>
+      </div>
+
+      <div class="kv">
+        <div class="k"><span class="pill ok">{{ 'Applied' }}</span></div>
+        <div class="v{{ ' z' if applied == 0 }}">{{ applied }}</div>
+        <div class="k"><span class="pill warn">{{ 'Changed·Pending' }}</span></div>
+        <div class="v{{ ' z' if pending == 0 }}">{{ pending }}</div>
+        <div class="k"><span class="pill bad">{{ 'Apply failed' }}</span></div>
+        <div class="v{{ ' z' if afail == 0 }}">{{ afail }}</div>
+        <div class="k"><span class="pill warn">{{ 'Skipped·High-risk' }}</span></div>
+        <div class="v{{ ' z' if adisr == 0 }}">{{ adisr }}</div>
+        <div class="k"><span class="pill na">{{ 'No auto-fix' }}</span></div>
+        <div class="v{{ ' z' if auns == 0 }}">{{ auns }}</div>
+        <div class="k"><span class="pill ok">{{ 'Already ok' }}</span></div>
+        <div class="v{{ ' z' if alrd == 0 }}">{{ alrd }}</div>
+      </div>
+
+      {% if not IS_APPLY %}
+      <div class="notice">
+        {{ 'Run' }} <code>-e cis_mode=apply -e cis_profile={{ lv }}</code> {{ 'to auto-remediate the safe subset; rules needing reboot / outage are skipped by default.' }}
+      </div>
+      {% elif adisr > 0 and not cis_allow_disruptive | bool %}
+      <div class="notice warn">
+        {{ adisr }} {{ 'fixes need reboot / remount / outage and were skipped. Re-run with' }} <code>-e cis_allow_disruptive=true</code> {{ 'in a change window.' }}
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- ============ chapters ============ -->
+  <h2 class="sec">{{ 'Chapter Breakdown' }}<span class="hint">{{ 'green=pass red=fail blue=manual purple=error' }}</span></h2>
+  <div class="chaps">
+    {% for ch in chorder | sort %}
+    {%- set c = chapters[ch] -%}
+    {%- set t = [c['total'], 1] | max -%}
+    <div class="chap">
+      <div class="nm">{{ ch }}. {{ SEC.chapters.get(ch, '') | e }} <span>({{ c['total'] }})</span></div>
+      <div class="sbar">
+        <i style="background:#0d7a53;width:{{ (100.0 * c['pass'] / t) | round(2) }}%"></i>
+        <i style="background:#c42a1e;width:{{ (100.0 * c['fail'] / t) | round(2) }}%"></i>
+        <i style="background:#1a50ba;width:{{ (100.0 * c['manual'] / t) | round(2) }}%"></i>
+        <i style="background:#8b3dd4;width:{{ (100.0 * c['error'] / t) | round(2) }}%"></i>
+      </div>
+      <div class="cnt">
+        <span style="color:#0d7a53;font-weight:700">{{ c['pass'] }}</span> /
+        <span style="color:#c42a1e;font-weight:700">{{ c['fail'] }}</span>
+        {%- if IS_APPLY and c['applied'] %} <span class="pill ok">{{ 'Fix' }} {{ c['applied'] }}</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- ============ findings ============ -->
+  <h2 class="sec">{{ 'Findings' }}<span class="hint">{{ 'click any row to expand rationale & remediation' }}</span></h2>
+
+  <div class="toolbar" id="tb">
+    <span class="chip on" data-st="all">{{ 'All' }} <span class="c">{{ a_total }}</span></span>
+    <span class="chip" data-st="fail">{{ 'Fail' }} <span class="c">{{ a_fail }}</span></span>
+    <span class="chip" data-st="pass">{{ 'Pass' }} <span class="c">{{ a_pass }}</span></span>
+    <span class="chip" data-st="manual">{{ 'Manual' }} <span class="c">{{ a_man }}</span></span>
+    {% if a_err %}<span class="chip" data-st="error">{{ 'Error' }} <span class="c">{{ a_err }}</span></span>{% endif %}
+    {% if IS_APPLY %}<span class="chip" data-st="applied">{{ 'Fixed' }} <span class="c">{{ a_appl + a_pend }}</span></span>{% endif %}
+    <select id="frisk">
+      <option value="">{{ 'All risks' }}</option>
+      <option value="safe">{{ 'Low · auto' }}</option>
+      <option value="disruptive">{{ 'High risk' }}</option>
+      <option value="none">{{ 'N/A' }}</option>
+    </select>
+    <select id="flv">
+      <option value="">{{ 'All levels' }}</option>
+      <option value="1">{{ 'Only L1' }}</option>
+      <option value="2">{{ 'Only L2' }}</option>
+    </select>
+    <select id="fch">
+      <option value="">{{ 'All chapters' }}</option>
+      {% for ch in chorder | sort %}
+      <option value="{{ ch }}">{{ ch }}. {{ SEC.chapters.get(ch, '') | e }}</option>
+      {% endfor %}
+    </select>
+    <input type="search" id="fq" placeholder="{{ 'Search ID, title or keyword…' }}">
+    <button class="tbtn" id="bex">{{ 'Expand' }}</button>
+    <button class="tbtn" id="bpr">{{ 'Print / Export' }}</button>
+  </div>
+
+  <div class="tblwrap">
+    <table class="f">
+      <thead>
+        <tr>
+          <th style="width:100px">{{ 'ID' }}</th>
+          <th>{{ 'Rule' }}</th>
+          <th style="width:60px">{{ 'Level' }}</th>
+          <th style="width:90px">{{ 'Result' }}</th>
+          <th style="width:140px">{% if IS_APPLY %}{{ 'Action' }}{% else %}{{ 'Risk' }}{% endif %}</th>
+        </tr>
+      </thead>
+      <tbody id="tb-body">
+      {% for r in R.results %}
+      {%- set g = GUID.get(r.id, {}) -%}
+      {%- set sinfo = ST.get(r.status, ST['notapplicable']) -%}
+      {%- set ainfo = AP.get(r.apply_status, AP['n/a']) -%}
+      {%- set did = 'd' ~ (r.id | replace('.', '_')) -%}
+        <tr class="r" data-id="{{ did }}" data-st="{{ r.status }}" data-risk="{{ r.risk }}"
+            data-ap="{{ 'applied' if r.apply_status in ['applied', 'applied_pending'] else '' }}"
+            data-lv="{{ r.level }}" data-ch="{{ r.id.split('.')[0] }}"
+            data-q="{{ (r.id ~ ' ' ~ r.title ~ ' ' ~ r.family ~ ' ' ~ SEC.subsections.get(r.section, '')) | lower | e }}">
+          <td class="id">{{ r.id }}</td>
+          <td class="ti">{{ r.title | e }}
+            <span class="fam">{{ SEC.subsections.get(r.section, SEC.chapters.get(r.id.split('.')[0], '')) | e }}
+              · {{ r.assessment }} · {{ r.family }}</span>
+          </td>
+          <td class="c"><span class="lvtag l{{ r.level }}">L{{ r.level }}</span></td>
+          <td class="c"><span class="pill {{ sinfo.cls }}">{{ sinfo.en }}</span></td>
+          <td class="c">
+            {%- if IS_APPLY -%}
+            <span class="pill {{ ainfo.cls }}">{{ ainfo.en }}</span>
+            {%- else -%}
+            <span class="pill {{ RISK.get(r.risk, {'cls':'na'}).cls }}">{{ RISK.get(r.risk, {'en': r.risk}).en }}</span>
+            {%- endif -%}
+          </td>
+        </tr>
+        <tr class="d" id="{{ did }}">
+          <td colspan="5">
+            <div class="det">
+              <h4>{{ 'Finding' }}</h4>
+              <div class="obs {{ sinfo.cls if sinfo.cls in ['bad', 'ok', 'warn'] else '' }}">{{ (r.detail or '（无输出）') | e }}</div>
+              {% if r.apply_status not in ['n/a', 'already'] %}
+              <h4>{{ 'Remediation' }} · {{ ainfo.en }}</h4>
+              <div class="obs {{ ainfo.cls if ainfo.cls in ['bad', 'ok', 'warn'] else '' }}">{{ (r.apply_detail or '—') | e }}</div>
+              {% endif %}
+              {% if g.get('description') %}<h4>{{ 'Description' }}</h4><p>{{ g.get('description') | e }}</p>{% endif %}
+              {% if g.get('rationale') %}<h4>{{ 'Rationale' }}</h4><p>{{ g.get('rationale') | e }}</p>{% endif %}
+              {% if g.get('impact') %}<h4>{{ 'Impact' }}</h4><p>{{ g.get('impact') | e }}</p>{% endif %}
+              {% if g.get('audit') %}<h4>{{ 'Audit (CIS)' }}</h4><pre>{{ g.get('audit') | e }}</pre>{% endif %}
+              {% if cis_report_embed_remediation | bool and g.get('remediation') and r.status in ['fail', 'error', 'manual'] %}
+              <h4>{{ 'Remediation (CIS)' }}</h4><pre>{{ g.get('remediation') | e }}</pre>
+              {% endif %}
+              <h4>{{ 'Meta' }}</h4>
+              <p>{{ 'Levels' }} L{{ r.levels | join('/L') }} · {{ 'Method' }} {{ r.assessment }}
+                 · {{ 'Family' }} <code>{{ r.family }}</code>
+                 · {{ 'Risk' }} {{ RISK.get(r.risk, {'en': r.risk}).en }}
+                 {%- if r.page %} · {{ 'PDF p.' }} {{ r.page }} {{ '' }}{% endif %}
+                 · {{ r.duration_ms }} ms</p>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <div class="empty" id="none">{{ 'No matching rules — try relaxing the filters.' }}</div>
+  </div>
+
+  {% if IS_APPLY and R.changed_files %}
+  <details class="blk" open>
+    <summary>{{ 'Changed files' }}<span class="n">{{ R.changed_files | length }}</span></summary>
+    <div class="blkbody">
+      <p style="margin:0 0 8px">{{ 'Originals backed up to' }} <code>{{ cis_backup_dir }}</code> {{ 'for rollback.' }}</p>
+      <ul>{% for f in R.changed_files %}<li><code>{{ f | e }}</code></li>{% endfor %}</ul>
+    </div>
+  </details>
+  {% endif %}
+
+  {% if R.excluded %}
+  <details class="blk">
+    <summary>{{ 'Excluded rules' }}<span class="n">{{ R.excluded | length }}</span></summary>
+    <div class="blkbody">
+      <table class="exl">
+        {% for x in R.excluded %}
+        <tr><td>{{ x.id }}</td><td>{{ x.title | e }}</td><td>{{ x.reason | e }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </details>
+  {% endif %}
+
+  {% if R.engine_notes %}
+  <details class="blk">
+    <summary>{{ 'Engine notes' }}<span class="n">{{ R.engine_notes | length }}</span></summary>
+    <div class="blkbody"><ul>{% for n in R.engine_notes %}<li>{{ n | e }}</li>{% endfor %}</ul></div>
+  </details>
+  {% endif %}
+
+  <footer>
+    <b>{{ cis_benchmark_name }} {{ cis_benchmark_version }}</b> ·
+    {{ 'Target' }} <b>{{ cis_host.hostname | e }}</b>（{{ cis_host.ipv4 | e }} / {{ cis_host.mac | upper | e }}） ·
+    {{ 'Mode' }} <b>{{ 'apply' if IS_APPLY else 'scan' }}</b> ·
+    {{ 'Profile' }} <b>{{ cis_profile }}</b> · {{ 'Platform' }} <b>{{ cis_platform }}</b><br>
+    {{ 'Started' }} {{ R.started_at }} · {{ 'target' }} {{ R.duration_seconds }}s ·
+    {{ 'Engine' }} v{{ R.engine_version }} · {{ 'rendered' }} {{ cis_run_human }}
+    （{{ 'controller time' }}）<br>
+    {{ 'Score = Pass ÷ (Pass + Fail); rules marked Manual / N.A. are excluded from the denominator. This automated report does not replace a manual security audit.' }}
+  </footer>
+</div>
+
+<script>
+(function () {
+    }
+  // Always start in Chinese; only respect localStorage if user explicitly toggled
+  var saved = '';
+  try { saved = localStorage.getItem('cis_lang') || ''; } catch(e) {}
+  if (saved) 
+  if (btn) { btn.addEventListener('click', function () {
+}); }
+
+  var body = document.getElementById('tb-body');
+  var rows = [].slice.call(body.querySelectorAll('tr.r'));
+  var chips = [].slice.call(document.querySelectorAll('#tb .chip'));
+  var q = document.getElementById('fq');
+  var lv = document.getElementById('flv');
+  var ch = document.getElementById('fch');
+  var rk = document.getElementById('frisk');
+  var none = document.getElementById('none');
+  var state = 'all';
+
+  function apply() {
+    var text = q.value.trim().toLowerCase();
+    var wantLv = lv.value, wantCh = ch.value, wantRk = rk.value, shown = 0;
+    rows.forEach(function (tr) {
+      var ok = true;
+      if (state === 'applied') { ok = tr.dataset.ap === 'applied'; }
+      else if (state !== 'all') { ok = tr.dataset.st === state; }
+      if (ok && wantLv) { ok = tr.dataset.lv === wantLv; }
+      if (ok && wantCh) { ok = tr.dataset.ch === wantCh; }
+      if (ok && wantRk) { ok = tr.dataset.risk === wantRk; }
+      if (ok && text) { ok = tr.dataset.q.indexOf(text) !== -1; }
+      tr.style.display = ok ? '' : 'none';
+      var d = document.getElementById(tr.dataset.id);
+      if (d && !ok) { d.classList.remove('show'); tr.classList.remove('open'); }
+      if (ok) { shown++; }
+    });
+    none.style.display = shown ? 'none' : 'block';
+  }
+
+  chips.forEach(function (c) {
+    c.addEventListener('click', function () {
+      chips.forEach(function (x) { x.classList.remove('on'); });
+      c.classList.add('on');
+      state = c.dataset.st;
+      apply();
+    });
+  });
+  q.addEventListener('input', apply);
+  lv.addEventListener('change', apply);
+  ch.addEventListener('change', apply);
+  rk.addEventListener('change', apply);
+
+  rows.forEach(function (tr) {
+    tr.addEventListener('click', function () {
+      var d = document.getElementById(tr.dataset.id);
+      if (!d) { return; }
+      tr.classList.toggle('open', d.classList.toggle('show'));
+    });
+  });
+
+  var bex = document.getElementById('bex'), expanded = false;
+  bex.addEventListener('click', function () {
+    expanded = !expanded;
+    rows.forEach(function (tr) {
+      if (tr.style.display === 'none') { return; }
+      var d = document.getElementById(tr.dataset.id);
+      if (!d) { return; }
+      d.classList.toggle('show', expanded);
+      tr.classList.toggle('open', expanded);
+    });
+    bex.textContent = expanded ? ('Collapse') : ('Expand');
+  });
+
+  document.getElementById('bpr').addEventListener('click', function () { window.print(); });
+})();
+</script>
+</body>
+</html>
