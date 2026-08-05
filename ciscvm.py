@@ -30,34 +30,122 @@ from pathlib import Path
 # ----------------------------------------------------------------------------
 # 配置画像（profile）：换 OS 只加一个字典项，不用改任何代码逻辑
 # ----------------------------------------------------------------------------
+# 每个 profile 字段含义：
+#   ssh_username        临时 CVM 的 SSH 登录用户
+#   role                Galaxy 角色名（ansible-lockdown.<x>）
+#   role_version        固定版本号；空字符串 = 装 galaxy 最新（推荐先跑通再 pin）
+#   audit_dir           角色 goss 审计输出目录（verify-cis.sh 用；不同角色不同，需对上）
+#   os_tag/benchmark    写入镜像 tag 的标识
+#   pkg_update/pkg_install/clean_cmd   包管理器命令（按 OS 区分，避免写死 apt）
+#   level1_var/level2_var              角色里控制 CIS Level 的变量（前缀随 OS 而变！）
+#   boot_pass_var       控制引导/GRUB 密码的变量，统一显式关掉，避免把自己锁死
+#   os_check_var        CentOS 等非 RHEL 派生系统需要关掉 OS 校验（None 表示不关）
+#   root_login_rule_var 关掉「禁止 root SSH 登录」那条 rule，保证构建期 shell 还能连上
+#   preview             角色名/变量名未经逐一验证时标 True，preflight 会提醒
 PROFILES = {
+    # ---------- Ubuntu ----------
     "ubuntu22": {
         "ssh_username": "ubuntu",
         "role": "ansible-lockdown.ubuntu22_cis",
-        "role_version": "2.0.0",
+        "role_version": "",
         "audit_dir": "/opt/ubuntu22_cis",
         "os_tag": "ubuntu-22.04",
         "benchmark": "CIS-v2.0.0",
         "pkg_update": "sudo apt-get update -y",
         "pkg_install": "sudo apt-get install -y python3-pip python3-venv git",
-        "level1_var": "ubuntu22cis_level_1",
-        "level2_var": "ubuntu22cis_level_2",
-        "ssh_keys_var": "ubuntu22cis_ssh_keys",
+        "clean_cmd": "sudo apt-get clean",
+        "level1_var": "ubtu22cis_level_1",
+        "level2_var": "ubtu22cis_level_2",
+        "boot_pass_var": "ubtu22cis_set_grub_user_pass",
+        "os_check_var": None,
+        "root_login_rule_var": None,
         "preview": False,
     },
-    # preview：社区角色名/变量名未逐一验证，先放开结构，跑前请以角色 defaults 为准
-    "tencentos3": {
+    "ubuntu24": {
+        "ssh_username": "ubuntu",
+        "role": "ansible-lockdown.ubuntu24_cis",
+        "role_version": "",
+        "audit_dir": "/opt/ubuntu24_cis",
+        "os_tag": "ubuntu-24.04",
+        "benchmark": "CIS-v2.0.0",
+        "pkg_update": "sudo apt-get update -y",
+        "pkg_install": "sudo apt-get install -y python3-pip python3-venv git",
+        "clean_cmd": "sudo apt-get clean",
+        "level1_var": "ubtu24cis_level_1",
+        "level2_var": "ubtu24cis_level_2",
+        "boot_pass_var": "ubtu24cis_set_grub_user_pass",
+        "os_check_var": None,
+        "root_login_rule_var": None,
+        "preview": True,
+    },
+    # ---------- RHEL ----------
+    "rhel8": {
         "ssh_username": "root",
-        "role": "ansible-lockdown.TencentOS3-CIS",
-        "role_version": "2.0.0",
-        "audit_dir": "/opt/tencentos3_cis",
-        "os_tag": "tencentos-3",
+        "role": "ansible-lockdown.rhel8_cis",
+        "role_version": "",
+        "audit_dir": "/opt/rhel8_cis",
+        "os_tag": "rhel-8",
         "benchmark": "CIS-v2.0.0",
         "pkg_update": "sudo dnf makecache",
         "pkg_install": "sudo dnf install -y python3-pip git",
-        "level1_var": "tencentos3_cis_level_1",
-        "level2_var": "tencentos3_cis_level_2",
-        "ssh_keys_var": "tencentos3_cis_ssh_keys",
+        "clean_cmd": "sudo dnf clean all",
+        "level1_var": "rhel8cis_level_1",
+        "level2_var": "rhel8cis_level_2",
+        "boot_pass_var": "rhel8cis_set_boot_pass",
+        "os_check_var": None,
+        "root_login_rule_var": "rhel8cis_rule_5_2_2",
+        "preview": True,
+    },
+    "rhel9": {
+        "ssh_username": "root",
+        "role": "ansible-lockdown.rhel9_cis",
+        "role_version": "",
+        "audit_dir": "/opt/rhel9_cis",
+        "os_tag": "rhel-9",
+        "benchmark": "CIS-v2.0.0",
+        "pkg_update": "sudo dnf makecache",
+        "pkg_install": "sudo dnf install -y python3-pip git",
+        "clean_cmd": "sudo dnf clean all",
+        "level1_var": "rhel9cis_level_1",
+        "level2_var": "rhel9cis_level_2",
+        "boot_pass_var": "rhel9cis_set_boot_pass",
+        "os_check_var": None,
+        "root_login_rule_var": "rhel9cis_rule_5_2_2",
+        "preview": True,
+    },
+    # ---------- CentOS（派生自 RHEL，套用对应 RHEL 角色 + 关闭 os_check）----------
+    "centos8": {
+        "ssh_username": "root",
+        "role": "ansible-lockdown.rhel8_cis",
+        "role_version": "",
+        "audit_dir": "/opt/rhel8_cis",
+        "os_tag": "centos-8",
+        "benchmark": "CIS-v2.0.0",
+        "pkg_update": "sudo dnf makecache",
+        "pkg_install": "sudo dnf install -y python3-pip git",
+        "clean_cmd": "sudo dnf clean all",
+        "level1_var": "rhel8cis_level_1",
+        "level2_var": "rhel8cis_level_2",
+        "boot_pass_var": "rhel8cis_set_boot_pass",
+        "os_check_var": "os_check",
+        "root_login_rule_var": "rhel8cis_rule_5_2_2",
+        "preview": True,
+    },
+    "centos9": {
+        "ssh_username": "root",
+        "role": "ansible-lockdown.rhel9_cis",
+        "role_version": "",
+        "audit_dir": "/opt/rhel9_cis",
+        "os_tag": "centos-9",
+        "benchmark": "CIS-v2.0.0",
+        "pkg_update": "sudo dnf makecache",
+        "pkg_install": "sudo dnf install -y python3-pip git",
+        "clean_cmd": "sudo dnf clean all",
+        "level1_var": "rhel9cis_level_1",
+        "level2_var": "rhel9cis_level_2",
+        "boot_pass_var": "rhel9cis_set_boot_pass",
+        "os_check_var": "os_check",
+        "root_login_rule_var": "rhel9cis_rule_5_2_2",
         "preview": True,
     },
 }
@@ -67,11 +155,11 @@ DEFAULT_WORKDIR = ".ciscvm-build"
 SAMPLE_CONFIG = """\
 # ciscvm.toml — 唯一事实来源，所有构建参数都在这里改
 [build]
-profile             = "ubuntu22"          # ubuntu22 | tencentos3(preview)
+profile             = "ubuntu22"          # ubuntu22 | ubuntu24 | rhel8 | rhel9 | centos8 | centos9
 region              = "ap-guangzhou"
 zone                = "ap-guangzhou-4"
 instance_type       = "S5.MEDIUM2"
-source_image_id     = "img-xxxxxxxx"       # 替换为官方 Ubuntu 22.04 公共镜像 ID
+source_image_id     = "img-xxxxxxxx"       # 替换为官方对应 OS 公共镜像 ID
 vpc_id              = "vpc-xxxxxxxx"
 subnet_id           = "subnet-xxxxxxxx"
 security_group_id   = "sg-xxxxxxxx"
@@ -178,7 +266,7 @@ build {
   # 2. CIS remediation（ansible-local：playbook 与角色都在实例内执行）
   provisioner "ansible-local" {
     playbook_file   = "ansible/site.yml"
-    extra_arguments = ["--tags", var.cis_level, "-e", "grub_user_pass="]
+    extra_arguments = ["--tags", var.cis_level]
   }
 
   # 3. build 期审计 gate：不达标 -> exit 1 -> build 失败
@@ -194,7 +282,7 @@ build {
   provisioner "shell" {
     pause_before = "10s"
     inline = [
-      "sudo apt-get clean",
+      "__CLEAN_CMD__",
       "rm -rf /tmp/ansible ~/.ansible/roles 2>/dev/null || true"
     ]
   }
@@ -216,9 +304,9 @@ sudo python3 -m pip install --upgrade pip
 sudo python3 -m pip install 'ansible-core>=2.15' pexpect passlib
 
 # 3. 安装 CIS 角色（作为当前 SSH 用户，ansible-local 以该用户运行可找到）
-#    角色名随 Galaxy 命名空间/版本可能微调；如 2.0.0 不存在，改用 git 源：
-#    ansible-galaxy install git+https://github.com/ansible-lockdown/UBUNTU22-CIS.git
-ansible-galaxy install "__ROLE__,__ROLE_VERSION__" --force
+#    角色名随 Galaxy 命名空间/版本可能微调；如 galaxy 名对不上，改用 git 源兜底：
+#    ansible-galaxy install git+https://github.com/ansible-lockdown/<REPO>.git
+__INSTALL_ROLE__
 
 echo "ansible + CIS role ready"
 """
@@ -285,7 +373,7 @@ SITE_YML_TEMPLATE = r"""---
     __LEVEL2_VAR__: __LEVEL2_VAL__
 
     # ---- 云环境例外（务必保留，否则会把自己锁死 / 破坏云能力）----
-    __SSH_KEYS_VAR__: true     # 保留 SSH 公钥登录，不强制 password-only
+__EXTRA_VARS__
 
     # ---- build 期审计 gate ----
     run_audit: true
@@ -436,22 +524,31 @@ def render_pkrvars(r: dict) -> str:
 
 
 def render_install(p: dict) -> str:
+    if p.get("role_version"):
+        install_line = f'ansible-galaxy install "{p["role"]},{p["role_version"]}" --force'
+    else:
+        install_line = f'ansible-galaxy install "{p["role"]}" --force'
     return (INSTALL_SH_TEMPLATE
             .replace("__PKG_UPDATE__", p["pkg_update"])
             .replace("__PKG_INSTALL__", p["pkg_install"])
-            .replace("__ROLE__", p["role"])
-            .replace("__ROLE_VERSION__", p["role_version"]))
+            .replace("__INSTALL_ROLE__", install_line))
 
 
 def render_site(p: dict, level: int) -> str:
     l1 = "true" if level == 1 else "false"
     l2 = "true" if level == 2 else "false"
+    extra = [f"    {p['boot_pass_var']}: false   # 关闭引导/GRUB 密码，避免把自己锁死"]
+    if p.get("os_check_var"):
+        extra.append(f"    {p['os_check_var']}: false   # 非 RHEL 派生系统，关闭 OS 校验")
+    if p.get("root_login_rule_var"):
+        extra.append(f"    {p['root_login_rule_var']}: false   # 保留 root SSH，保证构建期 shell 可连")
+    extra_text = "\n".join(extra)
     return (SITE_YML_TEMPLATE
             .replace("__LEVEL1_VAR__", p["level1_var"])
             .replace("__LEVEL1_VAL__", l1)
             .replace("__LEVEL2_VAR__", p["level2_var"])
             .replace("__LEVEL2_VAL__", l2)
-            .replace("__SSH_KEYS_VAR__", p["ssh_keys_var"])
+            .replace("__EXTRA_VARS__", extra_text)
             .replace("__ROLE__", p["role"]))
 
 
@@ -460,7 +557,8 @@ def render_all(workdir: Path, r: dict) -> None:
     (workdir / "packer" / "scripts").mkdir(parents=True, exist_ok=True)
     (workdir / "ansible").mkdir(parents=True, exist_ok=True)
 
-    (workdir / "packer" / "main.pkr.hcl").write_text(HCL_TEMPLATE, encoding="utf-8")
+    (workdir / "packer" / "main.pkr.hcl").write_text(
+        HCL_TEMPLATE.replace("__CLEAN_CMD__", p["clean_cmd"]), encoding="utf-8")
     (workdir / "packer" / "auto.pkrvars.hcl").write_text(render_pkrvars(r), encoding="utf-8")
     (workdir / "packer" / "scripts" / "install-ansible.sh").write_text(
         render_install(p), encoding="utf-8")
