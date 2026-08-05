@@ -502,7 +502,10 @@ variable "subnet_id"                   { type = string }
 variable "security_group_id"           { type = string }
 variable "associate_public_ip_address" { type = bool }
 variable "image_name_prefix"           { type = string }
-variable "image_copy_regions"          { type = list(string); default = [] }
+variable "image_copy_regions" {
+  type    = list(string)
+  default = []
+}
 variable "cis_level"                   { type = string }
 variable "image_os_tag"                { type = string }
 variable "image_benchmark"             { type = string }
@@ -600,7 +603,10 @@ variable "subnet_id"                   { type = string }
 variable "security_group_id"           { type = string }
 variable "associate_public_ip_address" { type = bool }
 variable "image_name_prefix"           { type = string }
-variable "image_copy_regions"          { type = list(string); default = [] }
+variable "image_copy_regions" {
+  type    = list(string)
+  default = []
+}
 variable "cis_level"                   { type = string }
 variable "image_os_tag"                { type = string }
 variable "image_benchmark"             { type = string }
