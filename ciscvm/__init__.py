@@ -474,7 +474,7 @@ def _check_bundled_role(role_dir: str) -> bool:
 HCL_LINUX_TEMPLATE = r"""packer {
   required_plugins {
     tencentcloud = {
-      source  = "github.com/hashicorp/packer-plugin-tencentcloud"
+      source  = "github.com/hashicorp/tencentcloud"
       version = ">= 1.0.0"
     }
   }
@@ -570,7 +570,7 @@ build {
 HCL_WIN_TEMPLATE = r"""packer {
   required_plugins {
     tencentcloud = {
-      source  = "github.com/hashicorp/packer-plugin-tencentcloud"
+      source  = "github.com/hashicorp/tencentcloud"
       version = ">= 1.0.0"
     }
   }
