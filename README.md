@@ -199,6 +199,9 @@ benchmark = "CIS-v1.0.0"
 | | `winrm_password_env` | string | Env var for Windows Admin password (Windows only) |
 | `[meta]` | `os_tag` | string | Tag value for the output image |
 | | `benchmark` | string | CIS benchmark version tag |
+| | `ssh_port` | int | SSH port (default 22; TencentOS profiles: 36000) |
+| | `ssh_timeout` | string | Packer SSH timeout (default "10m") |
+| | `ssh_debug_password` | string | Set root password for VNC debug access (default empty) |
 
 ## Architecture
 

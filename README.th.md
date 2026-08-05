@@ -200,6 +200,9 @@ benchmark = "CIS-v1.0.0"
 | | `winrm_password_env` | string | ชื่อ env var สำหรับรหัสผ่าน Windows Administrator (เฉพาะ Windows) |
 | `[meta]` | `os_tag` | string | ค่า tag ของ image ที่ออกมา |
 | | `benchmark` | string | tag เวอร์ชันของ CIS benchmark |
+| | `ssh_port` | int | พอร์ต SSH (ค่าเริ่มต้น 22; TencentOS: 36000) |
+| | `ssh_timeout` | string | เวลาหมดอายุ SSH ของ Packer (ค่าเริ่มต้น "10m") |
+| | `ssh_debug_password` | string | ตั้งรหัสผ่าน root สำหรับดีบัก VNC (ค่าเริ่มต้น: ไม่ตั้ง) |
 
 ## สถาปัตยกรรม
 

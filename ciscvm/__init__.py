@@ -170,6 +170,7 @@ PROFILES: dict[str, dict[str, Any]] = {
     "tencentos3": {
         "role_dir": "cis_tencentos3",
         "ssh_username": "root",
+        "ssh_port": 36000,
         "os_tag": "tencentos-3",
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo dnf makecache",
@@ -179,6 +180,7 @@ PROFILES: dict[str, dict[str, Any]] = {
     "tencentos4": {
         "role_dir": "cis_tencentos4",
         "ssh_username": "root",
+        "ssh_port": 36000,
         "os_tag": "tencentos-4",
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo dnf makecache",
