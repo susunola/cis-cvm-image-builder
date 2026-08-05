@@ -5,6 +5,7 @@
     cis_sections: "{{ lookup('file', cis_sections_file) | from_json }}"
   delegate_to: localhost
   run_once: true
+  when: cis_report_html or cis_report_json or cis_report_csv
 
 - name: Create report directory
   ansible.builtin.file:
