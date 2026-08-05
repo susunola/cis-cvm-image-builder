@@ -1,0 +1,357 @@
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a> | <b>日本語</b> | <a href="README.th.md">ภาษาไทย</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/python-%3E%3D3.11-blue?logo=python&logoColor=white" alt="Python >= 3.11">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT">
+  <img src="https://img.shields.io/badge/profiles-14-orange" alt="14 profiles">
+  <img src="https://img.shields.io/badge/platform-Tencent%20Cloud-0052D9" alt="Tencent Cloud">
+</p>
+
+# ciscvm — CIS ハードニング済みゴールデンイメージビルダー
+
+> 5 つのコマンドで Tencent Cloud 上に CIS ハードニング済みゴールデンイメージを
+> 構築。Galaxy 不要、ビルド時ネットワーク依存ゼロ、テンプレート手編集も不要 —
+> すべて `ciscvm.toml` で駆動。
+
+**機能：** 一時的な CVM を起動し、同梱の [cis-os](https://github.com/susunola/cis-os)
+エンジンを適用して CIS ハードニングを行い、ロール内ゲートを実行し、カスタムイメー
+ジとしてキャプチャします。修復後も検出項目が残っていれば、イメージが作成される前に
+ビルドが失敗します。
+
+**対象：** 再現可能で監査可能な CIS ハードニング済みベースイメージが必要な DevOps
+およびセキュリティエンジニア — CI、Auto Scaling 起動テンプレート、Terraform イメー
+ジ参照に利用できます。
+
+## 目次
+
+- [インストール](#インストール)
+- [クイックスタート](#クイックスタート)
+- [コマンド](#コマンド)
+- [設定](#設定)
+- [アーキテクチャ](#アーキテクチャ)
+- [プロファイル](#プロファイル)
+- [CI 連携](#ci-連携)
+- [トラブルシューティング](#トラブルシューティング)
+- [ロードマップ](#ロードマップ)
+- [コントリビューション](#コントリビューション)
+- [ライセンス](#ライセンス)
+- [CIS Benchmarks に関する免責事項](#cis-benchmarks-に関する免責事項)
+
+## インストール
+
+**前提条件**
+
+| 要件 | 詳細 |
+|---|---|
+| **Python** | >= 3.11（標準ライブラリのみ — pip 依存ゼロ） |
+| **Packer** | >= 1.9、`packer-plugin-tencentcloud` 付き |
+| **ansible-core** | >= 2.15（Windows ビルドではコントローラ側に必要） |
+| **Tencent Cloud** | `cvm:RunInstances`、`cvm:CreateImage`、`cvm:DescribeImages`、`cvm:CopyImage`* を持つサブアカウント |
+| **ネットワーク** | 専用 VPC + サブネット + セキュリティグループ（Linux: SSH/22、Windows: WinRM/5986）、送信元はビルドマシンの Egress IP に限定 |
+| **ソースイメージ** | 対象 OS のパブリックイメージ ID |
+
+\* クロスリージョンコピーのみ `cvm:CopyImage` が必要。
+
+**ツールの入手**
+
+```bash
+git clone https://github.com/susunola/cis-cvm-image-builder.git
+cd cis-cvm-image-builder
+
+# 直接実行（pip install 不要）
+python3 ciscvm.py --version
+
+# オプション：パッケージとしてインストール
+pip install -e ".[dev]"
+```
+
+**資格情報の設定**（環境変数のみ、設定ファイルには非保存）
+
+```bash
+export TENCENTCLOUD_SECRET_ID=AKIDxxxx
+export TENCENTCLOUD_SECRET_KEY=xxxx
+
+# Windows ビルドでは追加で必要：
+export WINRM_PASSWORD=xxxx
+```
+
+## クイックスタート
+
+```bash
+# 1. 設定ファイルを初期化
+python3 ciscvm.py init
+
+# 2. ciscvm.toml を編集し、VPC / サブネット / SG / ソースイメージ ID を設定
+
+# 3. ビルド前チェック（設定・資格情報・前提条件を検証）
+python3 ciscvm.py preflight
+
+# 4. ドライラン：レンダリング + packer validate
+python3 ciscvm.py validate
+
+# 5. ハードニング済みイメージのビルド
+python3 ciscvm.py build
+
+# オプション：レンダリング成果物のクリーンアップ
+python3 ciscvm.py clean
+```
+
+**ビルド出力例（`build`）**
+
+```
+════════════════════════════════════════════════════════
+  ciscvm 0.4.0 — tencentos3 (L1) → ap-guangzhou-4
+════════════════════════════════════════════════════════
+[packer]  tencentcloud-cvm: output will be in this color
+[packer]  ==> tencentcloud-cvm: Creating temporary keypair...
+[packer]  ==> tencentcloud-cvm: Launching instance (S5.MEDIUM2)...
+[packer]  ==> tencentcloud-cvm: Provisioning with ansible-local...
+[packer]      tencentcloud-cvm: TASK [cis_tencentos3 : apply CIS Level 1] ***
+[packer]      tencentcloud-cvm: ok: 142  changed: 38  failed: 0
+[packer]      tencentcloud-cvm: TASK [cis_tencentos3 : gate] **************
+[packer]      tencentcloud-cvm: PASS — 0 remaining findings
+[packer]  ==> tencentcloud-cvm: Creating custom image...
+[packer]  ==> tencentcloud-cvm: Image created: img-abc123def456
+[packer]  ==> tencentcloud-cvm: Terminating build instance...
+
+✔  Build complete — image-id: img-abc123def456
+```
+
+## コマンド
+
+| コマンド | 説明 |
+|---|---|
+| `ciscvm.py init` | カレントディレクトリに `ciscvm.toml` を生成 |
+| `ciscvm.py preflight` | 設定・資格情報・前提条件を検証 |
+| `ciscvm.py validate` | テンプレートをレンダリングし `packer validate` を実行 |
+| `ciscvm.py build` | レンダリング + `packer build`（イメージを生成） |
+| `ciscvm.py clean` | `.ciscvm-build/` 作業ディレクトリを削除 |
+
+| フラグ | デフォルト | 説明 |
+|---|---|---|
+| `--config <path>` | `./ciscvm.toml` | 設定ファイル |
+| `--workdir <dir>` | `./.ciscvm-build` | レンダリング出力ディレクトリ |
+| `--quiet` | — | ツール出力を抑制（validate / build） |
+| `-y` / `--yes` | — | ビルド確認のプロンプトをスキップ |
+
+## 設定
+
+`ciscvm.toml` が唯一の信頼できる情報源です — Packer テンプレートの手編集は不要。
+
+```toml
+[build]
+profile             = "tencentos3"
+#   Linux: ubuntu2004 | ubuntu2204 | ubuntu2404 |
+#          rhel8 | rhel9 | rhel10 |
+#          tencentos3 | tencentos4 |
+#          sles15 | sles16
+#   Windows: win2016 | win2019 | win2022 | win2025
+region              = "ap-guangzhou"
+zone                = "ap-guangzhou-4"
+instance_type       = "S5.MEDIUM2"
+source_image_id     = "img-xxxxxxxx"       # 実際の OS イメージ ID に置換
+vpc_id              = "vpc-xxxxxxxx"
+subnet_id           = "subnet-xxxxxxxx"
+security_group_id   = "sg-xxxxxxxx"
+associate_public_ip = true
+
+[image]
+name_prefix  = "tencentos3-cis"
+copy_regions = ["ap-shanghai"]            # [] でクロスリージョンコピー無効
+
+[cis]
+level = 1                                 # 1 または 2
+
+[cloud]
+secret_id_env  = "TENCENTCLOUD_SECRET_ID"
+secret_key_env = "TENCENTCLOUD_SECRET_KEY"
+# Windows ビルドでは追加で必要：
+# winrm_password_env = "WINRM_PASSWORD"
+
+[meta]
+os_tag    = "tencentos-3"
+benchmark = "CIS-v1.0.0"
+```
+
+### 設定リファレンス
+
+| セクション | フィールド | 型 | 説明 |
+|---|---|---|---|
+| `[build]` | `profile` | string | 14 プロファイルのいずれか |
+| | `region` | string | Tencent Cloud リージョン（例：`ap-guangzhou`） |
+| | `zone` | string | アベイラビリティゾーン（例：`ap-guangzhou-4`） |
+| | `instance_type` | string | CVM インスタンス仕様（例：`S5.MEDIUM2`） |
+| | `source_image_id` | string | OS パブリックイメージ ID |
+| | `vpc_id` / `subnet_id` | string | ネットワーク識別子 |
+| | `security_group_id` | string | `sg-` で始まる必要がある |
+| | `associate_public_ip` | bool | ビルドインスタンスにパブリック IP を付与 |
+| `[image]` | `name_prefix` | string | 出力イメージ名のプレフィックス |
+| | `copy_regions` | []string | レプリカ先リージョン（空 = スキップ） |
+| `[cis]` | `level` | int | 1（Level 1）または 2（Level 2） |
+| `[cloud]` | `secret_id_env` | string | Tencent Cloud Secret ID の環境変数名 |
+| | `secret_key_env` | string | Tencent Cloud Secret Key の環境変数名 |
+| | `winrm_password_env` | string | Windows Administrator パスワードの環境変数名（Windows のみ） |
+| `[meta]` | `os_tag` | string | 出力イメージのタグ値 |
+| | `benchmark` | string | CIS benchmark バージョンのタグ |
+
+## アーキテクチャ
+
+### Linux ビルドパイプライン（SSH × ansible-local）
+
+```
+ビルドマシン                                Tencent Cloud
+┌─────────────┐                           ┌──────────────────┐
+│ ciscvm.py   │── packer build ──────────▶│ 一時 CVM          │
+│             │                           │   (SSH 22 番)    │
+│ ciscvm.toml │                           │ 1. ansible 導入   │
+│             │                           │    (dnf/apt/zypp) │
+│ roles/      │── CVM へアップロード ────▶│ 2. CIS 適用       │
+│   cis_*     │      (同梱ロール)          │    (cis_engine.py)│
+│             │                           │ 3. ゲート：       │
+│             │                           │    fail_on_findings│
+│             │◀── image-id ──────────────│ 4. CreateImage    │
+└─────────────┘                           └──────────────────┘
+```
+
+Packer は一時 CVM 上で `ansible-local` により 3 フェーズを実行します：
+
+1. **インストール** — OS パッケージマネージャ + pip で ansible-core を導入。
+2. **ハードニング** — 同梱の cis-os エンジン（`cis_engine.py` + `rules.json`）を実行。
+   変数：`cis_mode: apply`、`cis_profile: L1/L2`、`cis_platform: server`。
+3. **ゲート** — ロール内：`cis_fail_on_findings: true` + `cis_min_score: 0`。
+   修復後も検出が残っていれば `ansible-playbook` が非ゼロで終了し、Packer はビルドを失敗させます。
+
+### Windows ビルドパイプライン（WinRM × コントローラ側 ansible）
+
+```
+ビルドマシン                                Tencent Cloud
+┌─────────────┐                           ┌──────────────────┐
+│ ciscvm.py   │── packer build ──────────▶│ 一時 CVM          │
+│             │                           │  (WinRM 5986)    │
+│             │                           │                  │
+│ roles/      │── ansible プロビジョナー ─▶│ CIS 適用          │
+│   cis_win*  │   (コントローラ側、       │ (cis_engine.ps1)  │
+│             │    winrm 接続)            │                  │
+│             │                           │ ロール内ゲート    │
+│             │◀── image-id ──────────────│ CreateImage       │
+└─────────────┘                           └──────────────────┘
+```
+
+Windows ビルドは Packer の `ansible` プロビジョナー（コントローラ側）を WinRM 経由
+で使用します。同梱ロールには `cis_engine.ps1`（PowerShell）が含まれます。インスタ
+ンス側には何もインストール不要 — コントローラ側に `ansible-core` が必要です。
+
+### 設計上の判断
+
+**ロールは同梱、Galaxy なし。**
+14 種すべての cis-os エンジンロールを `ciscvm.py` と一緒に `roles/` に同梱。ビルド
+時にツールが選択されたロールを作業ディレクトリへコピー。ネットワーク依存なし、
+バージョン漂流なし。
+
+**`ansible-local`（Linux）— インスタンス内で自己完結。**
+Packer コントローラはクラウド VPC へ SSH できる必要がありません。Playbook と
+ロールはビルドインスタンス内で実行されます。
+
+**`ansible`（Windows）— コントローラから WinRM 駆動。**
+Windows イメージは Packer の `ansible` プロビジョナーをコントローラから使用し、
+WinRM で接続します。コントローラ側に `ansible-core` のインストールが必要。
+
+**ビルド時ゲート、外部監査なし。**
+ゲートは Ansible ロール内（`cis_fail_on_findings`）。ハードニング済みイメージは
+合格するか、作成されないかのいずれかです。
+
+**資格情報とガバナンス。**
+AK/SK は環境変数のみ（HCL の `sensitive = true`）。一時インスタンスはタグ付けされ
+自動回収されます。イメージタグに CIS レベル、OS、benchmark を記録。
+
+## プロファイル
+
+### Linux（SSH × ansible-local）
+
+| プロファイル | OS | SSH ユーザー | パッケージマネージャ | ロール |
+|---|---|---|---|---|
+| `ubuntu2004` | Ubuntu 20.04 LTS | ubuntu | apt | `roles/cis_ubuntu2004/` |
+| `ubuntu2204` | Ubuntu 22.04 LTS | ubuntu | apt | `roles/cis_ubuntu2204/` |
+| `ubuntu2404` | Ubuntu 24.04 LTS | ubuntu | apt | `roles/cis_ubuntu2404/` |
+| `rhel8` | RHEL 8 | root | dnf | `roles/cis_rhel8/` |
+| `rhel9` | RHEL 9 | root | dnf | `roles/cis_rhel9/` |
+| `rhel10` | RHEL 10 | root | dnf | `roles/cis_rhel10/` |
+| `tencentos3` | TencentOS Server 3 | root | dnf | `roles/cis_tencentos3/` |
+| `tencentos4` | TencentOS Server 4 | root | dnf | `roles/cis_tencentos4/` |
+| `sles15` | SLES 15 | root | zypper | `roles/cis_sles15/` |
+| `sles16` | SLES 16 | root | zypper | `roles/cis_sles16/` |
+
+### Windows（WinRM × コントローラ側 ansible）
+
+| プロファイル | OS | ユーザー | ロール |
+|---|---|---|---|
+| `win2016` | Windows Server 2016 | Administrator | `roles/cis_win2016/` |
+| `win2019` | Windows Server 2019 | Administrator | `roles/cis_win2019/` |
+| `win2022` | Windows Server 2022 | Administrator | `roles/cis_win2022/` |
+| `win2025` | Windows Server 2025 | Administrator | `roles/cis_win2025/` |
+
+プロファイルを切り替えるには、`ciscvm.toml` の `[build].profile` と `source_image_id`
+を変更してください。
+
+## CI 連携
+
+```bash
+export TENCENTCLOUD_SECRET_ID=xxx
+export TENCENTCLOUD_SECRET_KEY=xxx
+
+# Windows ビルド：
+# export WINRM_PASSWORD=xxx
+
+python3 ciscvm.py build
+```
+
+下流の CVM / Auto Scaling / Terraform は出力された `image_id` を参照してください。
+ビルドマシンは専用の VPC と SG にピン留めします。
+
+## トラブルシューティング
+
+| 症状 | 原因 | 解決策 |
+|---|---|---|
+| `preflight` で資格情報エラー | `TENCENTCLOUD_SECRET_ID` / `_KEY` 未設定 | シェルで `export TENCENTCLOUD_SECRET_ID=...` を実行 |
+| `validate` で "plugin not found" | `packer-plugin-tencentcloud` 未導入 | `packer plugins install github.com/tencentcloud/tencentcloud` |
+| Packer が SSH 待機中にタイムアウト | セキュリティグループがポート 22 を許可していない | インバウンドルールを追加：TCP/22、送信元はビルドマシンの Egress IP |
+| `ansible-playbook` で "python3 not found" | ビルドインスタンスの OS に Python 未導入 | ソースイメージに Python >= 3.6 が含まれていることを確認 |
+| Windows ビルドで WinRM 接続エラー | `WINRM_PASSWORD` 未設定またはネットワーク不通 | パスワードを export + TCP/5986 がビルド IP から接続可能か確認 |
+| ビルド成功後も CIS 検出が残っている | 当該 OS の一部ルールが未対応 | まず `level: 1`（Level 1 は主要な検出項目をカバー）で再実行 |
+
+## ロードマップ
+
+- [ ] CI パイプライン（GitHub Actions）による自動イメージビルド
+- [ ] PyPI パッケージ（`pip install ciscvm`）
+- [ ] `ciscvm list` — 利用可能なプロファイルとメタデータの一覧表示
+- [ ] `ciscvm report` — 完了したビルドの監査レポートを取得・表示
+- [ ] カスタムルール選択（`ciscvm.toml` の `rules_include` / `rules_exclude`）
+
+## コントリビューション
+
+バグ報告とプルリクエストを歓迎します。提出前にテストを実行してください：
+
+```bash
+pip install -e ".[dev]"
+pytest tests/ -v
+```
+
+## ライセンス
+
+MIT — [LICENSE](LICENSE) を参照。
+
+## CIS Benchmarks に関する免責事項
+
+本ツールは CIS Benchmark 推奨事項に基づくハードニングルールを適用します。
+CIS Benchmarks は [Center for Internet Security](https://www.cisecurity.org/)（CIS）
+によって策定・保守されています。本リポジトリに同梱されている cis-os エンジンロール
+は [susunola/cis-os](https://github.com/susunola/cis-os) プロジェクトから派生した
+ものであり、それぞれのライセンスに基づいて提供されています。
+
+**重要：** `apply` モードでの CIS ハードニングはシステム設定を変更し、アプリケー
+ション互換性に影響を与える可能性があります。本番環境で使用する前に、必ずステージ
+ング環境でハードニング済みイメージをテストしてください。CIS 組織および本ツールの
+作者は、適用されたルールが完全なコンプライアンスを達成することを保証しません —
+正式な監査には CIS-CAT または同等のツールによる独立した評価が必要です。
