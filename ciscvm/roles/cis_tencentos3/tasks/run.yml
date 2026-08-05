@@ -2,12 +2,12 @@
 # --check never modifies the target: apply degrades to a scan.
 - name: Determine the effective mode
   ansible.builtin.set_fact:
-    cis_mode_effective: "{{ 'scan' if ansible_check_mode else cis_mode }}"
+    cis_mode_effective: "{{ 'scan' if ansible_check_mode and cis_mode == 'apply' else cis_mode }}"
 
 - name: Create a temporary working directory on the target
   ansible.builtin.tempfile:
     state: directory
-    prefix: cis-tos3-
+    prefix: cis-{{ cis_os_key }}-
     path: "{{ cis_remote_tmp }}"
   register: cis_workdir
   changed_when: false

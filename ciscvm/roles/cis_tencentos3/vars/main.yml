@@ -1,7 +1,7 @@
 ---
 # Internal role variables - not intended to be overridden.
 
-cis_os_key: tos3
+cis_os_key: tencentos3
 cis_engine_file: cis_engine.py
 cis_rules_file: rules.json
 cis_guidance_file: guidance.json
