@@ -11,11 +11,11 @@
 </p>
 
 <p align="center">
-  <img src="docs/ciscvm-icon.png" alt="ciscvm icon" width="96">
+  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-icon.png" alt="ciscvm icon" width="96">
 </p>
 
 <p align="center">
-  <img src="docs/ciscvm-logo.png" alt="ciscvm — SecX Series" width="520">
+  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-logo.png" alt="ciscvm — SecX Series" width="520">
 </p>
 
 # ciscvm — CIS-hardened Golden Image Builder
