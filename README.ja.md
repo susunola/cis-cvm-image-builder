@@ -61,8 +61,13 @@
 git clone https://github.com/susunola/cis-cvm-image-builder.git
 cd cis-cvm-image-builder
 
-# 直接実行（pip install 不要）
-python3 ciscvm.py --version
+# 推奨: リポジトリからインストール（`ciscvm` コマンドを提供）
+pip install .
+
+ciscvm --version
+
+# またはインストールせず実行（リポジトリのルートで）
+python3 -m ciscvm --version
 
 # オプション：パッケージとしてインストール
 pip install -e ".[dev]"
@@ -82,21 +87,21 @@ export WINRM_PASSWORD=xxxx
 
 ```bash
 # 1. 設定ファイルを初期化
-python3 ciscvm.py init
+ciscvm init
 
 # 2. ciscvm.toml を編集し、VPC / サブネット / SG / ソースイメージ ID を設定
 
 # 3. ビルド前チェック（設定・資格情報・前提条件を検証）
-python3 ciscvm.py preflight
+ciscvm preflight
 
 # 4. ドライラン：レンダリング + packer validate
-python3 ciscvm.py validate
+ciscvm validate
 
 # 5. ハードニング済みイメージのビルド
-python3 ciscvm.py build
+ciscvm build
 
 # オプション：レンダリング成果物のクリーンアップ
-python3 ciscvm.py clean
+ciscvm clean
 ```
 
 **ビルド出力例（`build`）**
@@ -124,11 +129,11 @@ python3 ciscvm.py clean
 
 | コマンド | 説明 |
 |---|---|
-| `ciscvm.py init` | カレントディレクトリに `ciscvm.toml` を生成 |
-| `ciscvm.py preflight` | 設定・資格情報・前提条件を検証 |
-| `ciscvm.py validate` | テンプレートをレンダリングし `packer validate` を実行 |
-| `ciscvm.py build` | レンダリング + `packer build`（イメージを生成） |
-| `ciscvm.py clean` | `.ciscvm-build/` 作業ディレクトリを削除 |
+| `ciscvm init` | カレントディレクトリに `ciscvm.toml` を生成 |
+| `ciscvm preflight` | 設定・資格情報・前提条件を検証 |
+| `ciscvm validate` | テンプレートをレンダリングし `packer validate` を実行 |
+| `ciscvm build` | レンダリング + `packer build`（イメージを生成） |
+| `ciscvm clean` | `.ciscvm-build/` 作業ディレクトリを削除 |
 
 | フラグ | デフォルト | 説明 |
 |---|---|---|
@@ -204,7 +209,7 @@ benchmark = "CIS-v1.0.0"
 ```
 ビルドマシン                                Tencent Cloud
 ┌─────────────┐                           ┌──────────────────┐
-│ ciscvm.py   │── packer build ──────────▶│ 一時 CVM          │
+│ ciscvm/     │── packer build ──────────▶│ 一時 CVM          │
 │             │                           │   (SSH 22 番)    │
 │ ciscvm.toml │                           │ 1. ansible 導入   │
 │             │                           │    (dnf/apt/zypp) │
@@ -229,7 +234,7 @@ Packer は一時 CVM 上で `ansible-local` により 3 フェーズを実行し
 ```
 ビルドマシン                                Tencent Cloud
 ┌─────────────┐                           ┌──────────────────┐
-│ ciscvm.py   │── packer build ──────────▶│ 一時 CVM          │
+│ ciscvm/     │── packer build ──────────▶│ 一時 CVM          │
 │             │                           │  (WinRM 5986)    │
 │             │                           │                  │
 │ roles/      │── ansible プロビジョナー ─▶│ CIS 適用          │
@@ -247,7 +252,7 @@ Windows ビルドは Packer の `ansible` プロビジョナー（コントロ�
 ### 設計上の判断
 
 **ロールは同梱、Galaxy なし。**
-14 種すべての cis-os エンジンロールを `ciscvm.py` と一緒に `roles/` に同梱。ビルド
+14 種すべての cis-os エンジンロールをパッケージ内の `ciscvm/roles/` に同梱。ビルド
 時にツールが選択されたロールを作業ディレクトリへコピー。ネットワーク依存なし、
 バージョン漂流なし。
 
@@ -305,7 +310,7 @@ export TENCENTCLOUD_SECRET_KEY=xxx
 # Windows ビルド：
 # export WINRM_PASSWORD=xxx
 
-python3 ciscvm.py build
+ciscvm build
 ```
 
 下流の CVM / Auto Scaling / Terraform は出力された `image_id` を参照してください。

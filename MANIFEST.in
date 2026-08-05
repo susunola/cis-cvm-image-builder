@@ -1,2 +1,5 @@
-include py.typed
-graft roles
+graft ciscvm/roles
+include ciscvm/py.typed
+global-exclude .git*
+global-exclude *.pyc
+global-exclude __pycache__

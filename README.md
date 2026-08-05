@@ -53,17 +53,18 @@ templates, or Terraform image references.
 
 \* `cvm:CopyImage` only needed with cross-region copy.
 
-**Get the tool**
+**Install**
 
 ```bash
+# Recommended: install from the repository (provides the `ciscvm` command)
 git clone https://github.com/susunola/cis-cvm-image-builder.git
 cd cis-cvm-image-builder
+pip install .
 
-# Run directly (no pip install needed)
-python3 ciscvm.py --version
+ciscvm --version
 
-# Optional: install as a package
-pip install -e ".[dev]"
+# Or run without installing (from the repo root)
+python3 -m ciscvm --version
 ```
 
 **Set credentials** (environment variables only — never in config files)
@@ -80,22 +81,24 @@ export WINRM_PASSWORD=xxxx
 
 ```bash
 # 1. Generate configuration
-python3 ciscvm.py init
+ciscvm init
 
 # 2. Edit ciscvm.toml — fill in VPC, subnet, security group, and source image ID
 
 # 3. Pre-flight check (validates config, credentials, and prerequisites)
-python3 ciscvm.py preflight
+ciscvm preflight
 
 # 4. Dry-run (render templates + packer validate)
-python3 ciscvm.py validate
+ciscvm validate
 
 # 5. Build the hardened image
-python3 ciscvm.py build
+ciscvm build
 
 # Optional: clean up rendered files
-python3 ciscvm.py clean
+ciscvm clean
 ```
+
+> Not installed? Replace `ciscvm` with `python3 -m ciscvm` in any command below.
 
 **Example output (`build`)**
 
@@ -122,11 +125,11 @@ python3 ciscvm.py clean
 
 | Command | Description |
 |---|---|
-| `ciscvm.py init` | Generate `ciscvm.toml` in the current directory |
-| `ciscvm.py preflight` | Validate config, credentials, and prerequisites |
-| `ciscvm.py validate` | Render templates and run `packer validate` |
-| `ciscvm.py build` | Render + `packer build` (produce the image) |
-| `ciscvm.py clean` | Remove the `.ciscvm-build/` working directory |
+| `ciscvm init` | Generate `ciscvm.toml` in the current directory |
+| `ciscvm preflight` | Validate config, credentials, and prerequisites |
+| `ciscvm validate` | Render templates and run `packer validate` |
+| `ciscvm build` | Render + `packer build` (produce the image) |
+| `ciscvm clean` | Remove the `.ciscvm-build/` working directory |
 
 All commands accept these flags:
 
@@ -204,7 +207,7 @@ benchmark = "CIS-v1.0.0"
 ```
 Build Machine                              Tencent Cloud
 ┌─────────────┐                           ┌──────────────────┐
-│ ciscvm.py   │── packer build ──────────▶│ Ephemeral CVM    │
+│ ciscvm/     │── packer build ──────────▶│ Ephemeral CVM    │
 │             │                           │   (SSH port 22)  │
 │ ciscvm.toml │                           │ 1. Install ansible│
 │             │                           │    (dnf/apt/zypp)│
@@ -229,7 +232,7 @@ Three phases executed by Packer inside the ephemeral CVM via `ansible-local`:
 ```
 Build Machine                              Tencent Cloud
 ┌─────────────┐                           ┌──────────────────┐
-│ ciscvm.py   │── packer build ──────────▶│ Ephemeral CVM    │
+│ ciscvm/     │── packer build ──────────▶│ Ephemeral CVM    │
 │             │                           │  (WinRM 5986)    │
 │ ciscvm.toml │                           │                  │
 │             │                           │                  │
@@ -248,7 +251,7 @@ is needed inside the instance — the controller requires `ansible-core` locally
 ### Design Decisions
 
 **Bundled roles, no Galaxy.**
-All 14 cis-os engine roles are shipped in `roles/` alongside `ciscvm.py`. At build
+All 14 cis-os engine roles are shipped inside the package at `ciscvm/roles/`. At build
 time the tool copies the selected role into the workspace. No network dependency,
 no version drift.
 
@@ -305,7 +308,7 @@ export TENCENTCLOUD_SECRET_KEY=xxx
 # Windows builds:
 # export WINRM_PASSWORD=xxx
 
-python3 ciscvm.py build
+ciscvm build
 ```
 
 Point downstream CVM / Auto Scaling / Terraform at the output `image_id`.

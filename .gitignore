@@ -1,23 +1,35 @@
-# 凭据 / 本地构建参数
+# Credentials / local build parameters
 variables.pkrvars.hcl
 *.pkrvars.hcl
 *.tfvars
 
-# 打包产物
+# Packer artifacts
 *.box
 packer_cache/
 
-# 编辑器 / 系统
+# ciscvm rendered working directory
+.ciscvm-build/
+
+# Editor / OS
 .DS_Store
 .idea/
 .vscode/
-.ciscvm-build/
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
 *.egg-info/
-.mypy_cache/
-.ruff_cache/
+.eggs/
 .python-version
 
+# Build artifacts
+build/
+dist/
+*.whl
+
+# Tooling caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
