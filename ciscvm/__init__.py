@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -476,8 +477,8 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         subnet_id=str(data["build"]["subnet_id"]),
         security_group_id=str(data["build"]["security_group_id"]),
         associate_public_ip=bool(data["build"]["associate_public_ip"]),
-        ssh_port=int(p.get("ssh_port", 22)),
-        ssh_timeout=str(p.get("ssh_timeout", "10m")),
+        ssh_port=int(meta.get("ssh_port") or p.get("ssh_port", 22)),
+        ssh_timeout=str(meta.get("ssh_timeout") or p.get("ssh_timeout", "10m")),
         ssh_username=str(p.get("ssh_username", "")),
         ssh_debug_password=str(meta.get("ssh_debug_password", "")),
         winrm_username=str(p.get("winrm_username", "")),
@@ -1000,10 +1001,11 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
         hcl = HCL_LINUX_TEMPLATE.replace("__CLEAN_CMD__", str(p["clean_cmd"]))
         user_data = ""
         if r.ssh_debug_password:
+            quoted = shlex.quote(f"root:{r.ssh_debug_password}")
             user_data = (
                 '  user_data = <<EOF\n'
                 '#!/bin/bash\n'
-                f"echo 'root:{r.ssh_debug_password}' | chpasswd\n"
+                f"echo {quoted} | chpasswd\n"
                 'EOF\n'
             )
         hcl = hcl.replace("__USER_DATA_BLOCK__", user_data)
@@ -1103,17 +1105,18 @@ def run_packer(
                 text=True, env=env,
             ) as proc:
                 assert proc.stdout is not None
-                _log_fh = open(log_file, "a", encoding="utf-8") if log_file else None
-                try:
+                if log_file:
+                    with open(log_file, "a", encoding="utf-8") as _log_fh:
+                        for line in proc.stdout:
+                            if not quiet:
+                                print(line, end="", file=sys.stderr)
+                            _log_fh.write(line)
+                            lines.append(line.rstrip("\n"))
+                else:
                     for line in proc.stdout:
                         if not quiet:
                             print(line, end="", file=sys.stderr)
-                        if _log_fh is not None:
-                            _log_fh.write(line)
                         lines.append(line.rstrip("\n"))
-                finally:
-                    if _log_fh is not None:
-                        _log_fh.close()
                 proc.wait(timeout=timeout)
             return PackerResult(exit_code=proc.returncode, stdout_lines=lines)
         else:
@@ -1329,7 +1332,7 @@ def cmd_build(args: argparse.Namespace) -> int:
 
     # Sync file position: run_packer opened its own FD for appending,
     # so _fh's position is stale — seek to end before more logger writes.
-    if _fh is not None:
+    if _fh is not None and _fh.stream is not None:
         _fh.stream.seek(0, 2)
 
     # Output is already streamed live by run_packer; only scan the captured

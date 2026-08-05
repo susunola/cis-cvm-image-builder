@@ -59,7 +59,7 @@
 
 - name: Fetch result JSON from target
   ansible.builtin.fetch:
-    src: "{{ cis_remote_tmp }}\cis-run\result.json"
+    src: "{{ cis_remote_tmp }}\\cis-run\\result.json"
     dest: "{{ cis_report_dir }}/{{ inventory_hostname }}/raw/"
     flat: true
     fail_on_missing: false

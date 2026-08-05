@@ -3780,7 +3780,8 @@ def main():
     def csv(x):
         return [i.strip() for i in x.split(",") if i.strip()]
 
-    rules = json.load(open(opts.catalog, "r", encoding="utf-8"))
+    with open(opts.catalog, "r", encoding="utf-8") as _catalog_fh:
+        rules = json.load(_catalog_fh)
     sel, skipped = select(rules, opts.profile, opts.platform,
                           csv(opts.include), csv(opts.exclude),
                           csv(opts.sections), csv(opts.families))
