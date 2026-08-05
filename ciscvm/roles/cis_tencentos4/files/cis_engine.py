@@ -798,6 +798,8 @@ def f_svc_enabled(ctx, p):
             return False, "cannot install %s: %s" % (", ".join(missing), (e or o)[:160])
     acts = []
     for u in p.get("units") or []:
+        if u == "aidecheck.timer" and not unit_exists("aidecheck.timer"):
+            _create_aidecheck_units(ctx)
         if not unit_exists(u):
             continue
         sh(["systemctl", "unmask", u], 60)
@@ -2540,6 +2542,35 @@ AIDE_AUDIT_TOOLS = ["/sbin/auditctl", "/sbin/auditd", "/sbin/ausearch",
 AIDE_SEL = "p+i+n+u+g+s+b+acl+xattrs+sha512"
 
 
+def _create_aidecheck_units(ctx):
+    """Create aidecheck.service + aidecheck.timer when the aide package
+    doesn't ship them (common on TencentOS 3 / older RHEL)."""
+    svc_tmpl = (
+        "[Unit]\n"
+        "Description=AIDE daily filesystem integrity check\n"
+        "[Service]\n"
+        "Type=oneshot\n"
+        "ExecStart=/usr/sbin/aide --check\n"
+        "Nice=19\n"
+        "IOSchedulingClass=idle\n"
+    )
+    timer_tmpl = (
+        "[Unit]\n"
+        "Description=Daily AIDE check\n"
+        "[Timer]\n"
+        "OnCalendar=daily\n"
+        "AccuracySec=12h\n"
+        "Persistent=true\n"
+        "[Install]\n"
+        "WantedBy=timers.target\n"
+    )
+    for path, content in [("/etc/systemd/system/aidecheck.service", svc_tmpl),
+                          ("/etc/systemd/system/aidecheck.timer", timer_tmpl)]:
+        if not exists(path):
+            write_file(ctx, path, content, 0o644)
+    sh(["systemctl", "daemon-reload"], 30)
+
+
 def _aide_conf():
     for c in ("/etc/aide.conf", "/etc/aide/aide.conf"):
         if exists(c):
@@ -2848,12 +2879,16 @@ def _ua_uid0_root_only(ctx):
     return "fail", "UID 0 accounts: " + ", ".join(names)
 
 
+GID0_WHITELIST = frozenset({"root", "sync", "shutdown", "halt", "operator"})
+
+
 def _ua_gid0_root_only(ctx):
     names = [f[0] for f in _passwd_entries() if f[3] == "0"]
-    extra = [n for n in names if n != "root"]
+    extra = [n for n in names if n not in GID0_WHITELIST]
     if not extra:
-        return "pass", "root is the only account with primary GID 0"
-    return "fail", "accounts with primary GID 0: " + ", ".join(names)
+        return "pass", "only allowlisted accounts have primary GID 0: " + \
+                        ", ".join(names)
+    return "fail", "unexpected accounts with primary GID 0: " + ", ".join(extra)
 
 
 def _ua_gid0_group_root(ctx):
@@ -3391,11 +3426,23 @@ def _ensure_custom_profile(ctx):
 
 
 def _pam_edit_targets(ctx):
+    targets = []
     d = _ensure_custom_profile(ctx)
     if d:
-        return [os.path.join(d, n) for n in ("system-auth", "password-auth")
-                if exists(os.path.join(d, n))]
-    return [f for f in PAM_FILES if exists(f)]
+        for n in ("system-auth", "password-auth"):
+            fp = os.path.join(d, n)
+            if exists(fp):
+                targets.append(fp)
+    # Always include PAM_FILES as well — authselect-managed symlinks may
+    # have args that the custom profile source does not (e.g. nullok injected
+    # by the authselect template compiler).
+    for f in PAM_FILES:
+        fp = os.path.realpath(f) if exists(f) else f
+        if exists(fp) and fp not in targets:
+            targets.append(fp)
+    if not targets:
+        targets = [f for f in PAM_FILES if exists(f)]
+    return targets
 
 
 def _pam_apply(ctx):
