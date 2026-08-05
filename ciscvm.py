@@ -47,6 +47,11 @@ logger = logging.getLogger("ciscvm")
 
 def _setup_logging(*, verbose: bool = False) -> None:
     level = logging.DEBUG if verbose else logging.INFO
+    if logger.handlers:
+        logger.setLevel(level)
+        for h in logger.handlers:
+            h.setLevel(level)
+        return
     handler = logging.StreamHandler(sys.stderr)
     handler.setLevel(level)
     handler.setFormatter(logging.Formatter("%(message)s"))
@@ -786,8 +791,7 @@ def render_site(p: dict[str, Any], level: int) -> str:
 
 def _assert_no_markers(content: str, filename: str) -> None:
     """Ensure no unreplaced __...__ template markers remain in rendered output."""
-    import re as _re
-    markers = _re.findall(r"__[A-Z_]+__", content)
+    markers = re.findall(r"__[A-Z_]+__", content)
     if markers:
         raise RuntimeError(
             f"Unreplaced markers in {filename}: {', '.join(sorted(set(markers)))}. "
@@ -869,26 +873,32 @@ def run_packer(
 
     if init_res.returncode != 0:
         fail("packer init failed (see output above).")
+        combined = (init_res.stdout or "") + (init_res.stderr or "")
         return PackerResult(
             exit_code=init_res.returncode,
-            stdout_lines=init_res.stdout.splitlines() if init_res.stdout else [],
+            stdout_lines=combined.splitlines(),
         )
 
     # 2. packer <subcmd>
     cmd = ["packer", subcmd, f"-var-file={varfile_path}", hcl_path]
     try:
         if capture or quiet:
-            res = subprocess.run(
-                cmd, cwd=workdir,
+            # Capture output line-by-line with real-time streaming.
+            lines: list[str] = []
+            with subprocess.Popen(
+                cmd, cwd=str(workdir),
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, timeout=timeout,
-            )
-            return PackerResult(
-                exit_code=res.returncode,
-                stdout_lines=res.stdout.splitlines() if res.stdout else [],
-            )
+                text=True,
+            ) as proc:
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    if not quiet:
+                        print(line, end="", file=sys.stderr)
+                    lines.append(line.rstrip("\n"))
+                proc.wait(timeout=timeout)
+            return PackerResult(exit_code=proc.returncode, stdout_lines=lines)
         else:
-            # Inherit stdout/stderr from parent (live output).
+            # Inherit stdout/stderr from parent (live output, no capture).
             cp = subprocess.run(cmd, cwd=workdir, timeout=timeout)
             return PackerResult(exit_code=cp.returncode)
     except subprocess.TimeoutExpired:
@@ -1005,31 +1015,36 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_preflight(args: argparse.Namespace) -> int:
-    """Run pre-flight checks."""
+def _load_resolve_preflight(config_path: str, workdir: str) -> tuple[ResolvedConfig, Path] | None:
+    """Load config, resolve, run preflight. Returns (ResolvedConfig, workdir) or None on failure."""
     try:
-        data = load_config(Path(args.config))
+        data = load_config(Path(config_path))
         r = resolve(data)
     except ConfigError as exc:
         fail(str(exc))
-        return 1
-    return 0 if run_preflight(r) else 1
+        return None
+
+    if not run_preflight(r):
+        return None
+
+    wd = Path(workdir)
+    wd.mkdir(parents=True, exist_ok=True)
+    return r, wd
+
+
+def cmd_preflight(args: argparse.Namespace) -> int:
+    """Run pre-flight checks."""
+    result = _load_resolve_preflight(args.config, args.workdir)
+    return 0 if result is not None else 1
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
     """Render templates and run packer validate."""
-    try:
-        data = load_config(Path(args.config))
-        r = resolve(data)
-    except ConfigError as exc:
-        fail(str(exc))
+    prep = _load_resolve_preflight(args.config, args.workdir)
+    if prep is None:
         return 1
+    r, workdir = prep
 
-    if not run_preflight(r):
-        return 1
-
-    workdir = Path(args.workdir)
-    workdir.mkdir(parents=True, exist_ok=True)
     render_all(workdir, r)
 
     banner("validate")
@@ -1049,18 +1064,11 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
 def cmd_build(args: argparse.Namespace) -> int:
     """Render templates and run packer build."""
-    try:
-        data = load_config(Path(args.config))
-        r = resolve(data)
-    except ConfigError as exc:
-        fail(str(exc))
+    prep = _load_resolve_preflight(args.config, args.workdir)
+    if prep is None:
         return 1
+    r, workdir = prep
 
-    if not run_preflight(r):
-        return 1
-
-    workdir = Path(args.workdir)
-    workdir.mkdir(parents=True, exist_ok=True)
     render_all(workdir, r)
 
     # Confirmation prompt (skip with -y or in non-interactive mode)
@@ -1124,7 +1132,6 @@ _FORBIDDEN_CLEAN_PREFIXES: tuple[Path, ...] = (
     Path("/srv"),
     Path("/sys"),
     Path("/usr"),
-    Path.home(),
     Path.home() / "Desktop",
     Path.home() / "Documents",
     Path.home() / "Downloads",
@@ -1188,15 +1195,16 @@ def build_parser() -> argparse.ArgumentParser:
                         help=f"Rendered working directory (default ./{DEFAULT_WORKDIR})")
 
     parser = argparse.ArgumentParser(
-        prog="ciscvm", parents=[common],
+        prog="ciscvm",
         description="CIS-hardened Golden Image Builder (Packer × Tencent Cloud CVM)",
         epilog=f"Supported profiles: {PROFILE_NAMES_HELP}",
     )
     parser.add_argument("--version", action="version", version=f"ciscvm {VERSION}")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging")
 
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_init = sub.add_parser("init", parents=[common], help="Generate sample ciscvm.toml")
+    p_init = sub.add_parser("init", help="Generate sample ciscvm.toml")
     p_init.add_argument("--target", default=".", help="Output directory (default: current)")
     p_init.add_argument("--force", action="store_true", help="Overwrite existing config")
     p_init.set_defaults(func=cmd_init)
@@ -1224,6 +1232,7 @@ def main(argv: list[str] | None = None) -> int:
     _setup_logging()
     parser = build_parser()
     args = parser.parse_args(argv)
+    _setup_logging(verbose=args.verbose)
     return int(args.func(args))
 
 

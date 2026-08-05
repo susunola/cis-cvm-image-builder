@@ -455,11 +455,16 @@ class TestRunPacker:
         (wd / "packer" / "main.pkr.hcl").write_text("")
         (wd / "packer" / "auto.pkrvars.hcl").write_text("")
 
-        with mock.patch("subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                subprocess.CompletedProcess([], 0, stdout="", stderr=""),
-                subprocess.CompletedProcess([], 0, stdout="OK", stderr=""),
-            ]
+        with (
+            mock.patch("subprocess.run") as mock_run,
+            mock.patch("subprocess.Popen") as mock_popen,
+        ):
+            mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            mock_proc = mock.MagicMock()
+            mock_proc.returncode = 0
+            mock_proc.stdout = ["OK\n"]
+            mock_proc.__enter__.return_value = mock_proc
+            mock_popen.return_value = mock_proc
             result = run_packer(wd, "validate", capture=True)
             assert result.exit_code == 0
 
@@ -638,6 +643,13 @@ class TestCleanIsSafe:
         home = Path.home()
         assert _clean_is_safe(home) is not None
         assert _clean_is_safe(home / "Desktop") is not None
+
+    def test_allows_home_build_dir_with_markers(self, tmp_path):
+        """Builds inside home dir should be cleanable if they have markers."""
+        wd = tmp_path / "my-build"
+        (wd / "packer").mkdir(parents=True)
+        (wd / "packer" / "main.pkr.hcl").write_text("")
+        assert _clean_is_safe(wd) is None
 
 
 # ---------------------------------------------------------------------------
