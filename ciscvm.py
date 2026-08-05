@@ -21,16 +21,28 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
 
+VERSION = "0.2.0"
+
 # ----------------------------------------------------------------------------
 # 配置画像（profile）：换 OS 只加一个字典项，不用改任何代码逻辑
 # ----------------------------------------------------------------------------
-# 每个 profile 字段含义：
+# ⚠️  ANSIBLE-LOCKDOWN 变量前缀陷阱（务必注意！）
+#    不同 OS 的 CIS 角色变量前缀不同，写错会静默失效，Level/GRUB 覆盖全部变 NO-OP。
+#    - Ubuntu 22/24 → ubtu22cis_ / ubtu24cis_    **是 ubtu 不是 ubuntu！**
+#    - RHEL 8/9     → rhel8cis_  / rhel9cis_
+#    - CentOS        → 套用对应 RHEL 前缀
+#    - Windows       → win19cis_ / win22cis_ / win25cis_
+#    每条新 profile 加 level1_var / level2_var / boot_pass_var 时，
+#    必须以角色 defaults/main.yml 为准逐字核对，不要靠「规律」推断。
+#
+#  各字段含义：
 #   ssh_username        临时 CVM 的 SSH 登录用户
 #   role                Galaxy 角色名（ansible-lockdown.<x>）
 #   role_version        固定版本号；空字符串 = 装 galaxy 最新（推荐先跑通再 pin）
@@ -607,9 +619,13 @@ def load_config(path: Path) -> dict:
         "build": ["profile", "region", "zone", "instance_type", "source_image_id",
                   "vpc_id", "subnet_id", "security_group_id", "associate_public_ip"],
         "image": ["name_prefix", "copy_regions"],
-        "cis": ["level", "max_failures", "audit_dir"],
+        "cis": ["level", "max_failures"],
         "cloud": ["secret_id_env", "secret_key_env"],
     }
+    # audit_dir is only required for Linux profiles; Windows has no goss audit
+    profile = data.get("build", {}).get("profile", "")
+    if profile in PROFILES and PROFILES[profile].get("family") != "windows":
+        required["cis"].append("audit_dir")
     for section, keys in required.items():
         if section not in data:
             raise ConfigError(f"配置缺少 [section]：[{section}]")
@@ -920,14 +936,21 @@ def ensure_controller_roles(r: dict) -> int:
     return res.returncode
 
 
-def run_packer(workdir: Path, subcmd: str, quiet: bool) -> int:
-    """在 workdir 内执行 packer init + <subcmd>。返回 exit code。"""
+def run_packer(workdir: Path, subcmd: str, quiet: bool, capture: bool = False):
+    """在 workdir 内执行 packer init + <subcmd>。返回 (exit_code, [output_lines]) 或 exit_code。"""
     hcl = "packer/main.pkr.hcl"
     varfile = "packer/auto.pkrvars.hcl"
     init = subprocess.run(["packer", "init", hcl], cwd=workdir)
     if init.returncode != 0:
+        if capture:
+            return (init.returncode, [])
         return init.returncode
     cmd = ["packer", subcmd, f"-var-file={varfile}", hcl]
+    if capture:
+        res = subprocess.run(cmd, cwd=workdir,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        lines = res.stdout.splitlines() if res.stdout else []
+        return (res.returncode, lines)
     if quiet:
         res = subprocess.run(cmd, cwd=workdir,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -986,22 +1009,35 @@ def cmd_build(args: argparse.Namespace) -> int:
     workdir = Path(args.workdir)
     workdir.mkdir(parents=True, exist_ok=True)
     render_all(workdir, r)
+
+    # 确认（除非 -y）
+    if not args.yes:
+        banner("build")
+        info(f"profile  = {r['profile_name']}  |  CIS Level {r['level']}  |  region {r['region']}")
+        info(f"源镜像   = {r['source_image_id']}")
+        info(f"实例规格 = {r['instance_type']}")
+        try:
+            resp = input("  确认开始构建？(y/N) ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 1
+        if resp not in ("y", "yes"):
+            info("已取消")
+            return 0
+
     banner("build")
     info(f"已渲染工作目录：{workdir}")
     info(f"执行 packer build（CIS Level {r['level']}, profile={r['profile_name']}）...")
-    proc = subprocess.run(
-        ["packer", "build", f"-var-file=packer/auto.pkrvars.hcl", "packer/main.pkr.hcl"],
-        cwd=workdir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    rc, lines = run_packer(workdir, "build", args.quiet, capture=True)
     # 流式输出 + 抓取镜像 ID
     image_id = None
-    for line in proc.stdout.splitlines():
+    for line in lines:
         print(line)
         if image_id is None:
-            import re
             m = re.search(r"Created image ID:\s*(\S+)", line)
             if m:
                 image_id = m.group(1)
-    if proc.returncode == 0:
+    if rc == 0:
         ok("packer build 成功")
         if image_id:
             ok(f"产出镜像 ID：{image_id}")
@@ -1009,7 +1045,7 @@ def cmd_build(args: argparse.Namespace) -> int:
             info("未从输出解析到镜像 ID，请到控制台确认。")
     else:
         fail("packer build 失败（见上方输出）")
-    return proc.returncode
+    return rc
 
 
 def cmd_clean(args: argparse.Namespace) -> int:
@@ -1036,6 +1072,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ciscvm", parents=[common],
         description="Packer × 腾讯云 CVM × CIS 镜像构建小工具")
+    parser.add_argument("--version", action="version",
+                        version=f"ciscvm {VERSION}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_init = sub.add_parser("init", parents=[common], help="生成示例 ciscvm.toml")
@@ -1052,6 +1090,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_bld = sub.add_parser("build", parents=[common], help="渲染 + packer build（产出镜像）")
     p_bld.add_argument("--quiet", action="store_true", help="仅输出 packer 结果")
+    p_bld.add_argument("-y", "--yes", action="store_true", help="跳过确认提示，直接执行")
     p_bld.set_defaults(func=cmd_build)
 
     p_cln = sub.add_parser("clean", parents=[common], help="删除渲染工作目录")

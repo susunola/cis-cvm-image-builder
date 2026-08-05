@@ -10,7 +10,7 @@
 
 - **Linux**（Ubuntu / RHEL / CentOS）：通过 `ansible-local` provisioner **在实例内**执行加固，
   goss 审计做 build 期 gate。
-- **Windows Server**（2019 / 2022，*preview*）：使用 **WinRM** + 远程 `ansible` provisioner
+- **Windows Server**（2019 / 2022 / 2025，*preview*）：使用 **WinRM** + 远程 `ansible` provisioner
   （Ansible 在控制器侧执行，不是在 VM 里）；Windows 没有 goss 审计——见
   [Windows Server（preview）](#windows-serverpreview)。
 
@@ -18,7 +18,7 @@
 HCL / playbook / 脚本全部在构建时由配置渲染生成，不用手改 HCL。
 
 > **默认目标**：Ubuntu 22.04 + CIS Level 1。换 OS / Level 见下方「换操作系统」
-> （Ubuntu 24 / RHEL 8/9 / CentOS 8/9 / Windows Server 2019/2022）。
+> （Ubuntu 24 / RHEL 8/9 / CentOS 8/9 / Windows Server 2019/2022/2025）。
 
 ## 项目结构
 

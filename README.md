@@ -10,7 +10,7 @@ runs [ansible-lockdown](https://github.com/ansible-lockdown) CIS roles for syste
 
 - **Linux** (Ubuntu / RHEL / CentOS): hardening runs **inside** the instance via the
   `ansible-local` provisioner, and a **goss audit** acts as a build-time gate.
-- **Windows Server** (2019 / 2022, *preview*): uses **WinRM** + a remote `ansible` provisioner
+- **Windows Server** (2019 / 2022 / 2025, *preview*): uses **WinRM** + a remote `ansible` provisioner
   (Ansible runs on the controller, not in-VM); there is **no goss audit** on Windows — see
   [Windows Server](#windows-server-preview) for the verification approach.
 
@@ -18,7 +18,7 @@ The entire pipeline is driven by a **single config file** (`ciscvm.toml`). HCL /
 scripts are all rendered from config at build time — no hand-editing HCL required.
 
 > **Default target:** Ubuntu 22.04 + CIS Level 1. See [Switching OS](#switching-os) below
-> for other OS profiles (Ubuntu 24, RHEL 8/9, CentOS 8/9, Windows Server 2019/2022) and levels.
+> for other OS profiles (Ubuntu 24, RHEL 8/9, CentOS 8/9, Windows Server 2019/2022/2025) and levels.
 
 ## Project Structure
 
