@@ -56,6 +56,7 @@
 
 - name: "Run the benchmark ({{ cis_mode }} / {{ cis_profile }})"
   ansible.builtin.command:
+    chdir: /tmp
     argv: "{{ cis_engine_argv }}"
   register: cis_engine_run
   changed_when: cis_mode_effective == 'apply'
