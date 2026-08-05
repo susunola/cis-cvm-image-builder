@@ -837,8 +837,10 @@ __PKG_UPDATE__
 __PKG_INSTALL__
 
 # 2. Pick a Python >=3.8 (ansible-core >=2.12 requires it; RHEL 8 / TencentOS 3 ship 3.6)
+# NOTE: Python 3.12 has a multiprocessing atexit bug (FileNotFoundError for
+# /tmp/pymp-*) that breaks ansible-local. We skip 3.12 and prefer 3.9-3.11.
 PY=
-for candidate in python3.12 python3.11 python3.10 python3.9 python3; do
+for candidate in python3.11 python3.10 python3.9 python3; do
     if command -v "$candidate" &>/dev/null && \
        "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3,8) else 1)' 2>/dev/null; then
         PY="$candidate"
@@ -852,13 +854,18 @@ if [ -z "$PY" ]; then
      sudo yum install -y python39 2>/dev/null || \
      (sudo apt-get update -qq && sudo apt-get install -y python3.9 python3.9-venv) 2>/dev/null || \
      sudo zypper --non-interactive install -y python39 2>/dev/null || true)
-    for candidate in python3.9 python3.10 python3.11 python3.12; do
+    for candidate in python3.9 python3.10 python3.11; do
         if command -v "$candidate" &>/dev/null && \
            "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3,8) else 1)' 2>/dev/null; then
             PY="$candidate"
             break
         fi
     done
+    # Last resort: Python 3.12 (has known multiprocessing bug, but better than nothing)
+    if [ -z "$PY" ] && command -v python3.12 &>/dev/null; then
+        PY=python3.12
+        echo "==> WARNING: Using Python 3.12 (known multiprocessing atexit bug) — install python3.9 if builds fail" >&2
+    fi
 fi
 
 if [ -z "$PY" ]; then
