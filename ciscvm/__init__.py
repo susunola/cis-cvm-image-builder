@@ -95,6 +95,7 @@ def banner(title: str) -> None:
 # Profile keys common to Linux profiles:
 #   role_dir      Bundled role directory name under roles/
 #   ssh_username  Initial SSH user for Packer (ubuntu / root)
+#   ssh_port      SSH port (default 22)
 #   os_tag        CVM source image OS tag
 #   benchmark     CIS benchmark version
 #   pkg_update    Package index update command
@@ -298,6 +299,7 @@ class ResolvedConfig:
     subnet_id: str
     security_group_id: str
     associate_public_ip: bool
+    ssh_port: int
     ssh_username: str
     winrm_username: str
     winrm_password_env: str
@@ -435,6 +437,7 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         subnet_id=str(data["build"]["subnet_id"]),
         security_group_id=str(data["build"]["security_group_id"]),
         associate_public_ip=bool(data["build"]["associate_public_ip"]),
+        ssh_port=int(p.get("ssh_port", 22)),
         ssh_username=str(p.get("ssh_username", "")),
         winrm_username=str(p.get("winrm_username", "")),
         winrm_password_env=str(data.get("cloud", {}).get("winrm_password_env", "WINRM_PASSWORD")),
@@ -524,6 +527,7 @@ variable "zone"                        { type = string }
 variable "instance_type"               { type = string }
 variable "source_image_id"             { type = string }
 variable "ssh_username"                { type = string }
+variable "ssh_port"                    { type = number }
 variable "vpc_id"                      { type = string }
 variable "subnet_id"                   { type = string }
 variable "security_group_id"           { type = string }
@@ -550,6 +554,7 @@ source "tencentcloud-cvm" "default" {
   instance_type               = var.instance_type
   source_image_id             = var.source_image_id
   ssh_username                = var.ssh_username
+  ssh_port                    = var.ssh_port
   image_name                  = local.image_name
   vpc_id                      = var.vpc_id
   subnet_id                   = var.subnet_id
@@ -797,6 +802,7 @@ def render_pkrvars(r: ResolvedConfig) -> str:
         flat["winrm_username"] = r.winrm_username
     else:
         flat["ssh_username"] = r.ssh_username
+        flat["ssh_port"] = r.ssh_port
 
     return "\n".join(f"{k} = {_format_hcl_value(v)}" for k, v in flat.items()) + "\n"
 
