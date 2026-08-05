@@ -22,6 +22,6 @@ cis_engine_timeout: 1800
 cis_backup_dir: /var/backups/cis-rhel10
 cis_fail_on_findings: false
 cis_min_score: 0
-cis_benchmark_name: "CIS Red Hat Enterprise Linux 10 Benchmark v1.0.1"
-cis_benchmark_version: "v1.0.0"
+cis_benchmark_name: "CIS Red Hat Enterprise Linux 10 Benchmark"
+cis_benchmark_version: "v1.0.1"
 cis_org_name: ""

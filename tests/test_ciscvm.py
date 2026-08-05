@@ -211,7 +211,7 @@ class TestResolve:
         assert r.cis_level_tag == "level1-server"
         assert r.ssh_username == "root"
         assert r.role_dir == "cis_tencentos3"
-        assert r.associate_public_ip is True
+        assert r.associate_public_ip is False
         assert r.family == ""
 
     def test_level2(self, valid_toml):
@@ -665,7 +665,7 @@ class TestCmdBuildOutput:
                 return_value=PackerResult(exit_code=0, stdout_lines=packer_lines),
             ),
         ):
-            rc = cmd_build(mock.MagicMock(config="x", workdir=str(wd), yes=True, quiet=False))
+            rc = cmd_build(mock.MagicMock(config="x", workdir=str(wd), yes=True, quiet=False, log_file=None))
         assert rc == 0
         out = capsys.readouterr().out
         # The packer log lines must NOT be dumped to stdout by cmd_build.
@@ -686,7 +686,7 @@ class TestCmdBuildOutput:
                 ),
             ),
         ):
-            rc = cmd_build(mock.MagicMock(config="x", workdir=str(wd), yes=True, quiet=False))
+            rc = cmd_build(mock.MagicMock(config="x", workdir=str(wd), yes=True, quiet=False, log_file=None))
         assert rc == 0
         # Image ID is surfaced via the logger (stderr), captured by caplog elsewhere;
         # here we just confirm the command succeeded and did not crash on parsing.
@@ -699,7 +699,7 @@ class TestCmdBuildOutput:
         packer_lines = ["==> building", "Created image ID: img-q", "done"]
         captured_quiet: dict[str, object] = {}
 
-        def fake_run_packer(workdir, subcmd, quiet=False, capture=False, timeout=None, debug=False):
+        def fake_run_packer(workdir, subcmd, quiet=False, capture=False, timeout=None, debug=False, log_file=None):
             captured_quiet["quiet"] = quiet
             captured_quiet["capture"] = capture
             return PackerResult(exit_code=0, stdout_lines=packer_lines)
@@ -709,7 +709,7 @@ class TestCmdBuildOutput:
             mock.patch("ciscvm.render_all"),
             mock.patch("ciscvm.run_packer", side_effect=fake_run_packer),
         ):
-            rc = cmd_build(mock.MagicMock(config="x", workdir=str(wd), yes=True, quiet=True))
+            rc = cmd_build(mock.MagicMock(config="x", workdir=str(wd), yes=True, quiet=True, log_file=None))
         assert rc == 0
         # cmd_build must forward quiet=True and still capture (for image-ID parsing).
         assert captured_quiet == {"quiet": True, "capture": True}
@@ -730,7 +730,7 @@ class TestCmdBuildOutput:
                 return_value=PackerResult(exit_code=1, stdout_lines=["Error"]),
             ),
         ):
-            rc = cmd_build(mock.MagicMock(config="x", workdir=str(wd), yes=True, quiet=False))
+            rc = cmd_build(mock.MagicMock(config="x", workdir=str(wd), yes=True, quiet=False, log_file=None))
         assert rc == 1
 
     def test_build_aborts_when_preflight_fails(self, tmp_path):

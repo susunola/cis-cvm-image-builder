@@ -9,7 +9,7 @@
 
 - name: Enforce the compliance gate
   ansible.builtin.import_tasks: gate.yml
-  when: cis_fail_on_findings or (cis_min_score | int) > 0
+  when: cis_fail_on_findings | bool or (cis_min_score | int) > 0
   tags: [cis, gate]
 
 - name: Print build summary
