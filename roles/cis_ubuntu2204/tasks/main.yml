@@ -1,0 +1,13 @@
+---
+- name: Pre-flight checks
+  ansible.builtin.include_tasks: preflight.yml
+
+- name: Run CIS benchmark
+  ansible.builtin.include_tasks: run.yml
+
+- name: Generate reports
+  ansible.builtin.include_tasks: report.yml
+
+- name: Gate on findings
+  ansible.builtin.include_tasks: gate.yml
+  when: cis_fail_on_findings | default(false)

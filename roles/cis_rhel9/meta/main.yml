@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  author: CIS Automation
+  description: CIS Benchmark assessment for Red Hat Enterprise Linux 9
+  license: MIT
+  min_ansible_version: "2.9"
+  platforms:
+    - name: EL
+      versions: ["9"]
+  galaxy_tags:
+    - cis
+    - security
+    - compliance
+    - hardening
+dependencies: []

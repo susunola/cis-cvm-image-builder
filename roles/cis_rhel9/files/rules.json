@@ -1,0 +1,5155 @@
+[
+ {
+  "id": "1.1.1.1",
+  "title": "Ensure cramfs kernel module is not available",
+  "section": "1.1.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kmod",
+  "params": {
+   "module": "cramfs",
+   "mtype": "fs"
+  },
+  "risk": "safe",
+  "page": 20
+ },
+ {
+  "id": "1.1.1.2",
+  "title": "Ensure freevxfs kernel module is not available",
+  "section": "1.1.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kmod",
+  "params": {
+   "module": "freevxfs",
+   "mtype": "fs"
+  },
+  "risk": "safe",
+  "page": 25
+ },
+ {
+  "id": "1.1.1.3",
+  "title": "Ensure hfs kernel module is not available",
+  "section": "1.1.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kmod",
+  "params": {
+   "module": "hfs",
+   "mtype": "fs"
+  },
+  "risk": "safe",
+  "page": 30
+ },
+ {
+  "id": "1.1.1.4",
+  "title": "Ensure hfsplus kernel module is not available",
+  "section": "1.1.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kmod",
+  "params": {
+   "module": "hfsplus",
+   "mtype": "fs"
+  },
+  "risk": "safe",
+  "page": 35
+ },
+ {
+  "id": "1.1.1.5",
+  "title": "Ensure jffs2 kernel module is not available",
+  "section": "1.1.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kmod",
+  "params": {
+   "module": "jffs2",
+   "mtype": "fs"
+  },
+  "risk": "safe",
+  "page": 40
+ },
+ {
+  "id": "1.1.1.6",
+  "title": "Ensure squashfs kernel module is not available",
+  "section": "1.1.1",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kmod",
+  "params": {
+   "module": "squashfs",
+   "mtype": "fs"
+  },
+  "risk": "safe",
+  "page": 45
+ },
+ {
+  "id": "1.1.1.7",
+  "title": "Ensure udf kernel module is not available",
+  "section": "1.1.1",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kmod",
+  "params": {
+   "module": "udf",
+   "mtype": "fs"
+  },
+  "risk": "safe",
+  "page": 50
+ },
+ {
+  "id": "1.1.1.8",
+  "title": "Ensure usb-storage kernel module is not available",
+  "section": "1.1.1",
+  "levels": [
+   1,
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kmod",
+  "params": {
+   "module": "usb-storage",
+   "mtype": "fs"
+  },
+  "risk": "safe",
+  "page": 55
+ },
+ {
+  "id": "1.1.1.9",
+  "title": "Ensure unused filesystems kernel modules are not available",
+  "section": "1.1.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 60
+ },
+ {
+  "id": "1.1.2.1.1",
+  "title": "Ensure /tmp is a separate partition",
+  "section": "1.1.2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "partition",
+  "params": {
+   "mount": "/tmp",
+   "size_mb": 0
+  },
+  "risk": "none",
+  "page": 68
+ },
+ {
+  "id": "1.1.2.1.2",
+  "title": "Ensure nodev option set on /tmp partition",
+  "section": "1.1.2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/tmp",
+   "option": "nodev"
+  },
+  "risk": "disruptive",
+  "page": 72
+ },
+ {
+  "id": "1.1.2.1.3",
+  "title": "Ensure nosuid option set on /tmp partition",
+  "section": "1.1.2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/tmp",
+   "option": "nosuid"
+  },
+  "risk": "disruptive",
+  "page": 74
+ },
+ {
+  "id": "1.1.2.1.4",
+  "title": "Ensure noexec option set on /tmp partition",
+  "section": "1.1.2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/tmp",
+   "option": "noexec"
+  },
+  "risk": "disruptive",
+  "page": 76
+ },
+ {
+  "id": "1.1.2.2.1",
+  "title": "Ensure /dev/shm is a separate partition",
+  "section": "1.1.2.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "partition",
+  "params": {
+   "mount": "/dev/shm",
+   "size_mb": 0
+  },
+  "risk": "none",
+  "page": 79
+ },
+ {
+  "id": "1.1.2.2.2",
+  "title": "Ensure nodev option set on /dev/shm partition",
+  "section": "1.1.2.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/dev/shm",
+   "option": "nodev"
+  },
+  "risk": "disruptive",
+  "page": 81
+ },
+ {
+  "id": "1.1.2.2.3",
+  "title": "Ensure nosuid option set on /dev/shm partition",
+  "section": "1.1.2.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/dev/shm",
+   "option": "nosuid"
+  },
+  "risk": "disruptive",
+  "page": 83
+ },
+ {
+  "id": "1.1.2.2.4",
+  "title": "Ensure noexec option set on /dev/shm partition",
+  "section": "1.1.2.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/dev/shm",
+   "option": "noexec"
+  },
+  "risk": "disruptive",
+  "page": 85
+ },
+ {
+  "id": "1.1.2.3.1",
+  "title": "Ensure separate partition exists for /home",
+  "section": "1.1.2.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 88
+ },
+ {
+  "id": "1.1.2.3.2",
+  "title": "Ensure nodev option set on /home partition",
+  "section": "1.1.2.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/home",
+   "option": "nodev"
+  },
+  "risk": "disruptive",
+  "page": 91
+ },
+ {
+  "id": "1.1.2.3.3",
+  "title": "Ensure nosuid option set on /home partition",
+  "section": "1.1.2.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/home",
+   "option": "nosuid"
+  },
+  "risk": "disruptive",
+  "page": 93
+ },
+ {
+  "id": "1.1.2.4.1",
+  "title": "Ensure separate partition exists for /var",
+  "section": "1.1.2.4",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 96
+ },
+ {
+  "id": "1.1.2.4.2",
+  "title": "Ensure nodev option set on /var partition",
+  "section": "1.1.2.4",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/var",
+   "option": "nodev"
+  },
+  "risk": "disruptive",
+  "page": 99
+ },
+ {
+  "id": "1.1.2.4.3",
+  "title": "Ensure nosuid option set on /var partition",
+  "section": "1.1.2.4",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/var",
+   "option": "nosuid"
+  },
+  "risk": "disruptive",
+  "page": 101
+ },
+ {
+  "id": "1.1.2.5.1",
+  "title": "Ensure separate partition exists for /var/tmp",
+  "section": "1.1.2.5",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 104
+ },
+ {
+  "id": "1.1.2.5.2",
+  "title": "Ensure nodev option set on /var/tmp partition",
+  "section": "1.1.2.5",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/var/tmp",
+   "option": "nodev"
+  },
+  "risk": "disruptive",
+  "page": 106
+ },
+ {
+  "id": "1.1.2.5.3",
+  "title": "Ensure nosuid option set on /var/tmp partition",
+  "section": "1.1.2.5",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/var/tmp",
+   "option": "nosuid"
+  },
+  "risk": "disruptive",
+  "page": 108
+ },
+ {
+  "id": "1.1.2.5.4",
+  "title": "Ensure noexec option set on /var/tmp partition",
+  "section": "1.1.2.5",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/var/tmp",
+   "option": "noexec"
+  },
+  "risk": "disruptive",
+  "page": 110
+ },
+ {
+  "id": "1.1.2.6.1",
+  "title": "Ensure separate partition exists for /var/log",
+  "section": "1.1.2.6",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 113
+ },
+ {
+  "id": "1.1.2.6.2",
+  "title": "Ensure nodev option set on /var/log partition",
+  "section": "1.1.2.6",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/var/log",
+   "option": "nodev"
+  },
+  "risk": "disruptive",
+  "page": 115
+ },
+ {
+  "id": "1.1.2.6.3",
+  "title": "Ensure nosuid option set on /var/log partition",
+  "section": "1.1.2.6",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/var/log",
+   "option": "nosuid"
+  },
+  "risk": "disruptive",
+  "page": 117
+ },
+ {
+  "id": "1.1.2.6.4",
+  "title": "Ensure noexec option set on /var/log partition",
+  "section": "1.1.2.6",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/var/log",
+   "option": "noexec"
+  },
+  "risk": "disruptive",
+  "page": 119
+ },
+ {
+  "id": "1.1.2.7.1",
+  "title": "Ensure separate partition exists for /var/log/audit",
+  "section": "1.1.2.7",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 122
+ },
+ {
+  "id": "1.1.2.7.2",
+  "title": "Ensure nodev option set on /var/log/audit partition",
+  "section": "1.1.2.7",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/var/log/audit",
+   "option": "nodev"
+  },
+  "risk": "disruptive",
+  "page": 124
+ },
+ {
+  "id": "1.1.2.7.3",
+  "title": "Ensure nosuid option set on /var/log/audit partition",
+  "section": "1.1.2.7",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/var/log/audit",
+   "option": "nosuid"
+  },
+  "risk": "disruptive",
+  "page": 126
+ },
+ {
+  "id": "1.1.2.7.4",
+  "title": "Ensure noexec option set on /var/log/audit partition",
+  "section": "1.1.2.7",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "mount_opt",
+  "params": {
+   "mount": "/var/log/audit",
+   "option": "noexec"
+  },
+  "risk": "disruptive",
+  "page": 128
+ },
+ {
+  "id": "1.2.1.1",
+  "title": "Ensure GPG keys are configured",
+  "section": "1.2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 132
+ },
+ {
+  "id": "1.2.1.2",
+  "title": "Ensure gpgcheck is globally activated",
+  "section": "1.2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 135
+ },
+ {
+  "id": "1.2.1.3",
+  "title": "Ensure repo_gpgcheck is globally activated",
+  "section": "1.2.1",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 137
+ },
+ {
+  "id": "1.2.1.4",
+  "title": "Ensure package manager repositories are configured",
+  "section": "1.2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 139
+ },
+ {
+  "id": "1.2.2.1",
+  "title": "Ensure updates, patches, and additional security software are installed",
+  "section": "1.2.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 142
+ },
+ {
+  "id": "1.3.1.1",
+  "title": "Ensure SELinux is installed",
+  "section": "1.3.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 147
+ },
+ {
+  "id": "1.3.1.2",
+  "title": "Ensure SELinux is not disabled in bootloader configuration",
+  "section": "1.3.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 149
+ },
+ {
+  "id": "1.3.1.3",
+  "title": "Ensure SELinux policy is configured",
+  "section": "1.3.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "selinux",
+  "params": {},
+  "risk": "safe",
+  "page": 152
+ },
+ {
+  "id": "1.3.1.4",
+  "title": "Ensure the SELinux mode is not disabled",
+  "section": "1.3.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 154
+ },
+ {
+  "id": "1.3.1.5",
+  "title": "Ensure the SELinux mode is enforcing",
+  "section": "1.3.1",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "selinux",
+  "params": {},
+  "risk": "safe",
+  "page": 157
+ },
+ {
+  "id": "1.3.1.6",
+  "title": "Ensure no unconfined services exist",
+  "section": "1.3.1",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 160
+ },
+ {
+  "id": "1.3.1.7",
+  "title": "Ensure the MCS Translation Service (mcstrans) is not installed",
+  "section": "1.3.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 163
+ },
+ {
+  "id": "1.3.1.8",
+  "title": "Ensure SETroubleshoot is not installed",
+  "section": "1.3.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 165
+ },
+ {
+  "id": "1.4.1",
+  "title": "Ensure bootloader password is set",
+  "section": "1.4",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "bootloader_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 169
+ },
+ {
+  "id": "1.4.2",
+  "title": "Ensure access to bootloader config is configured",
+  "section": "1.4",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 171
+ },
+ {
+  "id": "1.5.1",
+  "title": "Ensure address space layout randomization is enabled",
+  "section": "1.5",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 176
+ },
+ {
+  "id": "1.5.2",
+  "title": "Ensure ptrace_scope is restricted",
+  "section": "1.5",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 180
+ },
+ {
+  "id": "1.5.3",
+  "title": "Ensure core dump backtraces are disabled",
+  "section": "1.5",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 184
+ },
+ {
+  "id": "1.5.4",
+  "title": "Ensure core dump storage is disabled",
+  "section": "1.5",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 187
+ },
+ {
+  "id": "1.6.1",
+  "title": "Ensure system wide crypto policy is not set to legacy",
+  "section": "1.6",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 191
+ },
+ {
+  "id": "1.6.2",
+  "title": "Ensure system wide crypto policy is not set in sshd configuration",
+  "section": "1.6",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 195
+ },
+ {
+  "id": "1.6.3",
+  "title": "Ensure system wide crypto policy disables sha1 hash and signature support",
+  "section": "1.6",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 197
+ },
+ {
+  "id": "1.6.4",
+  "title": "Ensure system wide crypto policy disables macs less than 128 bits",
+  "section": "1.6",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 200
+ },
+ {
+  "id": "1.6.5",
+  "title": "Ensure system wide crypto policy disables cbc for ssh",
+  "section": "1.6",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 203
+ },
+ {
+  "id": "1.6.6",
+  "title": "Ensure system wide crypto policy disables chacha20- poly1305 for ssh",
+  "section": "1.6",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 207
+ },
+ {
+  "id": "1.6.7",
+  "title": "Ensure system wide crypto policy disables EtM for ssh",
+  "section": "1.6",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 211
+ },
+ {
+  "id": "1.7.1",
+  "title": "Ensure message of the day is configured properly",
+  "section": "1.7",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "banner",
+  "params": {},
+  "risk": "safe",
+  "page": 215
+ },
+ {
+  "id": "1.7.2",
+  "title": "Ensure local login warning banner is configured properly",
+  "section": "1.7",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "banner",
+  "params": {},
+  "risk": "safe",
+  "page": 218
+ },
+ {
+  "id": "1.7.3",
+  "title": "Ensure remote login warning banner is configured properly",
+  "section": "1.7",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "banner",
+  "params": {},
+  "risk": "safe",
+  "page": 220
+ },
+ {
+  "id": "1.7.4",
+  "title": "Ensure access to /etc/motd is configured",
+  "section": "1.7",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 222
+ },
+ {
+  "id": "1.7.5",
+  "title": "Ensure access to /etc/issue is configured",
+  "section": "1.7",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "banner",
+  "params": {},
+  "risk": "safe",
+  "page": 224
+ },
+ {
+  "id": "1.7.6",
+  "title": "Ensure access to /etc/issue.net is configured",
+  "section": "1.7",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 226
+ },
+ {
+  "id": "1.8.1",
+  "title": "Ensure GNOME Display Manager is removed",
+  "section": "1.8",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 229
+ },
+ {
+  "id": "1.8.2",
+  "title": "Ensure GDM login banner is configured",
+  "section": "1.8",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "banner",
+  "params": {},
+  "risk": "safe",
+  "page": 231
+ },
+ {
+  "id": "1.8.3",
+  "title": "Ensure GDM disable-user-list option is enabled",
+  "section": "1.8",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 235
+ },
+ {
+  "id": "1.8.4",
+  "title": "Ensure GDM screen locks when the user is idle",
+  "section": "1.8",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "gdm_dconf",
+  "params": {},
+  "risk": "safe",
+  "page": 239
+ },
+ {
+  "id": "1.8.5",
+  "title": "Ensure GDM screen locks cannot be overridden",
+  "section": "1.8",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "gdm_dconf",
+  "params": {},
+  "risk": "safe",
+  "page": 244
+ },
+ {
+  "id": "1.8.6",
+  "title": "Ensure GDM automatic mounting of removable media is disabled",
+  "section": "1.8",
+  "levels": [
+   1,
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 248
+ },
+ {
+  "id": "1.8.7",
+  "title": "Ensure GDM disabling automatic mounting of removable media is not overridden",
+  "section": "1.8",
+  "levels": [
+   1,
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "gdm_dconf",
+  "params": {},
+  "risk": "safe",
+  "page": 254
+ },
+ {
+  "id": "1.8.8",
+  "title": "Ensure GDM autorun-never is enabled",
+  "section": "1.8",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 258
+ },
+ {
+  "id": "1.8.9",
+  "title": "Ensure GDM autorun-never is not overridden",
+  "section": "1.8",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 263
+ },
+ {
+  "id": "1.8.10",
+  "title": "Ensure XDMCP is not enabled",
+  "section": "1.8",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 267
+ },
+ {
+  "id": "2.1.1",
+  "title": "Ensure autofs services are not in use",
+  "section": "2.1",
+  "levels": [
+   1,
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 271
+ },
+ {
+  "id": "2.1.2",
+  "title": "Ensure avahi daemon services are not in use",
+  "section": "2.1",
+  "levels": [
+   1,
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 274
+ },
+ {
+  "id": "2.1.3",
+  "title": "Ensure dhcp server services are not in use",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 277
+ },
+ {
+  "id": "2.1.4",
+  "title": "Ensure dns server services are not in use",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 280
+ },
+ {
+  "id": "2.1.5",
+  "title": "Ensure dnsmasq services are not in use",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 283
+ },
+ {
+  "id": "2.1.6",
+  "title": "Ensure samba file server services are not in use",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 286
+ },
+ {
+  "id": "2.1.7",
+  "title": "Ensure ftp server services are not in use",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 289
+ },
+ {
+  "id": "2.1.8",
+  "title": "Ensure message access server services are not in use",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 292
+ },
+ {
+  "id": "2.1.9",
+  "title": "Ensure network file system services are not in use",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 295
+ },
+ {
+  "id": "2.1.10",
+  "title": "Ensure nis server services are not in use",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 298
+ },
+ {
+  "id": "2.1.11",
+  "title": "Ensure print server services are not in use",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 301
+ },
+ {
+  "id": "2.1.12",
+  "title": "Ensure rpcbind services are not in use",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 304
+ },
+ {
+  "id": "2.1.13",
+  "title": "Ensure rsync services are not in use",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 307
+ },
+ {
+  "id": "2.1.14",
+  "title": "Ensure snmp services are not in use",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 310
+ },
+ {
+  "id": "2.1.15",
+  "title": "Ensure telnet server services are not in use",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 313
+ },
+ {
+  "id": "2.1.16",
+  "title": "Ensure tftp server services are not in use",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 316
+ },
+ {
+  "id": "2.1.17",
+  "title": "Ensure web proxy server services are not in use",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 319
+ },
+ {
+  "id": "2.1.18",
+  "title": "Ensure web server services are not in use",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 322
+ },
+ {
+  "id": "2.1.19",
+  "title": "Ensure xinetd services are not in use",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 325
+ },
+ {
+  "id": "2.1.20",
+  "title": "Ensure X window server services are not in use",
+  "section": "2.1",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 328
+ },
+ {
+  "id": "2.1.21",
+  "title": "Ensure mail transfer agents are configured for local-only mode",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 330
+ },
+ {
+  "id": "2.1.22",
+  "title": "Ensure only approved services are listening on a network interface",
+  "section": "2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 333
+ },
+ {
+  "id": "2.2.1",
+  "title": "Ensure ftp client is not installed",
+  "section": "2.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 337
+ },
+ {
+  "id": "2.2.2",
+  "title": "Ensure ldap client is not installed",
+  "section": "2.2",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 339
+ },
+ {
+  "id": "2.2.3",
+  "title": "Ensure nis client is not installed",
+  "section": "2.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 341
+ },
+ {
+  "id": "2.2.4",
+  "title": "Ensure telnet client is not installed",
+  "section": "2.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 343
+ },
+ {
+  "id": "2.2.5",
+  "title": "Ensure tftp client is not installed",
+  "section": "2.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 345
+ },
+ {
+  "id": "2.3.1",
+  "title": "Ensure time synchronization is in use",
+  "section": "2.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 348
+ },
+ {
+  "id": "2.3.2",
+  "title": "Ensure chrony is configured",
+  "section": "2.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 350
+ },
+ {
+  "id": "2.3.3",
+  "title": "Ensure chrony is not run as the root user",
+  "section": "2.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 352
+ },
+ {
+  "id": "2.4.1.1",
+  "title": "Ensure cron daemon is enabled and active",
+  "section": "2.4.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 355
+ },
+ {
+  "id": "2.4.1.2",
+  "title": "Ensure permissions on /etc/crontab are configured",
+  "section": "2.4.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "file_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 357
+ },
+ {
+  "id": "2.4.1.3",
+  "title": "Ensure permissions on /etc/cron.hourly are configured",
+  "section": "2.4.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "file_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 359
+ },
+ {
+  "id": "2.4.1.4",
+  "title": "Ensure permissions on /etc/cron.daily are configured",
+  "section": "2.4.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "file_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 361
+ },
+ {
+  "id": "2.4.1.5",
+  "title": "Ensure permissions on /etc/cron.weekly are configured",
+  "section": "2.4.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "file_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 363
+ },
+ {
+  "id": "2.4.1.6",
+  "title": "Ensure permissions on /etc/cron.monthly are configured",
+  "section": "2.4.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "file_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 365
+ },
+ {
+  "id": "2.4.1.7",
+  "title": "Ensure permissions on /etc/cron.d are configured",
+  "section": "2.4.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "file_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 367
+ },
+ {
+  "id": "2.4.1.8",
+  "title": "Ensure crontab is restricted to authorized users",
+  "section": "2.4.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 369
+ },
+ {
+  "id": "2.4.2.1",
+  "title": "Ensure at is restricted to authorized users",
+  "section": "2.4.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 374
+ },
+ {
+  "id": "3.1.1",
+  "title": "Ensure IPv6 status is identified",
+  "section": "3.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 380
+ },
+ {
+  "id": "3.1.2",
+  "title": "Ensure wireless interfaces are disabled",
+  "section": "3.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 383
+ },
+ {
+  "id": "3.1.3",
+  "title": "Ensure bluetooth services are not in use",
+  "section": "3.1",
+  "levels": [
+   1,
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 387
+ },
+ {
+  "id": "3.2.1",
+  "title": "Ensure dccp kernel module is not available",
+  "section": "3.2",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kmod",
+  "params": {
+   "module": "dccp",
+   "mtype": "fs"
+  },
+  "risk": "safe",
+  "page": 391
+ },
+ {
+  "id": "3.2.2",
+  "title": "Ensure tipc kernel module is not available",
+  "section": "3.2",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kmod",
+  "params": {
+   "module": "tipc",
+   "mtype": "fs"
+  },
+  "risk": "safe",
+  "page": 396
+ },
+ {
+  "id": "3.2.3",
+  "title": "Ensure rds kernel module is not available",
+  "section": "3.2",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kmod",
+  "params": {
+   "module": "rds",
+   "mtype": "fs"
+  },
+  "risk": "safe",
+  "page": 401
+ },
+ {
+  "id": "3.2.4",
+  "title": "Ensure sctp kernel module is not available",
+  "section": "3.2",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kmod",
+  "params": {
+   "module": "sctp",
+   "mtype": "fs"
+  },
+  "risk": "safe",
+  "page": 406
+ },
+ {
+  "id": "3.3.1",
+  "title": "Ensure ip forwarding is disabled",
+  "section": "3.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 412
+ },
+ {
+  "id": "3.3.2",
+  "title": "Ensure packet redirect sending is disabled",
+  "section": "3.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 417
+ },
+ {
+  "id": "3.3.3",
+  "title": "Ensure bogus icmp responses are ignored",
+  "section": "3.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 422
+ },
+ {
+  "id": "3.3.4",
+  "title": "Ensure broadcast icmp requests are ignored",
+  "section": "3.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 427
+ },
+ {
+  "id": "3.3.5",
+  "title": "Ensure icmp redirects are not accepted",
+  "section": "3.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 432
+ },
+ {
+  "id": "3.3.6",
+  "title": "Ensure secure icmp redirects are not accepted",
+  "section": "3.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 437
+ },
+ {
+  "id": "3.3.7",
+  "title": "Ensure reverse path filtering is enabled",
+  "section": "3.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 442
+ },
+ {
+  "id": "3.3.8",
+  "title": "Ensure source routed packets are not accepted",
+  "section": "3.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 447
+ },
+ {
+  "id": "3.3.9",
+  "title": "Ensure suspicious packets are logged",
+  "section": "3.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 453
+ },
+ {
+  "id": "3.3.10",
+  "title": "Ensure tcp syn cookies is enabled",
+  "section": "3.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 458
+ },
+ {
+  "id": "3.3.11",
+  "title": "Ensure ipv6 router advertisements are not accepted",
+  "section": "3.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 463
+ },
+ {
+  "id": "4.1.1",
+  "title": "Ensure nftables is installed",
+  "section": "4.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 470
+ },
+ {
+  "id": "4.1.2",
+  "title": "Ensure a single firewall configuration utility is in use",
+  "section": "4.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 472
+ },
+ {
+  "id": "4.2.1",
+  "title": "Ensure firewalld drops unnecessary services and ports",
+  "section": "4.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 479
+ },
+ {
+  "id": "4.2.2",
+  "title": "Ensure firewalld loopback traffic is configured",
+  "section": "4.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 481
+ },
+ {
+  "id": "4.3.1",
+  "title": "Ensure nftables base chains exist",
+  "section": "4.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 487
+ },
+ {
+  "id": "4.3.2",
+  "title": "Ensure nftables established connections are configured",
+  "section": "4.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 490
+ },
+ {
+  "id": "4.3.3",
+  "title": "Ensure nftables default deny firewall policy",
+  "section": "4.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 492
+ },
+ {
+  "id": "4.3.4",
+  "title": "Ensure nftables loopback traffic is configured",
+  "section": "4.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 494
+ },
+ {
+  "id": "5.1.1",
+  "title": "Ensure permissions on /etc/ssh/sshd_config are configured",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "file_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 501
+ },
+ {
+  "id": "5.1.2",
+  "title": "Ensure permissions on SSH private host key files are configured",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 504
+ },
+ {
+  "id": "5.1.3",
+  "title": "Ensure permissions on SSH public host key files are configured",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 508
+ },
+ {
+  "id": "5.1.4",
+  "title": "Ensure sshd Ciphers are configured",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 512
+ },
+ {
+  "id": "5.1.5",
+  "title": "Ensure sshd KexAlgorithms is configured",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 516
+ },
+ {
+  "id": "5.1.6",
+  "title": "Ensure sshd MACs are configured",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 520
+ },
+ {
+  "id": "5.1.7",
+  "title": "Ensure sshd access is configured",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 524
+ },
+ {
+  "id": "5.1.8",
+  "title": "Ensure sshd Banner is configured",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 527
+ },
+ {
+  "id": "5.1.9",
+  "title": "Ensure sshd ClientAliveInterval and ClientAliveCountMax are configured",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "sshd_idle",
+  "params": {},
+  "risk": "safe",
+  "page": 530
+ },
+ {
+  "id": "5.1.10",
+  "title": "Ensure sshd DisableForwarding is enabled",
+  "section": "5.1",
+  "levels": [
+   1,
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 533
+ },
+ {
+  "id": "5.1.11",
+  "title": "Ensure sshd GSSAPIAuthentication is disabled",
+  "section": "5.1",
+  "levels": [
+   1,
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 536
+ },
+ {
+  "id": "5.1.12",
+  "title": "Ensure sshd HostbasedAuthentication is disabled",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 538
+ },
+ {
+  "id": "5.1.13",
+  "title": "Ensure sshd IgnoreRhosts is enabled",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 540
+ },
+ {
+  "id": "5.1.14",
+  "title": "Ensure sshd LoginGraceTime is configured",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 542
+ },
+ {
+  "id": "5.1.15",
+  "title": "Ensure sshd LogLevel is configured",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 544
+ },
+ {
+  "id": "5.1.16",
+  "title": "Ensure sshd MaxAuthTries is configured",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 546
+ },
+ {
+  "id": "5.1.17",
+  "title": "Ensure sshd MaxStartups is configured",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 548
+ },
+ {
+  "id": "5.1.18",
+  "title": "Ensure sshd MaxSessions is configured",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 550
+ },
+ {
+  "id": "5.1.19",
+  "title": "Ensure sshd PermitEmptyPasswords is disabled",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 552
+ },
+ {
+  "id": "5.1.20",
+  "title": "Ensure sshd PermitRootLogin is disabled",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 554
+ },
+ {
+  "id": "5.1.21",
+  "title": "Ensure sshd PermitUserEnvironment is disabled",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 556
+ },
+ {
+  "id": "5.1.22",
+  "title": "Ensure sshd UsePAM is enabled",
+  "section": "5.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 558
+ },
+ {
+  "id": "5.2.1",
+  "title": "Ensure sudo is installed",
+  "section": "5.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 561
+ },
+ {
+  "id": "5.2.2",
+  "title": "Ensure sudo commands use pty",
+  "section": "5.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "sudo_defaults",
+  "params": {},
+  "risk": "safe",
+  "page": 563
+ },
+ {
+  "id": "5.2.3",
+  "title": "Ensure sudo log file exists",
+  "section": "5.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 566
+ },
+ {
+  "id": "5.2.4",
+  "title": "Ensure users must provide password for escalation",
+  "section": "5.2",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 569
+ },
+ {
+  "id": "5.2.5",
+  "title": "Ensure re-authentication for privilege escalation is not disabled globally",
+  "section": "5.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 571
+ },
+ {
+  "id": "5.2.6",
+  "title": "Ensure sudo authentication timeout is configured correctly",
+  "section": "5.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "sudo_defaults",
+  "params": {},
+  "risk": "safe",
+  "page": 573
+ },
+ {
+  "id": "5.2.7",
+  "title": "Ensure access to the su command is restricted",
+  "section": "5.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 575
+ },
+ {
+  "id": "5.3.1.1",
+  "title": "Ensure latest version of pam is installed",
+  "section": "5.3.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 579
+ },
+ {
+  "id": "5.3.1.2",
+  "title": "Ensure latest version of authselect is installed",
+  "section": "5.3.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 580
+ },
+ {
+  "id": "5.3.1.3",
+  "title": "Ensure latest version of libpwquality is installed",
+  "section": "5.3.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 582
+ },
+ {
+  "id": "5.3.2.1",
+  "title": "Ensure active authselect profile includes pam modules",
+  "section": "5.3.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 585
+ },
+ {
+  "id": "5.3.2.2",
+  "title": "Ensure pam_faillock module is enabled",
+  "section": "5.3.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 590
+ },
+ {
+  "id": "5.3.2.3",
+  "title": "Ensure pam_pwquality module is enabled",
+  "section": "5.3.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 593
+ },
+ {
+  "id": "5.3.2.4",
+  "title": "Ensure pam_pwhistory module is enabled",
+  "section": "5.3.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 596
+ },
+ {
+  "id": "5.3.2.5",
+  "title": "Ensure pam_unix module is enabled",
+  "section": "5.3.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 599
+ },
+ {
+  "id": "5.3.3.1.1",
+  "title": "Ensure password failed attempts lockout is configured",
+  "section": "5.3.3.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 605
+ },
+ {
+  "id": "5.3.3.1.2",
+  "title": "Ensure password unlock time is configured",
+  "section": "5.3.3.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 608
+ },
+ {
+  "id": "5.3.3.1.3",
+  "title": "Ensure password failed attempts lockout includes root account",
+  "section": "5.3.3.1",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 611
+ },
+ {
+  "id": "5.3.3.2.1",
+  "title": "Ensure password number of changed characters is configured",
+  "section": "5.3.3.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 616
+ },
+ {
+  "id": "5.3.3.2.2",
+  "title": "Ensure password length is configured",
+  "section": "5.3.3.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kv_conf",
+  "params": {},
+  "risk": "safe",
+  "page": 620
+ },
+ {
+  "id": "5.3.3.2.3",
+  "title": "Ensure password complexity is configured",
+  "section": "5.3.3.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "kv_conf",
+  "params": {},
+  "risk": "safe",
+  "page": 624
+ },
+ {
+  "id": "5.3.3.2.4",
+  "title": "Ensure password same consecutive characters is configured",
+  "section": "5.3.3.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 628
+ },
+ {
+  "id": "5.3.3.2.5",
+  "title": "Ensure password maximum sequential characters is configured",
+  "section": "5.3.3.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 632
+ },
+ {
+  "id": "5.3.3.2.6",
+  "title": "Ensure password dictionary check is enabled",
+  "section": "5.3.3.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 636
+ },
+ {
+  "id": "5.3.3.2.7",
+  "title": "Ensure password quality is enforced for the root user",
+  "section": "5.3.3.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kv_conf",
+  "params": {},
+  "risk": "safe",
+  "page": 640
+ },
+ {
+  "id": "5.3.3.3.1",
+  "title": "Ensure password history remember is configured",
+  "section": "5.3.3.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kv_conf",
+  "params": {},
+  "risk": "safe",
+  "page": 645
+ },
+ {
+  "id": "5.3.3.3.2",
+  "title": "Ensure password history is enforced for the root user",
+  "section": "5.3.3.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kv_conf",
+  "params": {},
+  "risk": "safe",
+  "page": 648
+ },
+ {
+  "id": "5.3.3.3.3",
+  "title": "Ensure pam_pwhistory includes use_authtok",
+  "section": "5.3.3.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 650
+ },
+ {
+  "id": "5.3.3.4.1",
+  "title": "Ensure pam_unix does not include nullok",
+  "section": "5.3.3.4",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 654
+ },
+ {
+  "id": "5.3.3.4.2",
+  "title": "Ensure pam_unix does not include remember",
+  "section": "5.3.3.4",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 657
+ },
+ {
+  "id": "5.3.3.4.3",
+  "title": "Ensure pam_unix includes a strong password hashing algorithm",
+  "section": "5.3.3.4",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 660
+ },
+ {
+  "id": "5.3.3.4.4",
+  "title": "Ensure pam_unix includes use_authtok",
+  "section": "5.3.3.4",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 664
+ },
+ {
+  "id": "5.4.1.1",
+  "title": "Ensure password expiration is configured",
+  "section": "5.4.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kv_conf",
+  "params": {},
+  "risk": "safe",
+  "page": 669
+ },
+ {
+  "id": "5.4.1.2",
+  "title": "Ensure minimum password days is configured",
+  "section": "5.4.1",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 673
+ },
+ {
+  "id": "5.4.1.3",
+  "title": "Ensure password expiration warning days is configured",
+  "section": "5.4.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kv_conf",
+  "params": {},
+  "risk": "safe",
+  "page": 676
+ },
+ {
+  "id": "5.4.1.4",
+  "title": "Ensure strong password hashing algorithm is configured",
+  "section": "5.4.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 678
+ },
+ {
+  "id": "5.4.1.5",
+  "title": "Ensure inactive password lock is configured",
+  "section": "5.4.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 681
+ },
+ {
+  "id": "5.4.1.6",
+  "title": "Ensure all users last password change date is in the past",
+  "section": "5.4.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 684
+ },
+ {
+  "id": "5.4.2.1",
+  "title": "Ensure root is the only UID 0 account",
+  "section": "5.4.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 687
+ },
+ {
+  "id": "5.4.2.2",
+  "title": "Ensure root is the only GID 0 account",
+  "section": "5.4.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 688
+ },
+ {
+  "id": "5.4.2.3",
+  "title": "Ensure group root is the only GID 0 group",
+  "section": "5.4.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 690
+ },
+ {
+  "id": "5.4.2.4",
+  "title": "Ensure root account access is controlled",
+  "section": "5.4.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 692
+ },
+ {
+  "id": "5.4.2.5",
+  "title": "Ensure root path integrity",
+  "section": "5.4.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 694
+ },
+ {
+  "id": "5.4.2.6",
+  "title": "Ensure root user umask is configured",
+  "section": "5.4.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kv_conf",
+  "params": {},
+  "risk": "safe",
+  "page": 697
+ },
+ {
+  "id": "5.4.2.7",
+  "title": "Ensure system accounts do not have a valid login shell",
+  "section": "5.4.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 700
+ },
+ {
+  "id": "5.4.2.8",
+  "title": "Ensure accounts without a valid login shell are locked",
+  "section": "5.4.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 703
+ },
+ {
+  "id": "5.4.3.1",
+  "title": "Ensure nologin is not listed in /etc/shells",
+  "section": "5.4.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 706
+ },
+ {
+  "id": "5.4.3.2",
+  "title": "Ensure default user shell timeout is configured",
+  "section": "5.4.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kv_conf",
+  "params": {},
+  "risk": "safe",
+  "page": 707
+ },
+ {
+  "id": "5.4.3.3",
+  "title": "Ensure default user umask is configured",
+  "section": "5.4.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kv_conf",
+  "params": {},
+  "risk": "safe",
+  "page": 711
+ },
+ {
+  "id": "6.1.1",
+  "title": "Ensure AIDE is installed",
+  "section": "6.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 720
+ },
+ {
+  "id": "6.1.2",
+  "title": "Ensure filesystem integrity is regularly checked",
+  "section": "6.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "pkg_present",
+  "params": {
+   "name": "aide"
+  },
+  "risk": "safe",
+  "page": 722
+ },
+ {
+  "id": "6.1.3",
+  "title": "Ensure cryptographic mechanisms are used to protect the integrity of audit tools",
+  "section": "6.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 725
+ },
+ {
+  "id": "6.2.1.1",
+  "title": "Ensure journald service is enabled and active",
+  "section": "6.2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 732
+ },
+ {
+  "id": "6.2.1.2",
+  "title": "Ensure journald log file access is configured",
+  "section": "6.2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 734
+ },
+ {
+  "id": "6.2.1.3",
+  "title": "Ensure journald log file rotation is configured",
+  "section": "6.2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 737
+ },
+ {
+  "id": "6.2.1.4",
+  "title": "Ensure only one logging system is in use",
+  "section": "6.2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 740
+ },
+ {
+  "id": "6.2.2.1.1",
+  "title": "Ensure systemd-journal-remote is installed",
+  "section": "6.2.2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 744
+ },
+ {
+  "id": "6.2.2.1.2",
+  "title": "Ensure systemd-journal-upload authentication is configured",
+  "section": "6.2.2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 746
+ },
+ {
+  "id": "6.2.2.1.3",
+  "title": "Ensure systemd-journal-upload is enabled and active",
+  "section": "6.2.2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 748
+ },
+ {
+  "id": "6.2.2.1.4",
+  "title": "Ensure systemd-journal-remote service is not in use",
+  "section": "6.2.2.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 750
+ },
+ {
+  "id": "6.2.2.2",
+  "title": "Ensure journald ForwardToSyslog is disabled",
+  "section": "6.2.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 752
+ },
+ {
+  "id": "6.2.2.3",
+  "title": "Ensure journald Compress is configured",
+  "section": "6.2.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 755
+ },
+ {
+  "id": "6.2.2.4",
+  "title": "Ensure journald Storage is configured",
+  "section": "6.2.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 758
+ },
+ {
+  "id": "6.2.3.1",
+  "title": "Ensure rsyslog is installed",
+  "section": "6.2.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 762
+ },
+ {
+  "id": "6.2.3.2",
+  "title": "Ensure rsyslog service is enabled and active",
+  "section": "6.2.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 764
+ },
+ {
+  "id": "6.2.3.3",
+  "title": "Ensure journald is configured to send logs to rsyslog",
+  "section": "6.2.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 766
+ },
+ {
+  "id": "6.2.3.4",
+  "title": "Ensure rsyslog log file creation mode is configured",
+  "section": "6.2.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 769
+ },
+ {
+  "id": "6.2.3.5",
+  "title": "Ensure rsyslog logging is configured",
+  "section": "6.2.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 772
+ },
+ {
+  "id": "6.2.3.6",
+  "title": "Ensure rsyslog is configured to send logs to a remote log host",
+  "section": "6.2.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 775
+ },
+ {
+  "id": "6.2.3.7",
+  "title": "Ensure rsyslog is not configured to receive logs from a remote client",
+  "section": "6.2.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 778
+ },
+ {
+  "id": "6.2.3.8",
+  "title": "Ensure rsyslog logrotate is configured",
+  "section": "6.2.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 780
+ },
+ {
+  "id": "6.2.4.1",
+  "title": "Ensure access to all logfiles has been configured",
+  "section": "6.2.4",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 784
+ },
+ {
+  "id": "6.3.1.1",
+  "title": "Ensure auditd packages are installed",
+  "section": "6.3.1",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "pkg_present",
+  "params": {},
+  "risk": "safe",
+  "page": 793
+ },
+ {
+  "id": "6.3.1.2",
+  "title": "Ensure auditing for processes that start prior to auditd is enabled",
+  "section": "6.3.1",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 795
+ },
+ {
+  "id": "6.3.1.3",
+  "title": "Ensure audit_backlog_limit is sufficient",
+  "section": "6.3.1",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 798
+ },
+ {
+  "id": "6.3.1.4",
+  "title": "Ensure auditd service is enabled and active",
+  "section": "6.3.1",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_enabled",
+  "params": {},
+  "risk": "safe",
+  "page": 802
+ },
+ {
+  "id": "6.3.2.1",
+  "title": "Ensure audit log storage size is configured",
+  "section": "6.3.2",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 805
+ },
+ {
+  "id": "6.3.2.2",
+  "title": "Ensure audit logs are not automatically deleted",
+  "section": "6.3.2",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 807
+ },
+ {
+  "id": "6.3.2.3",
+  "title": "Ensure system is disabled when audit logs are full",
+  "section": "6.3.2",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "svc_disabled",
+  "params": {},
+  "risk": "disruptive",
+  "page": 809
+ },
+ {
+  "id": "6.3.2.4",
+  "title": "Ensure system warns when audit logs are low on space",
+  "section": "6.3.2",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 812
+ },
+ {
+  "id": "6.3.3.1",
+  "title": "Ensure changes to system administration scope (sudoers) is collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 816
+ },
+ {
+  "id": "6.3.3.2",
+  "title": "Ensure actions as another user are always logged",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 819
+ },
+ {
+  "id": "6.3.3.3",
+  "title": "Ensure events that modify the sudo log file are collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 823
+ },
+ {
+  "id": "6.3.3.4",
+  "title": "Ensure events that modify date and time information are collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 827
+ },
+ {
+  "id": "6.3.3.5",
+  "title": "Ensure events that modify the system's network environment are collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 831
+ },
+ {
+  "id": "6.3.3.6",
+  "title": "Ensure use of privileged commands are collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 835
+ },
+ {
+  "id": "6.3.3.7",
+  "title": "Ensure unsuccessful file access attempts are collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 839
+ },
+ {
+  "id": "6.3.3.8",
+  "title": "Ensure events that modify user/group information are collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 843
+ },
+ {
+  "id": "6.3.3.9",
+  "title": "Ensure discretionary access control permission modification events are collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 847
+ },
+ {
+  "id": "6.3.3.10",
+  "title": "Ensure successful file system mounts are collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 852
+ },
+ {
+  "id": "6.3.3.11",
+  "title": "Ensure session initiation information is collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 856
+ },
+ {
+  "id": "6.3.3.12",
+  "title": "Ensure login and logout events are collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 860
+ },
+ {
+  "id": "6.3.3.13",
+  "title": "Ensure file deletion events by users are collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 863
+ },
+ {
+  "id": "6.3.3.14",
+  "title": "Ensure events that modify the system's Mandatory Access Controls are collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 867
+ },
+ {
+  "id": "6.3.3.15",
+  "title": "Ensure successful and unsuccessful attempts to use the chcon command are collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 870
+ },
+ {
+  "id": "6.3.3.16",
+  "title": "Ensure successful and unsuccessful attempts to use the setfacl command are collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 874
+ },
+ {
+  "id": "6.3.3.17",
+  "title": "Ensure successful and unsuccessful attempts to use the chacl command are collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 878
+ },
+ {
+  "id": "6.3.3.18",
+  "title": "Ensure successful and unsuccessful attempts to use the usermod command are collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 882
+ },
+ {
+  "id": "6.3.3.19",
+  "title": "Ensure kernel module loading unloading and modification is collected",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 886
+ },
+ {
+  "id": "6.3.3.20",
+  "title": "Ensure the audit configuration is immutable",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "audit_immutable",
+  "params": {},
+  "risk": "safe",
+  "page": 891
+ },
+ {
+  "id": "6.3.3.21",
+  "title": "Ensure the running and on disk configuration is the same",
+  "section": "6.3.3",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 893
+ },
+ {
+  "id": "6.3.4.1",
+  "title": "Ensure the audit log file directory mode is configured",
+  "section": "6.3.4",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 896
+ },
+ {
+  "id": "6.3.4.2",
+  "title": "Ensure audit log files mode is configured",
+  "section": "6.3.4",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "audit_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 899
+ },
+ {
+  "id": "6.3.4.3",
+  "title": "Ensure audit log files owner is configured",
+  "section": "6.3.4",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 902
+ },
+ {
+  "id": "6.3.4.4",
+  "title": "Ensure audit log files group owner is configured",
+  "section": "6.3.4",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 905
+ },
+ {
+  "id": "6.3.4.5",
+  "title": "Ensure audit configuration files mode is configured",
+  "section": "6.3.4",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "audit_rule",
+  "params": {},
+  "risk": "safe",
+  "page": 908
+ },
+ {
+  "id": "6.3.4.6",
+  "title": "Ensure audit configuration files owner is configured",
+  "section": "6.3.4",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "audit_rule",
+  "params": {},
+  "risk": "safe",
+  "page": 910
+ },
+ {
+  "id": "6.3.4.7",
+  "title": "Ensure audit configuration files group owner is configured",
+  "section": "6.3.4",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "audit_rule",
+  "params": {},
+  "risk": "safe",
+  "page": 912
+ },
+ {
+  "id": "6.3.4.8",
+  "title": "Ensure audit tools mode is configured",
+  "section": "6.3.4",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 914
+ },
+ {
+  "id": "6.3.4.9",
+  "title": "Ensure audit tools owner is configured",
+  "section": "6.3.4",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 917
+ },
+ {
+  "id": "6.3.4.10",
+  "title": "Ensure audit tools group owner is configured",
+  "section": "6.3.4",
+  "levels": [
+   2
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 919
+ },
+ {
+  "id": "7.1.1",
+  "title": "Ensure permissions on /etc/passwd are configured",
+  "section": "7.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "file_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 923
+ },
+ {
+  "id": "7.1.2",
+  "title": "Ensure permissions on /etc/passwd- are configured",
+  "section": "7.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "file_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 925
+ },
+ {
+  "id": "7.1.3",
+  "title": "Ensure permissions on /etc/group are configured",
+  "section": "7.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "file_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 927
+ },
+ {
+  "id": "7.1.4",
+  "title": "Ensure permissions on /etc/group- are configured",
+  "section": "7.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "file_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 929
+ },
+ {
+  "id": "7.1.5",
+  "title": "Ensure permissions on /etc/shadow are configured",
+  "section": "7.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "file_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 931
+ },
+ {
+  "id": "7.1.6",
+  "title": "Ensure permissions on /etc/shadow- are configured",
+  "section": "7.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "file_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 933
+ },
+ {
+  "id": "7.1.7",
+  "title": "Ensure permissions on /etc/gshadow are configured",
+  "section": "7.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "file_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 935
+ },
+ {
+  "id": "7.1.8",
+  "title": "Ensure permissions on /etc/gshadow- are configured",
+  "section": "7.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "file_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 937
+ },
+ {
+  "id": "7.1.9",
+  "title": "Ensure permissions on /etc/shells are configured",
+  "section": "7.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "file_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 939
+ },
+ {
+  "id": "7.1.10",
+  "title": "Ensure permissions on /etc/security/opasswd are configured",
+  "section": "7.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "file_perm",
+  "params": {},
+  "risk": "safe",
+  "page": 941
+ },
+ {
+  "id": "7.1.11",
+  "title": "Ensure world writable files and directories are secured",
+  "section": "7.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 943
+ },
+ {
+  "id": "7.1.12",
+  "title": "Ensure no files or directories without an owner and a group exist",
+  "section": "7.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 947
+ },
+ {
+  "id": "7.1.13",
+  "title": "Ensure SUID and SGID files are reviewed",
+  "section": "7.1",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Manual",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 950
+ },
+ {
+  "id": "7.2.1",
+  "title": "Ensure accounts in /etc/passwd use shadowed passwords",
+  "section": "7.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kv_conf",
+  "params": {},
+  "risk": "safe",
+  "page": 954
+ },
+ {
+  "id": "7.2.2",
+  "title": "Ensure /etc/shadow password fields are not empty",
+  "section": "7.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kv_conf",
+  "params": {},
+  "risk": "safe",
+  "page": 957
+ },
+ {
+  "id": "7.2.3",
+  "title": "Ensure all groups in /etc/passwd exist in /etc/group",
+  "section": "7.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 959
+ },
+ {
+  "id": "7.2.4",
+  "title": "Ensure no duplicate UIDs exist",
+  "section": "7.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "user_audit",
+  "params": {},
+  "risk": "safe",
+  "page": 961
+ },
+ {
+  "id": "7.2.5",
+  "title": "Ensure no duplicate GIDs exist",
+  "section": "7.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "user_audit",
+  "params": {},
+  "risk": "safe",
+  "page": 962
+ },
+ {
+  "id": "7.2.6",
+  "title": "Ensure no duplicate user names exist",
+  "section": "7.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "user_audit",
+  "params": {},
+  "risk": "safe",
+  "page": 964
+ },
+ {
+  "id": "7.2.7",
+  "title": "Ensure no duplicate group names exist",
+  "section": "7.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "user_audit",
+  "params": {},
+  "risk": "safe",
+  "page": 966
+ },
+ {
+  "id": "7.2.8",
+  "title": "Ensure local interactive user home directories are configured",
+  "section": "7.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 968
+ },
+ {
+  "id": "7.2.9",
+  "title": "Ensure local interactive user dot files access is configured",
+  "section": "7.2",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "assessment": "Automated",
+  "family": "kv_conf",
+  "params": {},
+  "risk": "safe",
+  "page": 973
+ }
+]

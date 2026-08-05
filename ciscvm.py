@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ciscvm — TencentOS CIS Image Builder (Packer × Tencent Cloud CVM)
+ciscvm — CIS-hardened Golden Image Builder (Packer × Tencent Cloud CVM)
 
-A single-command tool that spins up an ephemeral CVM, applies the bundled
-cis-os engine for CIS hardening, and captures the result as a custom image.
-All configuration is driven by ciscvm.toml — no manual template editing.
+Spins up an ephemeral CVM, applies the bundled cis-os engine role for CIS
+hardening, and captures the result as a custom image.  All configuration is
+driven by ciscvm.toml — no manual template editing.
 
-Target OS: TencentOS Server 3 / 4
-Engine:    Bundled cis_engine.py + rules.json (in-role gate, no external audit)
+Supported OS: Ubuntu 20/22/24, RHEL 8/9/10, TencentOS 3/4, SLES 15/16,
+              Windows Server 2016/2019/2022/2025
 
-Dependencies: Python >= 3.11 (stdlib only), Packer >= 1.9 on the build machine.
+Engine:  Bundled cis_engine.py (Linux) / cis_engine.ps1 (Windows).
+         In-role gate via cis_fail_on_findings — no external audit.
+         Roles ship locally in roles/ — no network dependency at build time.
+
+Dependencies: Python >= 3.11 (stdlib only), Packer >= 1.9, ansible-core >= 2.15.
 
 Usage:
     ciscvm init [--target DIR]      # Generate ciscvm.toml
@@ -34,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -80,12 +84,82 @@ def banner(title: str) -> None:
 # ---------------------------------------------------------------------------
 # Configuration profiles
 # ---------------------------------------------------------------------------
-# Both profiles use the bundled cis-os engine (cis_engine.py + rules.json).
-# Roles are shipped locally in roles/ alongside ciscvm.py — no network
-# dependency at build time.  The gate is inside the role:
-#   cis_fail_on_findings: true + cis_min_score: 0
-# Ansible exits non-zero if any findings remain after remediation.
+# All roles use the bundled cis-os engine (cis_engine.py / cis_engine.ps1)
+# with in-role gate (cis_fail_on_findings: true).  Roles are shipped locally
+# in roles/ alongside ciscvm.py — no ansible-galaxy or network dependency.
+#
+# Profile keys common to Linux profiles:
+#   role_dir      Bundled role directory name under roles/
+#   ssh_username  Initial SSH user for Packer (ubuntu / root)
+#   os_tag        CVM source image OS tag
+#   benchmark     CIS benchmark version
+#   pkg_update    Package index update command
+#   pkg_install   Dependencies install command (must include python3-pip)
+#   clean_cmd     Post-build package cache cleanup
+#
+# Windows profiles (family: "windows"):
+#   role_dir       Bundled role directory name under roles/
+#   winrm_username Default Administrator account
+#   os_tag         CVM source image OS tag
+#   benchmark      CIS benchmark version
 PROFILES: dict[str, dict[str, Any]] = {
+    # ── Ubuntu ──
+    "ubuntu2004": {
+        "role_dir": "cis_ubuntu2004",
+        "ssh_username": "ubuntu",
+        "os_tag": "ubuntu-20.04",
+        "benchmark": "CIS-v1.0.0",
+        "pkg_update": "sudo apt-get update -y",
+        "pkg_install": "sudo apt-get install -y python3-pip python3-venv git",
+        "clean_cmd": "sudo apt-get clean",
+    },
+    "ubuntu2204": {
+        "role_dir": "cis_ubuntu2204",
+        "ssh_username": "ubuntu",
+        "os_tag": "ubuntu-22.04",
+        "benchmark": "CIS-v1.0.0",
+        "pkg_update": "sudo apt-get update -y",
+        "pkg_install": "sudo apt-get install -y python3-pip python3-venv git",
+        "clean_cmd": "sudo apt-get clean",
+    },
+    "ubuntu2404": {
+        "role_dir": "cis_ubuntu2404",
+        "ssh_username": "ubuntu",
+        "os_tag": "ubuntu-24.04",
+        "benchmark": "CIS-v1.0.0",
+        "pkg_update": "sudo apt-get update -y",
+        "pkg_install": "sudo apt-get install -y python3-pip python3-venv git",
+        "clean_cmd": "sudo apt-get clean",
+    },
+    # ── RHEL ──
+    "rhel8": {
+        "role_dir": "cis_rhel8",
+        "ssh_username": "root",
+        "os_tag": "rhel-8",
+        "benchmark": "CIS-v1.0.0",
+        "pkg_update": "sudo dnf makecache",
+        "pkg_install": "sudo dnf install -y python3-pip git",
+        "clean_cmd": "sudo dnf clean all",
+    },
+    "rhel9": {
+        "role_dir": "cis_rhel9",
+        "ssh_username": "root",
+        "os_tag": "rhel-9",
+        "benchmark": "CIS-v1.0.0",
+        "pkg_update": "sudo dnf makecache",
+        "pkg_install": "sudo dnf install -y python3-pip git",
+        "clean_cmd": "sudo dnf clean all",
+    },
+    "rhel10": {
+        "role_dir": "cis_rhel10",
+        "ssh_username": "root",
+        "os_tag": "rhel-10",
+        "benchmark": "CIS-v1.0.0",
+        "pkg_update": "sudo dnf makecache",
+        "pkg_install": "sudo dnf install -y python3-pip git",
+        "clean_cmd": "sudo dnf clean all",
+    },
+    # ── TencentOS Server ──
     "tencentos3": {
         "role_dir": "cis_tencentos3",
         "ssh_username": "root",
@@ -104,6 +178,54 @@ PROFILES: dict[str, dict[str, Any]] = {
         "pkg_install": "sudo dnf install -y python3-pip git",
         "clean_cmd": "sudo dnf clean all",
     },
+    # ── SLES ──
+    "sles15": {
+        "role_dir": "cis_sles15",
+        "ssh_username": "root",
+        "os_tag": "sles-15",
+        "benchmark": "CIS-v1.0.0",
+        "pkg_update": "sudo zypper refresh",
+        "pkg_install": "sudo zypper install -y python3-pip git",
+        "clean_cmd": "sudo zypper clean --all",
+    },
+    "sles16": {
+        "role_dir": "cis_sles16",
+        "ssh_username": "root",
+        "os_tag": "sles-16",
+        "benchmark": "CIS-v1.0.0",
+        "pkg_update": "sudo zypper refresh",
+        "pkg_install": "sudo zypper install -y python3-pip git",
+        "clean_cmd": "sudo zypper clean --all",
+    },
+    # ── Windows Server (winrm + controller-side ansible) ──
+    "win2016": {
+        "family": "windows",
+        "role_dir": "cis_win2016",
+        "winrm_username": "Administrator",
+        "os_tag": "windows-2016",
+        "benchmark": "CIS-v1.0.0",
+    },
+    "win2019": {
+        "family": "windows",
+        "role_dir": "cis_win2019",
+        "winrm_username": "Administrator",
+        "os_tag": "windows-2019",
+        "benchmark": "CIS-v1.0.0",
+    },
+    "win2022": {
+        "family": "windows",
+        "role_dir": "cis_win2022",
+        "winrm_username": "Administrator",
+        "os_tag": "windows-2022",
+        "benchmark": "CIS-v1.0.0",
+    },
+    "win2025": {
+        "family": "windows",
+        "role_dir": "cis_win2025",
+        "winrm_username": "Administrator",
+        "os_tag": "windows-2025",
+        "benchmark": "CIS-v1.0.0",
+    },
 }
 
 DEFAULT_WORKDIR = ".ciscvm-build"
@@ -111,11 +233,16 @@ DEFAULT_WORKDIR = ".ciscvm-build"
 SAMPLE_CONFIG = """\
 # ciscvm.toml — single source of truth for all build parameters
 [build]
-profile             = "tencentos3"         # tencentos3 | tencentos4
+profile             = "tencentos3"
+#   Linux profiles: ubuntu2004 | ubuntu2204 | ubuntu2404 |
+#                   rhel8 | rhel9 | rhel10 |
+#                   tencentos3 | tencentos4 |
+#                   sles15 | sles16
+#   Windows:        win2016 | win2019 | win2022 | win2025
 region              = "ap-guangzhou"
 zone                = "ap-guangzhou-4"
 instance_type       = "S5.MEDIUM2"
-source_image_id     = "img-xxxxxxxx"       # replace with real TencentOS public image ID
+source_image_id     = "img-xxxxxxxx"       # replace with real public image ID
 vpc_id              = "vpc-xxxxxxxx"
 subnet_id           = "subnet-xxxxxxxx"
 security_group_id   = "sg-xxxxxxxx"
@@ -131,6 +258,8 @@ level = 1                                 # 1 or 2
 [cloud]
 secret_id_env  = "TENCENTCLOUD_SECRET_ID"
 secret_key_env = "TENCENTCLOUD_SECRET_KEY"
+# Windows builds also require:
+# winrm_password_env = "WINRM_PASSWORD"
 
 [meta]
 os_tag    = "tencentos-3"
@@ -156,6 +285,7 @@ class ResolvedConfig:
 
     profile_name: str
     profile: dict[str, Any]
+    family: str                         # "" = Linux, "windows" = Windows
     region: str
     zone: str
     instance_type: str
@@ -165,6 +295,8 @@ class ResolvedConfig:
     security_group_id: str
     associate_public_ip: bool
     ssh_username: str
+    winrm_username: str
+    winrm_password_env: str
     image_name_prefix: str
     image_copy_regions: list[str]
     cis_level_tag: str
@@ -253,10 +385,12 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
     p = PROFILES[profile_name]
     meta: dict[str, Any] = data.get("meta", {})
     level: int = int(data["cis"]["level"])
+    family: str = str(p.get("family", ""))
 
     return ResolvedConfig(
         profile_name=profile_name,
         profile=p,
+        family=family,
         region=str(data["build"]["region"]),
         zone=str(data["build"]["zone"]),
         instance_type=str(data["build"]["instance_type"]),
@@ -265,7 +399,9 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         subnet_id=str(data["build"]["subnet_id"]),
         security_group_id=str(data["build"]["security_group_id"]),
         associate_public_ip=bool(data["build"]["associate_public_ip"]),
-        ssh_username=str(p["ssh_username"]),
+        ssh_username=str(p.get("ssh_username", "")),
+        winrm_username=str(p.get("winrm_username", "")),
+        winrm_password_env=str(data.get("cloud", {}).get("winrm_password_env", "WINRM_PASSWORD")),
         image_name_prefix=str(data["image"]["name_prefix"]),
         image_copy_regions=list(data["image"]["copy_regions"]),
         cis_level_tag=f"level{level}-server",
@@ -302,7 +438,9 @@ def _check_bundled_role(role_dir: str) -> bool:
 # ---------------------------------------------------------------------------
 # Packer template rendering
 # ---------------------------------------------------------------------------
-HCL_TEMPLATE = r"""packer {
+
+# ── Linux HCL (SSH communicator × ansible-local provisioner) ──
+HCL_LINUX_TEMPLATE = r"""packer {
   required_plugins {
     tencentcloud = {
       source  = "github.com/hashicorp/packer-plugin-tencentcloud"
@@ -372,18 +510,18 @@ source "tencentcloud-cvm" "default" {
 build {
   sources = ["source.tencentcloud-cvm.default"]
 
-  # 1. Install ansible (roles uploaded by ciscvm — no galaxy needed)
+  # 1. Install ansible-core (roles uploaded by ciscvm — no galaxy needed)
   provisioner "shell" {
     script = "packer/scripts/install-ansible.sh"
   }
 
-  # 2. CIS apply (ansible-local: gate inside role — cis_fail_on_findings)
+  # 2. CIS apply (ansible-local: gate inside role via cis_fail_on_findings)
   provisioner "ansible-local" {
     playbook_file   = "ansible/site.yml"
     extra_arguments = ["--tags", var.cis_level]
   }
 
-  # 3. Cleanup
+  # 3. Cleanup package cache before snapshot
   provisioner "shell" {
     pause_before = "10s"
     inline = [
@@ -394,9 +532,106 @@ build {
 }
 """
 
+# ── Windows HCL (winrm communicator × controller-side ansible provisioner) ──
+HCL_WIN_TEMPLATE = r"""packer {
+  required_plugins {
+    tencentcloud = {
+      source  = "github.com/hashicorp/packer-plugin-tencentcloud"
+      version = ">= 1.0.0"
+    }
+  }
+}
+
+variable "secret_id" {
+  type      = string
+  default   = env("TENCENTCLOUD_SECRET_ID")
+  sensitive = true
+}
+
+variable "secret_key" {
+  type      = string
+  default   = env("TENCENTCLOUD_SECRET_KEY")
+  sensitive = true
+}
+
+variable "region"                      { type = string }
+variable "zone"                        { type = string }
+variable "instance_type"               { type = string }
+variable "source_image_id"             { type = string }
+variable "winrm_username"              { type = string }
+variable "winrm_password" {
+  type      = string
+  default   = env("__WINRM_PASSWORD_ENV__")
+  sensitive = true
+}
+variable "vpc_id"                      { type = string }
+variable "subnet_id"                   { type = string }
+variable "security_group_id"           { type = string }
+variable "associate_public_ip_address" { type = bool }
+variable "image_name_prefix"           { type = string }
+variable "image_copy_regions"          { type = list(string); default = [] }
+variable "cis_level"                   { type = string }
+variable "image_os_tag"                { type = string }
+variable "image_benchmark"             { type = string }
+
+locals {
+  level_short = replace(var.cis_level, "-server", "")
+  image_name  = "${var.image_name_prefix}-${local.level_short}-${formatdate("YYYYMMDD", timestamp())}"
+}
+
+source "tencentcloud-cvm" "default" {
+  secret_id                   = var.secret_id
+  secret_key                  = var.secret_key
+  region                      = var.region
+  zone                        = var.zone
+  instance_type               = var.instance_type
+  source_image_id             = var.source_image_id
+  communicator                = "winrm"
+  winrm_username              = var.winrm_username
+  winrm_password              = var.winrm_password
+  winrm_use_ssl               = true
+  winrm_insecure              = true
+  winrm_timeout               = "10m"
+  image_name                  = local.image_name
+  vpc_id                      = var.vpc_id
+  subnet_id                   = var.subnet_id
+  security_group_id           = var.security_group_id
+  associate_public_ip_address = var.associate_public_ip_address
+  image_copy_regions          = var.image_copy_regions
+  image_tags = {
+    cis_level  = local.level_short
+    os         = var.image_os_tag
+    benchmark  = var.image_benchmark
+    built_with = "ciscvm"
+  }
+  run_tags = {
+    purpose   = "cis-image-build"
+    ephemeral = "true"
+  }
+}
+
+build {
+  sources = ["source.tencentcloud-cvm.default"]
+
+  # CIS apply via controller-side ansible (winrm — cis_engine.ps1)
+  provisioner "ansible" {
+    playbook_file = "ansible/site.yml"
+    user          = var.winrm_username
+    use_proxy     = false
+    extra_arguments = [
+      "-e", "ansible_connection=winrm",
+      "-e", "ansible_winrm_server_cert_validation=ignore",
+      "-e", "ansible_winrm_transport=basic",
+      "--tags", var.cis_level
+    ]
+  }
+}
+"""
+
+# ── Linux SITE_YML (ansible-local: localhost) ──
 SITE_YML_TEMPLATE = r"""---
-# CIS TencentOS apply (bundled cis-os engine)
-# Gate inside role: cis_fail_on_findings: true -> ansible exits non-zero on failures
+# CIS apply — bundled cis-os engine
+# Gate inside role: cis_fail_on_findings: true → ansible exits non-zero on failures
 - name: "CIS __OS_NAME__ - apply (__CIS_LEVEL__)"
   hosts: localhost
   connection: local
@@ -413,10 +648,34 @@ SITE_YML_TEMPLATE = r"""---
     - role: __ROLE_DIR__
 """
 
+# ── Windows SITE_YML (controller-side ansible → winrm) ──
+SITE_YML_WIN_TEMPLATE = r"""---
+# CIS apply — bundled cis-os engine (PowerShell)
+# Gate inside role: cis_fail_on_findings: true
+- name: "CIS __OS_NAME__ - apply (__CIS_LEVEL__)"
+  hosts: all
+  gather_facts: true
+  vars:
+    ansible_connection: winrm
+    ansible_winrm_server_cert_validation: ignore
+    ansible_winrm_transport: basic
+    cis_mode: apply
+    cis_profile: __CIS_LEVEL__
+    cis_platform: server
+    cis_fail_on_findings: true
+    cis_min_score: 0
+    cis_org_name: ""
+  roles:
+    - role: __ROLE_DIR__
+"""
+
+# ── Linux install-ansible.sh (Packer shell provisioner) ──
 INSTALL_SH_TEMPLATE = r"""#!/usr/bin/env bash
-# Install ansible inside the ephemeral CVM (Packer shell provisioner).
+# Install ansible-core inside the ephemeral CVM (Packer shell provisioner).
 # CIS roles are uploaded by ciscvm — no ansible-galaxy needed.
 set -euo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
 
 # 1. System dependencies
 __PKG_UPDATE__
@@ -446,48 +705,77 @@ def _format_hcl_value(value: Any) -> str:
 
 def render_pkrvars(r: ResolvedConfig) -> str:
     """Generate auto.pkrvars.hcl content."""
-    flat = {
-        "region": r.region,
-        "zone": r.zone,
-        "instance_type": r.instance_type,
-        "source_image_id": r.source_image_id,
-        "ssh_username": r.ssh_username,
-        "vpc_id": r.vpc_id,
-        "subnet_id": r.subnet_id,
-        "security_group_id": r.security_group_id,
-        "associate_public_ip_address": r.associate_public_ip,
-        "image_name_prefix": r.image_name_prefix,
-        "image_copy_regions": r.image_copy_regions,
-        "cis_level": r.cis_level_tag,
-        "image_os_tag": r.image_os_tag,
-        "image_benchmark": r.image_benchmark,
-    }
+    if r.family == "windows":
+        flat = {
+            "region": r.region,
+            "zone": r.zone,
+            "instance_type": r.instance_type,
+            "source_image_id": r.source_image_id,
+            "winrm_username": r.winrm_username,
+            "vpc_id": r.vpc_id,
+            "subnet_id": r.subnet_id,
+            "security_group_id": r.security_group_id,
+            "associate_public_ip_address": r.associate_public_ip,
+            "image_name_prefix": r.image_name_prefix,
+            "image_copy_regions": r.image_copy_regions,
+            "cis_level": r.cis_level_tag,
+            "image_os_tag": r.image_os_tag,
+            "image_benchmark": r.image_benchmark,
+        }
+    else:
+        flat = {
+            "region": r.region,
+            "zone": r.zone,
+            "instance_type": r.instance_type,
+            "source_image_id": r.source_image_id,
+            "ssh_username": r.ssh_username,
+            "vpc_id": r.vpc_id,
+            "subnet_id": r.subnet_id,
+            "security_group_id": r.security_group_id,
+            "associate_public_ip_address": r.associate_public_ip,
+            "image_name_prefix": r.image_name_prefix,
+            "image_copy_regions": r.image_copy_regions,
+            "cis_level": r.cis_level_tag,
+            "image_os_tag": r.image_os_tag,
+            "image_benchmark": r.image_benchmark,
+        }
     return "\n".join(f"{k} = {_format_hcl_value(v)}" for k, v in flat.items()) + "\n"
 
 
 def render_install(p: dict[str, Any]) -> str:
-    """Generate install-ansible.sh."""
+    """Generate install-ansible.sh for Linux profiles."""
     return (
         INSTALL_SH_TEMPLATE
-        .replace("__PKG_UPDATE__", str(p["pkg_update"]))
-        .replace("__PKG_INSTALL__", str(p["pkg_install"]))
+        .replace("__PKG_UPDATE__", str(p.get("pkg_update", "")))
+        .replace("__PKG_INSTALL__", str(p.get("pkg_install", "")))
     )
 
 
 def render_site(p: dict[str, Any], level: int) -> str:
     """Generate ansible/site.yml."""
     cis_level = f"L{level}"
-    return (
-        SITE_YML_TEMPLATE
-        .replace("__OS_NAME__", str(p["os_tag"]))
-        .replace("__CIS_LEVEL__", cis_level)
-        .replace("__ROLE_DIR__", str(p["role_dir"]))
-    )
+    family = str(p.get("family", ""))
+
+    if family == "windows":
+        return (
+            SITE_YML_WIN_TEMPLATE
+            .replace("__OS_NAME__", str(p["os_tag"]))
+            .replace("__CIS_LEVEL__", cis_level)
+            .replace("__ROLE_DIR__", str(p["role_dir"]))
+        )
+    else:
+        return (
+            SITE_YML_TEMPLATE
+            .replace("__OS_NAME__", str(p["os_tag"]))
+            .replace("__CIS_LEVEL__", cis_level)
+            .replace("__ROLE_DIR__", str(p["role_dir"]))
+        )
 
 
 def render_all(workdir: Path, r: ResolvedConfig) -> None:
     """Render the complete build directory."""
     p = r.profile
+    family: str = r.family
 
     (workdir / "packer" / "scripts").mkdir(parents=True, exist_ok=True)
     (workdir / "ansible").mkdir(parents=True, exist_ok=True)
@@ -495,18 +783,24 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
     # 1. Copy bundled role into workspace
     _bundle_role(workdir, r.role_dir)
 
-    # 2. HCL
-    hcl = HCL_TEMPLATE.replace("__CLEAN_CMD__", str(p["clean_cmd"]))
+    # 2. HCL (Linux or Windows template)
+    if family == "windows":
+        hcl = HCL_WIN_TEMPLATE.replace("__WINRM_PASSWORD_ENV__", r.winrm_password_env)
+    else:
+        hcl = HCL_LINUX_TEMPLATE.replace("__CLEAN_CMD__", str(p["clean_cmd"]))
     (workdir / "packer" / "main.pkr.hcl").write_text(hcl, encoding="utf-8")
 
     # 3. Vars
     (workdir / "packer" / "auto.pkrvars.hcl").write_text(render_pkrvars(r), encoding="utf-8")
 
-    # 4. Ansible playbook + install script
+    # 4. Ansible playbook
     (workdir / "ansible" / "site.yml").write_text(render_site(p, r.level), encoding="utf-8")
-    install_path = workdir / "packer" / "scripts" / "install-ansible.sh"
-    install_path.write_text(render_install(p), encoding="utf-8")
-    install_path.chmod(0o755)
+
+    # 5. Install script (Linux only)
+    if family != "windows":
+        install_path = workdir / "packer" / "scripts" / "install-ansible.sh"
+        install_path.write_text(render_install(p), encoding="utf-8")
+        install_path.chmod(0o755)
 
 
 # ---------------------------------------------------------------------------
@@ -583,6 +877,7 @@ def run_preflight(r: ResolvedConfig) -> bool:
     """Run all pre-flight checks. Returns True if everything passes."""
     banner("preflight")
     all_ok = True
+    family: str = r.family
 
     # Credentials
     for env_name in (r.secret_id_env, r.secret_key_env):
@@ -590,6 +885,13 @@ def run_preflight(r: ResolvedConfig) -> bool:
             ok(f"Credential env var {env_name} is set")
         else:
             fail(f"Credential env var {env_name} is not set (export before running)")
+            all_ok = False
+
+    if family == "windows":
+        if os.environ.get(r.winrm_password_env):
+            ok(f"WinRM password env var {r.winrm_password_env} is set")
+        else:
+            fail(f"WinRM password env var {r.winrm_password_env} is not set")
             all_ok = False
 
     # packer binary
@@ -625,7 +927,7 @@ def run_preflight(r: ResolvedConfig) -> bool:
             fail(err)
             all_ok = False
 
-    ok(f"profile={r.profile_name} (CIS Level {r.level})")
+    ok(f"profile={r.profile_name} (CIS Level {r.level}, {'winrm' if family == 'windows' else 'ssh'})")
 
     if all_ok:
         info("All pre-flight checks passed.")
@@ -669,6 +971,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     ok(f"Generated: {cfg}")
     info("Edit ciscvm.toml: fill in VPC/subnet/SG/source image ID.")
     info("Credentials go in environment variables, never in the config file.")
+    info(f"Supported profiles: {PROFILE_NAMES_HELP}")
     info("Then run: ciscvm preflight / validate / build")
     return 0
 
@@ -734,7 +1037,8 @@ def cmd_build(args: argparse.Namespace) -> int:
     # Confirmation prompt (skip with -y or in non-interactive mode)
     if not args.yes:
         banner("build")
-        info(f"profile     = {r.profile_name}  |  CIS Level {r.level}  |  region {r.region}")
+        communicator = "winrm" if r.family == "windows" else "ssh"
+        info(f"profile     = {r.profile_name}  |  CIS Level {r.level}  |  region {r.region}  |  {communicator}")
         info(f"source image = {r.source_image_id}")
         info(f"instance     = {r.instance_type}")
         if not _is_interactive():
@@ -798,7 +1102,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="ciscvm", parents=[common],
-        description="TencentOS CIS Image Builder (Packer × Tencent Cloud CVM)",
+        description="CIS-hardened Golden Image Builder (Packer × Tencent Cloud CVM)",
         epilog=f"Supported profiles: {PROFILE_NAMES_HELP}",
     )
     parser.add_argument("--version", action="version", version=f"ciscvm {VERSION}")

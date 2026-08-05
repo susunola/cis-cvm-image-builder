@@ -1,0 +1,5 @@
+{%- macro q(v) -%}"{{ (v | default('') | string) | replace('"', '""') | replace('\n', ' ') | replace('\r', '') }}"{%- endmacro -%}
+hostname,ipv4,mac,benchmark,profile,mode,rule_id,level,levels,section,title,assessment,family,risk,status,detail,apply_status,apply_detail,duration_ms,page
+{% for r in cis_result.results -%}
+{{ q(cis_host.hostname) }},{{ q(cis_host.ipv4) }},{{ q(cis_host.mac) }},{{ q(cis_benchmark_name ~ ' ' ~ cis_benchmark_version) }},{{ q(cis_profile) }},{{ q(cis_mode_effective) }},{{ q(r.id) }},{{ r.level }},{{ q(r.levels | join('|')) }},{{ q(r.section) }},{{ q(r.title) }},{{ q(r.assessment) }},{{ q(r.family) }},{{ q(r.risk) }},{{ q(r.status) }},{{ q(r.detail) }},{{ q(r.apply_status) }},{{ q(r.apply_detail) }},{{ r.duration_ms }},{{ r.page | default('') }}
+{% endfor -%}

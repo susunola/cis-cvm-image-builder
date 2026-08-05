@@ -1,0 +1,13 @@
+---
+- name: Include preflight checks
+  ansible.builtin.include_tasks: preflight.yml
+
+- name: Run the benchmark engine
+  ansible.builtin.include_tasks: run.yml
+
+- name: Gate on findings (optional)
+  ansible.builtin.include_tasks: gate.yml
+
+- name: Generate reports
+  ansible.builtin.include_tasks: report.yml
+  run_once: true

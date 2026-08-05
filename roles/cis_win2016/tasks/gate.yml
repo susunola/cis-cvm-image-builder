@@ -1,0 +1,25 @@
+---
+- name: Evaluate the compliance gate
+  ansible.builtin.set_fact:
+    cis_gate_score: "{{ cis_result.summary[cis_profile].score | default(cis_result.summary.all.score) }}"
+    cis_gate_fails: "{{ cis_result.summary.all.fail | int }}"
+
+- name: Fail when findings remain
+  ansible.builtin.fail:
+    msg: >-
+      {{ inventory_hostname }} still has {{ cis_gate_fails }} failing
+      {{ cis_profile }} control(s) after the {{ cis_mode_effective }} run
+      (score {{ cis_gate_score }}%). See
+      {{ cis_report_dir }}/{{ cis_report_slug | default('the report') }}.html
+  when:
+    - cis_fail_on_findings | bool
+    - cis_gate_fails | int > 0
+
+- name: Fail when the score is below the required minimum
+  ansible.builtin.fail:
+    msg: >-
+      {{ inventory_hostname }} scored {{ cis_gate_score }}% on {{ cis_profile }},
+      below the required {{ cis_min_score }}%.
+  when:
+    - (cis_min_score | int) > 0
+    - (cis_gate_score | float) < (cis_min_score | float)

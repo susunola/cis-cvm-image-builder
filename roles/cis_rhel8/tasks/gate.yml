@@ -1,0 +1,7 @@
+---
+- name: Check for findings
+  ansible.builtin.fail:
+    msg: "CIS benchmark found {{ cis_result.summary.all.fail | default(0) }} failures. Score: {{ cis_result.score | default(0) }}% (min: {{ cis_min_score }}%)"
+  when:
+    - (cis_result.summary.all.fail | default(0)) > 0 or
+      (cis_result.score | default(100)) < (cis_min_score | default(0))

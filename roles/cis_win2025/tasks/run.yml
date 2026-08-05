@@ -1,0 +1,70 @@
+---
+# Windows CIS scan/apply — executes PowerShell engine on the target
+- name: Determine the effective mode
+  ansible.builtin.set_fact:
+    cis_mode_effective: "{{ 'scan' if ansible_check_mode else cis_mode }}"
+
+- name: Create working directory on the target
+  ansible.windows.win_file:
+    path: "{{ cis_remote_tmp }}\\cis-run"
+    state: directory
+
+- name: Ship the engine and rule catalogue to the target
+  ansible.windows.win_copy:
+    src: "{{ item }}"
+    dest: "{{ cis_remote_tmp }}\\cis-run\\{{ item }}"
+  loop:
+    - "{{ cis_engine_file }}"
+    - "{{ cis_rules_file }}"
+
+- name: Assemble engine command line
+  ansible.builtin.set_fact:
+    cis_engine_argv: >-
+      {{ cis_powershell }} -NoProfile -ExecutionPolicy Bypass -File
+      {{ cis_remote_tmp }}\cis-run\{{ cis_engine_file }}
+      -Catalog {{ cis_remote_tmp }}\cis-run\{{ cis_rules_file }}
+      -Mode {{ cis_mode_effective }}
+      -Profile {{ cis_profile }}
+      -Platform {{ cis_platform }}
+      -Benchmark "{{ cis_benchmark_name }} {{ cis_benchmark_version }}"
+      -Out {{ cis_remote_tmp }}\cis-run\result.json
+      {% if cis_include %} -Include "{{ cis_include | join(',') }}"{% endif %}
+      {% if cis_exclude %} -Exclude "{{ cis_exclude | join(',') }}"{% endif %}
+      {% if cis_sections %} -Sections "{{ cis_sections | join(',') }}"{% endif %}
+      {% if cis_families %} -Families "{{ cis_families | join(',') }}"{% endif %}
+      {% if cis_mode_effective == 'apply' and cis_allow_disruptive | bool %}-AllowDisruptive{% endif %}
+
+- name: "Run the benchmark ({{ cis_mode_effective }} / {{ cis_profile }})"
+  ansible.windows.win_shell: "{{ cis_engine_argv }}"
+  args:
+    chdir: "{{ cis_remote_tmp }}\\cis-run"
+  register: cis_engine_run
+  changed_when: false
+  check_mode: false
+  timeout: "{{ cis_engine_timeout | int }}"
+
+- name: Read the engine result document
+  ansible.builtin.slurp:
+    src: "{{ cis_remote_tmp }}\\cis-run\\result.json"
+  register: cis_result_raw
+  check_mode: false
+
+- name: Register the result as a fact
+  ansible.builtin.set_fact:
+    cis_result: "{{ cis_result_raw.content | b64decode | from_json }}"
+
+- name: Remove the working directory
+  ansible.windows.win_file:
+    path: "{{ cis_remote_tmp }}\\cis-run"
+    state: absent
+  when: not (cis_keep_remote_artifacts | bool)
+  changed_when: false
+  check_mode: false
+
+- name: Record assessment summary
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: score={{ cis_result.score }}%,
+      {{ cis_result.summary.all.pass }} pass, {{ cis_result.summary.all.fail }} fail,
+      {{ cis_result.summary.all.manual }} manual, {{ cis_result.summary.all.error }} error
+  changed_when: false
