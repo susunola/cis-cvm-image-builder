@@ -916,10 +916,15 @@ def run_packer(
     quiet: bool = False,
     capture: bool = False,
     timeout: int | None = None,
+    debug: bool = False,
 ) -> PackerResult:
     """Run `packer init` then `packer <subcmd>` inside *workdir*."""
     if timeout is None:
         timeout = PACKER_TIMEOUT_MINUTES * 60
+
+    env = os.environ.copy()
+    if debug:
+        env["PACKER_LOG"] = "1"
 
     hcl_path = "packer/main.pkr.hcl"
     varfile_path = "packer/auto.pkrvars.hcl"
@@ -932,6 +937,7 @@ def run_packer(
             capture_output=True,
             text=True,
             timeout=60,
+            env=env,
         )
     except FileNotFoundError:
         fail("packer not found in PATH. Install from https://developer.hashicorp.com/packer/install")
@@ -960,7 +966,7 @@ def run_packer(
             with subprocess.Popen(
                 cmd, cwd=str(workdir),
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True,
+                text=True, env=env,
             ) as proc:
                 assert proc.stdout is not None
                 for line in proc.stdout:
@@ -971,7 +977,7 @@ def run_packer(
             return PackerResult(exit_code=proc.returncode, stdout_lines=lines)
         else:
             # Inherit stdout/stderr from parent (live output, no capture).
-            cp = subprocess.run(cmd, cwd=workdir, timeout=timeout)
+            cp = subprocess.run(cmd, cwd=workdir, timeout=timeout, env=env)
             return PackerResult(exit_code=cp.returncode)
     except subprocess.TimeoutExpired:
         fail(f"packer {subcmd} timed out after {timeout // 60} minutes.")
@@ -1122,7 +1128,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
     banner("validate")
     info(f"Rendered working directory: {workdir}")
     info("Running packer init + packer validate ...")
-    result = run_packer(workdir, "validate", quiet=args.quiet)
+    result = run_packer(workdir, "validate", quiet=args.quiet, debug=args.debug)
 
     # Output is already streamed live by run_packer (or surfaced on init
     # failure); do not re-print result.stdout_lines here.
@@ -1166,7 +1172,7 @@ def cmd_build(args: argparse.Namespace) -> int:
     info(f"Rendered working directory: {workdir}")
     info(f"Running packer build (CIS Level {r.level}, profile={r.profile_name}) ...")
 
-    result = run_packer(workdir, "build", quiet=args.quiet, capture=True)
+    result = run_packer(workdir, "build", quiet=args.quiet, capture=True, debug=args.debug)
 
     # Output is already streamed live by run_packer; only scan the captured
     # lines to extract the resulting image ID (do not re-print them).
@@ -1287,11 +1293,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_val = sub.add_parser("validate", parents=[common], help="Render + packer validate")
     p_val.add_argument("--quiet", action="store_true",
                        help="Suppress packer output (show only the ciscvm summary)")
+    p_val.add_argument("--debug", action="store_true",
+                       help="Enable Packer debug logging (PACKER_LOG=1)")
     p_val.set_defaults(func=cmd_validate)
 
     p_bld = sub.add_parser("build", parents=[common], help="Render + packer build (produce image)")
     p_bld.add_argument("--quiet", action="store_true",
                        help="Suppress packer output (show only the ciscvm summary)")
+    p_bld.add_argument("--debug", action="store_true",
+                       help="Enable Packer debug logging (PACKER_LOG=1)")
     p_bld.add_argument("-y", "--yes", action="store_true", help="Skip confirmation prompt")
     p_bld.set_defaults(func=cmd_build)
 
