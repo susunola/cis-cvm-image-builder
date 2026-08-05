@@ -928,8 +928,14 @@ def run_packer(
     capture: bool = False,
     timeout: int | None = None,
     debug: bool = False,
+    log_file: str | None = None,
 ) -> PackerResult:
-    """Run `packer init` then `packer <subcmd>` inside *workdir*."""
+    """Run `packer init` then `packer <subcmd>` inside *workdir*.
+
+    When *log_file* is given, packer output is also written there (UTF-8,
+    line-buffered).  ciscvm log messages (ok/fail/info/banner) are handled
+    separately via the logger's FileHandler attached in cmd_build.
+    """
     if timeout is None:
         timeout = PACKER_TIMEOUT_MINUTES * 60
 
@@ -971,7 +977,7 @@ def run_packer(
     # 2. packer <subcmd>
     cmd = ["packer", subcmd, f"-var-file={varfile_path}", hcl_path]
     try:
-        if capture or quiet:
+        if capture or quiet or log_file:
             # Capture output line-by-line with real-time streaming.
             lines: list[str] = []
             with subprocess.Popen(
@@ -980,10 +986,17 @@ def run_packer(
                 text=True, env=env,
             ) as proc:
                 assert proc.stdout is not None
-                for line in proc.stdout:
-                    if not quiet:
-                        print(line, end="", file=sys.stderr)
-                    lines.append(line.rstrip("\n"))
+                _log_fh = open(log_file, "a", encoding="utf-8") if log_file else None
+                try:
+                    for line in proc.stdout:
+                        if not quiet:
+                            print(line, end="", file=sys.stderr)
+                        if _log_fh is not None:
+                            _log_fh.write(line)
+                        lines.append(line.rstrip("\n"))
+                finally:
+                    if _log_fh is not None:
+                        _log_fh.close()
                 proc.wait(timeout=timeout)
             return PackerResult(exit_code=proc.returncode, stdout_lines=lines)
         else:
@@ -1183,7 +1196,21 @@ def cmd_build(args: argparse.Namespace) -> int:
     info(f"Rendered working directory: {workdir}")
     info(f"Running packer build (CIS Level {r.level}, profile={r.profile_name}) ...")
 
-    result = run_packer(workdir, "build", quiet=args.quiet, capture=True, debug=args.debug)
+    _fh: logging.FileHandler | None = None
+    if args.log_file:
+        _fh = logging.FileHandler(args.log_file, mode="w", encoding="utf-8")
+        _fh.setLevel(logging.DEBUG)
+        _fh.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%dT%H:%M:%S"))
+        logger.addHandler(_fh)
+        info(f"Build log → {args.log_file}")
+
+    result = run_packer(workdir, "build", quiet=args.quiet, capture=True, debug=args.debug,
+                        log_file=args.log_file)
+
+    # Sync file position: run_packer opened its own FD for appending,
+    # so _fh's position is stale — seek to end before more logger writes.
+    if _fh is not None:
+        _fh.stream.seek(0, 2)
 
     # Output is already streamed live by run_packer; only scan the captured
     # lines to extract the resulting image ID (do not re-print them).
@@ -1201,6 +1228,10 @@ def cmd_build(args: argparse.Namespace) -> int:
             info("Could not parse image ID from output — check the Tencent Cloud console.")
     else:
         fail("packer build failed (see output above)")
+
+    if _fh is not None:
+        logger.removeHandler(_fh)
+        _fh.close()
     return result.exit_code
 
 
@@ -1314,6 +1345,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_bld.add_argument("--debug", action="store_true",
                        help="Enable Packer debug logging (PACKER_LOG=1)")
     p_bld.add_argument("-y", "--yes", action="store_true", help="Skip confirmation prompt")
+    p_bld.add_argument("--log-file", default=None,
+                       help="Write full build log to file (in addition to stderr)")
     p_bld.set_defaults(func=cmd_build)
 
     p_cln = sub.add_parser("clean", parents=[common], help="Remove working directory")
