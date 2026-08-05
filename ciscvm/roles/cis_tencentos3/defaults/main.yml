@@ -31,8 +31,8 @@ cis_families: []       # engine implementation families, mainly for debugging
 
 # --- Reporting --------------------------------------------------------------
 cis_report_dir: "{{ playbook_dir }}/reports"
-cis_report_html: true          # per-host HTML report
-cis_report_json: true          # raw engine output, handy for diffing runs
+cis_report_html: false  # per-host HTML report
+cis_report_json: false  # raw engine output, handy for diffing runs
 cis_report_csv: false          # flat CSV of every finding
 cis_report_index: true         # combined index page across all hosts
 cis_report_timestamp: "{{ ansible_date_time.iso8601_basic_short | default('run') }}"

@@ -8,8 +8,8 @@ cis_exclude: []
 cis_sections: []
 cis_families: []
 cis_report_dir: "{{ playbook_dir }}/reports"
-cis_report_html: true
-cis_report_json: true
+cis_report_html: false
+cis_report_json: false
 cis_report_csv: false
 cis_report_index: true
 cis_report_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
