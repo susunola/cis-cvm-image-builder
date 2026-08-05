@@ -10,9 +10,15 @@
   <a href="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
+<p align="center">
+  <img src="docs/ciscvm-logo.svg" alt="ciscvm" width="480">
+</p>
+
 # ciscvm — CIS-hardened Golden Image Builder
 
 > Build CIS-hardened images on Tencent Cloud from `ciscvm.toml`.
+
+> **SecX 系列** — 安全工程自动化工具链
 
 **What it does:** spins up an ephemeral CVM, applies the bundled
 [cis-os](https://github.com/susunola/cis-os) engine for CIS hardening, runs an
