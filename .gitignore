@@ -1,0 +1,19 @@
+# 凭据 / 本地构建参数
+variables.pkrvars.hcl
+*.pkrvars.hcl
+*.tfvars
+
+# 打包产物
+*.box
+packer_cache/
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/
+.ciscvm-build/
+
+# Python
+__pycache__/
+*.pyc
+
