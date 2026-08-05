@@ -16,3 +16,7 @@
   ansible.builtin.import_tasks: gate.yml
   when: cis_fail_on_findings or (cis_min_score | int) > 0
   tags: [cis, gate]
+
+- name: Print build summary
+  ansible.builtin.import_tasks: output.yml
+  tags: [cis, output]

@@ -11,3 +11,6 @@
 - name: Gate on findings
   ansible.builtin.include_tasks: gate.yml
   when: cis_fail_on_findings | default(false)
+
+- name: Print build summary
+  ansible.builtin.include_tasks: output.yml

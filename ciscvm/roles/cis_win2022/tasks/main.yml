@@ -11,3 +11,6 @@
 - name: Generate reports
   ansible.builtin.include_tasks: report.yml
   run_once: true
+
+- name: Print build summary
+  ansible.builtin.include_tasks: output.yml
