@@ -29,6 +29,7 @@ import stat
 import subprocess
 import sys
 import time
+import tempfile
 
 VERSION = "1.0.0"
 
@@ -138,7 +139,13 @@ def exists(path):
 def backup(ctx, path):
     if not ctx.backup_dir or not os.path.isfile(path):
         return
-    dest = os.path.join(ctx.backup_dir, path.lstrip("/"))
+    rel = path
+    while rel.startswith("/"):
+        rel = rel[1:]
+    if ".." in rel.split(os.sep):
+        ctx.notes.append("backup skipped (path traversal): %s" % path)
+        return
+    dest = os.path.join(ctx.backup_dir, rel)
     if os.path.exists(dest):
         return
     try:
@@ -148,17 +155,48 @@ def backup(ctx, path):
         ctx.notes.append("backup %s: %s" % (path, exc))
 
 
+def atomic_write(path, content, mode=None, preserve_owner=True):
+    """Atomically write `content` to `path` using a same-directory temp file.
+
+    fsyncs before rename so a crash cannot leave a half-written target.
+    """
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(
+        dir=directory,
+        prefix="." + os.path.basename(path) + ".tmp-",
+        suffix=".cis-tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+            fh.flush()
+            os.fsync(fh.fileno())
+        if mode is not None:
+            try:
+                os.chmod(tmp, mode)
+            except Exception:
+                pass
+        if preserve_owner:
+            try:
+                st = os.stat(path)
+                os.chown(tmp, st.st_uid, st.st_gid)
+            except Exception:
+                pass
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except Exception:
+            pass
+        raise
+
+
 def write_file(ctx, path, content, mode=0o644):
     backup(ctx, path)
     d = os.path.dirname(path)
     if d:
         os.makedirs(d, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(content)
-    try:
-        os.chmod(path, mode)
-    except Exception:
-        pass
+    atomic_write(path, content, mode=mode)
     ctx.changed_files.append(path)
 
 
@@ -186,12 +224,8 @@ def set_kv_in_file(ctx, path, key, value, sep=" ", comment_re=None,
     d = os.path.dirname(path)
     if d:
         os.makedirs(d, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(res).rstrip("\n") + "\n")
-    try:
-        os.chmod(path, mode)
-    except Exception:
-        pass
+    content = "\n".join(res).rstrip("\n") + "\n"
+    atomic_write(path, content, mode=mode)
     ctx.changed_files.append(path)
 
 
@@ -210,8 +244,7 @@ def comment_out(ctx, path, pattern):
         else:
             res.append(ln)
     if n:
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write("\n".join(res).rstrip("\n") + "\n")
+        atomic_write(path, "\n".join(res).rstrip("\n") + "\n", mode=None)
         ctx.changed_files.append(path)
     return n
 
@@ -1699,20 +1732,34 @@ def _sudo_append(ctx, line):
             and l.strip() != line]
     keep = [l for l in keep if key not in l or l.startswith("#")]
     keep.append(line)
-    tmp = SUDO_DROPIN + ".cis-tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(keep).rstrip("\n") + "\n")
-    os.chmod(tmp, 0o440)
-    rc, o, e = sh(["visudo", "-cqf", tmp], 30)
-    if rc != 0:
-        os.unlink(tmp)
-        return False, "visudo validation failed: %s" % (e or o)[:200]
-    backup(ctx, SUDO_DROPIN)
-    os.replace(tmp, SUDO_DROPIN)
-    os.chmod(SUDO_DROPIN, 0o440)
-    ctx.changed_files.append(SUDO_DROPIN)
-    ctx.invalidate("sudoers")
-    return True, "added %r to %s" % (line, SUDO_DROPIN)
+    content = "\n".join(keep).rstrip("\n") + "\n"
+    directory = os.path.dirname(SUDO_DROPIN) or "/etc"
+    fd, tmp = tempfile.mkstemp(
+        dir=directory,
+        prefix=".sudoers-cis-tmp-",
+        suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(tmp, 0o440)
+        rc, o, e = sh(["visudo", "-cqf", tmp], 30)
+        if rc != 0:
+            os.unlink(tmp)
+            return False, "visudo validation failed: %s" % (e or o)[:200]
+        backup(ctx, SUDO_DROPIN)
+        os.replace(tmp, SUDO_DROPIN)
+        os.chmod(SUDO_DROPIN, 0o440)
+        ctx.changed_files.append(SUDO_DROPIN)
+        ctx.invalidate("sudoers")
+        return True, "added %r to %s" % (line, SUDO_DROPIN)
+    except Exception as exc:
+        try:
+            os.unlink(tmp)
+        except Exception:
+            pass
+        return False, "_sudo_append failed: %s" % exc
 
 
 @fix("sudo_defaults")
