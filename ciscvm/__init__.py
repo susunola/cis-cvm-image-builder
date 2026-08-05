@@ -625,7 +625,7 @@ build {
     script = "packer/scripts/install-ansible.sh"
   }
 
-  # 2. CIS apply (ansible-local: gate inside role via cis_fail_on_findings)
+  # 2. CIS apply (gate disabled: fails don't block, re-audited after reboot)
   provisioner "ansible-local" {
     command         = "/opt/ciscvm-ansible/bin/ansible-playbook"
     playbook_dir    = "ansible"
@@ -636,7 +636,24 @@ build {
     ]
   }
 
-  # 3. Cleanup package cache before snapshot
+  # 3. Reboot to activate kmod blacklist / sysctl / SELinux changes
+  provisioner "shell" {
+    pause_before = "10s"
+    inline       = ["sudo reboot"]
+  }
+
+  # 4. Re-audit after reboot + gate check (score >= 85%)
+  provisioner "ansible-local" {
+    command         = "/opt/ciscvm-ansible/bin/ansible-playbook"
+    playbook_dir    = "ansible"
+    playbook_file   = "ansible/site-audit.yml"
+    extra_arguments = [
+      "-v",
+      "-e", "ansible_python_interpreter=/opt/ciscvm-ansible/bin/python"
+    ]
+  }
+
+  # 5. Cleanup package cache before snapshot
   provisioner "shell" {
     pause_before = "10s"
     inline = [
@@ -751,14 +768,31 @@ build {
 
 # ── Linux SITE_YML (ansible-local: localhost) ──
 SITE_YML_TEMPLATE = r"""---
-# CIS apply — bundled cis-os engine
-# Gate inside role: cis_fail_on_findings: true → ansible exits non-zero on failures
+# CIS apply — bundled cis-os engine (gate disabled; re-audited after reboot)
 - name: "CIS __OS_NAME__ - apply (__CIS_LEVEL__)"
   hosts: localhost
   connection: local
   become: true
   vars:
     cis_mode: apply
+    cis_profile: __CIS_LEVEL__
+    cis_platform: server
+    cis_allow_disruptive: false
+    cis_fail_on_findings: false
+    cis_min_score: 0
+    cis_org_name: ""
+  roles:
+    - role: __ROLE_DIR__
+"""
+
+SITE_AUDIT_TEMPLATE = r"""---
+# CIS re-audit after reboot — gate active
+- name: "CIS __OS_NAME__ - audit after reboot (__CIS_LEVEL__)"
+  hosts: localhost
+  connection: local
+  become: true
+  vars:
+    cis_mode: audit
     cis_profile: __CIS_LEVEL__
     cis_platform: server
     cis_allow_disruptive: false
@@ -927,6 +961,17 @@ def render_site(p: dict[str, Any], level: int) -> str:
         )
 
 
+def render_site_audit(p: dict[str, Any], level: int) -> str:
+    """Generate ansible/site-audit.yml for post-reboot re-evaluation."""
+    cis_level = f"L{level}"
+    return (
+        SITE_AUDIT_TEMPLATE
+        .replace("__OS_NAME__", str(p["os_tag"]))
+        .replace("__CIS_LEVEL__", cis_level)
+        .replace("__ROLE_DIR__", str(p["role_dir"]))
+    )
+
+
 def _assert_no_markers(content: str, filename: str) -> None:
     """Ensure no unreplaced __...__ template markers remain in rendered output."""
     markers = re.findall(r"__[A-Z_]+__", content)
@@ -968,10 +1013,15 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
     # 3. Vars
     (workdir / "packer" / "auto.pkrvars.hcl").write_text(render_pkrvars(r), encoding="utf-8")
 
-    # 4. Ansible playbook
+    # 4. Ansible playbooks
     site = render_site(p, r.level)
     _assert_no_markers(site, "site.yml")
     (workdir / "ansible" / "site.yml").write_text(site, encoding="utf-8")
+
+    if family != "windows":
+        site_audit = render_site_audit(p, r.level)
+        _assert_no_markers(site_audit, "site-audit.yml")
+        (workdir / "ansible" / "site-audit.yml").write_text(site_audit, encoding="utf-8")
 
     # 5. Install script (Linux only)
     if family != "windows":
