@@ -95,8 +95,9 @@ def banner(title: str) -> None:
 # Profile keys common to Linux profiles:
 #   role_dir      Bundled role directory name under roles/
 #   ssh_username  Initial SSH user for Packer (ubuntu / root)
-#   ssh_port      SSH port (default 22)
-#   ssh_timeout   Packer SSH timeout (default "10m")
+#   ssh_port              SSH port (default 22)
+#   ssh_timeout           Packer SSH timeout (default "10m")
+#   ssh_debug_password    (meta only) Set root password for VNC debug access
 #   os_tag        CVM source image OS tag
 #   benchmark     CIS benchmark version
 #   pkg_update    Package index update command
@@ -303,6 +304,7 @@ class ResolvedConfig:
     ssh_port: int
     ssh_timeout: str
     ssh_username: str
+    ssh_debug_password: str
     winrm_username: str
     winrm_password_env: str
     image_name_prefix: str
@@ -442,6 +444,7 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         ssh_port=int(p.get("ssh_port", 22)),
         ssh_timeout=str(p.get("ssh_timeout", "10m")),
         ssh_username=str(p.get("ssh_username", "")),
+        ssh_debug_password=str(meta.get("ssh_debug_password", "")),
         winrm_username=str(p.get("winrm_username", "")),
         winrm_password_env=str(data.get("cloud", {}).get("winrm_password_env", "WINRM_PASSWORD")),
         image_name_prefix=str(data["image"]["name_prefix"]),
@@ -576,6 +579,7 @@ source "tencentcloud-cvm" "default" {
     purpose   = "cis-image-build"
     ephemeral = "true"
   }
+__USER_DATA_BLOCK__
 }
 
 build {
@@ -869,6 +873,15 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
         hcl = HCL_WIN_TEMPLATE.replace("__WINRM_PASSWORD_ENV__", r.winrm_password_env)
     else:
         hcl = HCL_LINUX_TEMPLATE.replace("__CLEAN_CMD__", str(p["clean_cmd"]))
+        user_data = ""
+        if r.ssh_debug_password:
+            user_data = (
+                '  user_data = <<EOF\n'
+                '#!/bin/bash\n'
+                f"echo 'root:{r.ssh_debug_password}' | chpasswd\n"
+                'EOF\n'
+            )
+        hcl = hcl.replace("__USER_DATA_BLOCK__", user_data)
     _assert_no_markers(hcl, "main.pkr.hcl")
     (workdir / "packer" / "main.pkr.hcl").write_text(hcl, encoding="utf-8")
 
