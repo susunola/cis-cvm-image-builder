@@ -5,15 +5,20 @@
 # ciscvm — Packer × Tencent Cloud CVM × CIS Image Builder
 
 A single-command CLI tool that uses **Packer** to spin up a temporary Tencent Cloud CVM,
-runs [ansible-lockdown](https://github.com/ansible-lockdown) CIS roles via the
-`ansible-local` provisioner for system hardening (remediation), then uses a **goss audit**
-as a build-time gate — finally producing a CIS-compliant custom image (golden image).
+runs [ansible-lockdown](https://github.com/ansible-lockdown) CIS roles for system hardening
+(remediation), then produces a CIS-compliant custom image (golden image).
+
+- **Linux** (Ubuntu / RHEL / CentOS): hardening runs **inside** the instance via the
+  `ansible-local` provisioner, and a **goss audit** acts as a build-time gate.
+- **Windows Server** (2019 / 2022, *preview*): uses **WinRM** + a remote `ansible` provisioner
+  (Ansible runs on the controller, not in-VM); there is **no goss audit** on Windows — see
+  [Windows Server](#windows-server-preview) for the verification approach.
 
 The entire pipeline is driven by a **single config file** (`ciscvm.toml`). HCL / playbooks /
 scripts are all rendered from config at build time — no hand-editing HCL required.
 
 > **Default target:** Ubuntu 22.04 + CIS Level 1. See [Switching OS](#switching-os) below
-> for other OS profiles (Ubuntu 24, RHEL 8/9, CentOS 8/9) and levels.
+> for other OS profiles (Ubuntu 24, RHEL 8/9, CentOS 8/9, Windows Server 2019/2022) and levels.
 
 ## Project Structure
 
@@ -129,18 +134,23 @@ requires only changing a config value or adding one dictionary entry in `ciscvm.
 
 ### Built-in Profiles
 
-| profile | OS | Role | ssh User | Status |
+| profile | OS | Role | Login | Status |
 |---|---|---|---|---|
-| `ubuntu22` | Ubuntu 22.04 | `ansible-lockdown.ubuntu22_cis` | ubuntu | Fully supported (verified) |
-| `ubuntu24` | Ubuntu 24.04 | `ansible-lockdown.ubuntu24_cis` | ubuntu | Preview* |
-| `rhel8` | RHEL 8 | `ansible-lockdown.rhel8_cis` | root | Preview* |
-| `rhel9` | RHEL 9 | `ansible-lockdown.rhel9_cis` | root | Preview* |
-| `centos8` | CentOS 8 (maps to RHEL 8 role) | `ansible-lockdown.rhel8_cis` | root | Preview* |
-| `centos9` | CentOS 9 (maps to RHEL 9 role) | `ansible-lockdown.rhel9_cis` | root | Preview* |
+| `ubuntu22` | Ubuntu 22.04 | `ansible-lockdown.ubuntu22_cis` | ubuntu (ssh) | Fully supported (verified) |
+| `ubuntu24` | Ubuntu 24.04 | `ansible-lockdown.ubuntu24_cis` | ubuntu (ssh) | Preview* |
+| `rhel8` | RHEL 8 | `ansible-lockdown.rhel8_cis` | root (ssh) | Preview* |
+| `rhel9` | RHEL 9 | `ansible-lockdown.rhel9_cis` | root (ssh) | Preview* |
+| `centos8` | CentOS 8 (maps to RHEL 8 role) | `ansible-lockdown.rhel8_cis` | root (ssh) | Preview* |
+| `centos9` | CentOS 9 (maps to RHEL 9 role) | `ansible-lockdown.rhel9_cis` | root (ssh) | Preview* |
+| `windows2019` | Windows Server 2019 | `Windows-2019-CIS` | Administrator (WinRM) | Preview** |
+| `windows2022` | Windows Server 2022 | `Windows-2022-CIS` | Administrator (WinRM) | Preview** |
 
 \* Role names and variable prefixes are verified against the ansible-lockdown source, but not yet
 run end-to-end on Tencent Cloud. Treat as preview: double-check `[cis].audit_dir` for your role
 version, and pin `role_version` once validated.
+\** Windows support is architecturally different (WinRM + remote `ansible`, no in-VM ansible,
+no goss audit). The WinRM provisioner wiring and the L1/L2 member-server variables
+(`win22cis_l1_ms` / `win19cis_l1_ms`) must be validated against a real Windows build — see below.
 
 ### Case A: Use a built-in profile
 
@@ -158,7 +168,8 @@ auto-rendered, no other changes needed.
 ### Case B: Brand new OS (not built-in)
 
 Add an entry to the `PROFILES` dictionary in `ciscvm.py`, then use its key in `ciscvm.toml`.
-Template (RHEL-family example; drop `os_check_var` / `root_login_rule_var` for non-RHEL):
+Template (RHEL-family example; drop `os_check_var` / `root_login_rule_var` for non-RHEL;
+see existing `windows2019`/`windows2022` entries in `PROFILES` for the Windows template):
 
 ```python
 "almalinux9": {
@@ -198,6 +209,56 @@ which public images don't satisfy by default — partition first in the source i
 before building.
 
 After that: `preflight` → `validate` → `build` as usual.
+
+## Windows Server (preview)
+
+Windows images can't use `ansible-local` / SSH, and there is **no goss audit** on Windows.
+The tool therefore renders a **different pipeline** for `windows2019` / `windows2022`:
+
+| | Linux | Windows |
+|---|---|---|
+| Communicator | SSH | **WinRM** (`communicator = "winrm"`) |
+| Provisioner | `ansible-local` (in-VM) | `ansible` (remote, controller → guest over WinRM) |
+| Role install | inside the temp CVM (`install-ansible.sh`) | **on the controller** before `packer build` (auto `ansible-galaxy role install git+…`) |
+| Build-time gate | goss audit (`verify-cis.sh`) | **none** (see verification below) |
+| Level selection | `<role>_level_1/2` + `--tags` | member-server vars `win22cis_l1_ms` / `win19cis_l1_ms` |
+
+### How to build a Windows CIS image
+
+```toml
+[build]
+profile         = "windows2022"
+source_image_id = "img-realWindows2022PublicImageID"
+
+[cloud]
+winrm_password_env = "WINRM_PASSWORD"   # Windows admin password (env var name)
+```
+
+```bash
+export TENCENTCLOUD_SECRET_ID=AKIDxxxx
+export TENCENTCLOUD_SECRET_KEY=xxxx
+export WINRM_PASSWORD='<Windows Administrator password meeting complexity>'
+# controller must have ansible + pywinrm:
+pip install 'ansible' pywinrm
+python3 ciscvm.py preflight && python3 ciscvm.py build
+```
+
+The rendered `ansible/site.yml` sets `win22cis_ansible_remediation: true` /
+`win22cis_create_gpos: false` (GPO / domain vars stay off for a standalone golden image) and the
+member-server Level via `win22cis_l1_ms: true` (`l2_ms` for Level 2). WinRM is **never disabled**
+by the hardening — disabling it would break the provisioner connection.
+
+### Verification (no goss on Windows)
+
+Because goss doesn't run on Windows, the build-time gate is **not applied** for Windows. Verify
+compliance **after** the image is built, out-of-band:
+
+- Run **Microsoft Policy Analyzer** or **CIS-CAT Pro** against the produced image, or
+- Use the role's own reporting (set `win22cis_run_audit` / section-based checks per your role version).
+
+Until a real Windows build validates the WinRM wiring and the L1/L2 member-server variables,
+treat `windows2019` / `windows2022` as **preview** and confirm them against the role's
+`defaults/main.yml`.
 
 ## CI Integration
 

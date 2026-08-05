@@ -148,6 +148,36 @@ PROFILES = {
         "root_login_rule_var": "rhel9cis_rule_5_2_2",
         "preview": True,
     },
+    # ---------- Windows Server（winrm + 远程 ansible；无 goss 审计）----------
+    # 注意：ansible-lockdown 的 Windows 角色按 section 应用 CIS 设置，L1/L2 用成员服务器
+    # 变量（l1_ms / l2_ms）区分；GPO/域相关变量默认关闭。WinRM 是连接与构建必需，不能禁。
+    # 该画像为 preview：winrm provisioner 接线、L1/L2 成员服务器变量名需按真实角色版本核对。
+    "windows2019": {
+        "family": "windows",
+        "winrm_username": "Administrator",
+        "role": "Windows-2019-CIS",
+        "git_repo": "Windows-2019-CIS",
+        "role_version": "",
+        "os_tag": "windows-2019",
+        "benchmark": "CIS-v2.0.0",
+        "level1_var": "win19cis_l1_ms",
+        "level2_var": "win19cis_l2_ms",
+        "audit_dir": "",          # Windows 无 goss 审计，留空表示跳过 verify gate
+        "preview": True,
+    },
+    "windows2022": {
+        "family": "windows",
+        "winrm_username": "Administrator",
+        "role": "Windows-2022-CIS",
+        "git_repo": "Windows-2022-CIS",
+        "role_version": "",
+        "os_tag": "windows-2022",
+        "benchmark": "CIS-v2.0.0",
+        "level1_var": "win22cis_l1_ms",
+        "level2_var": "win22cis_l2_ms",
+        "audit_dir": "",
+        "preview": True,
+    },
 }
 
 DEFAULT_WORKDIR = ".ciscvm-build"
@@ -155,7 +185,7 @@ DEFAULT_WORKDIR = ".ciscvm-build"
 SAMPLE_CONFIG = """\
 # ciscvm.toml — 唯一事实来源，所有构建参数都在这里改
 [build]
-profile             = "ubuntu22"          # ubuntu22 | ubuntu24 | rhel8 | rhel9 | centos8 | centos9
+profile             = "ubuntu22"          # ubuntu22 | ubuntu24 | rhel8 | rhel9 | centos8 | centos9 | windows2019 | windows2022
 region              = "ap-guangzhou"
 zone                = "ap-guangzhou-4"
 instance_type       = "S5.MEDIUM2"
@@ -171,12 +201,13 @@ copy_regions = ["ap-shanghai"]            # 留空 [] 不跨地域复制
 
 [cis]
 level        = 1                          # 1 或 2
-max_failures = 0                          # 审计失败项容忍上限，超过则 build 失败
-audit_dir    = "/opt/ubuntu22_cis"        # 必须与角色审计输出目录一致
+max_failures = 0                          # 审计失败项容忍上限，超过则 build 失败（仅 Linux 生效，Windows 无 goss 审计）
+audit_dir    = "/opt/ubuntu22_cis"        # 必须与角色审计输出目录一致（仅 Linux 生效）
 
 [cloud]
 secret_id_env  = "TENCENTCLOUD_SECRET_ID"
 secret_key_env = "TENCENTCLOUD_SECRET_KEY"
+winrm_password_env = "WINRM_PASSWORD"     # 仅 Windows 画像需要（Windows 管理员密码）
 
 [meta]
 os_tag    = "ubuntu-22.04"                # 镜像 tag 用，一般随 profile 默认即可
@@ -289,6 +320,127 @@ build {
 }
 """
 
+# Windows：winrm 通信 + 远程 ansible provisioner（角色在控制器侧预装，连到临时 Windows CVM 跑）
+# 注意：Windows 画像为 preview，winrm provisioner 接线请按真实构建验证；goss 审计不适用，故无 verify gate。
+HCL_WIN_TEMPLATE = r"""packer {
+  required_plugins {
+    tencentcloud = {
+      source  = "github.com/hashicorp/packer-plugin-tencentcloud"
+      version = ">= 1.0.0"
+    }
+  }
+}
+
+variable "secret_id" {
+  type      = string
+  default   = env("TENCENTCLOUD_SECRET_ID")
+  sensitive = true
+}
+
+variable "secret_key" {
+  type      = string
+  default   = env("TENCENTCLOUD_SECRET_KEY")
+  sensitive = true
+}
+
+variable "region"                      { type = string }
+variable "zone"                        { type = string }
+variable "instance_type"               { type = string }
+variable "source_image_id"             { type = string }
+variable "winrm_username"              { type = string }
+variable "winrm_password" {
+  type      = string
+  default   = env("__WINRM_PASSWORD_ENV__")
+  sensitive = true
+}
+variable "vpc_id"                      { type = string }
+variable "subnet_id"                   { type = string }
+variable "security_group_id"           { type = string }
+variable "associate_public_ip_address" { type = bool }
+variable "image_name_prefix"           { type = string }
+variable "image_copy_regions"          { type = list(string); default = [] }
+variable "cis_level"                   { type = string }
+variable "image_os_tag"                { type = string }
+variable "image_benchmark"             { type = string }
+
+locals {
+  level_short = replace(var.cis_level, "-server", "")
+  image_name  = "${var.image_name_prefix}-${local.level_short}-${formatdate("YYYYMMDD", timestamp())}"
+}
+
+source "tencentcloud-cvm" "default" {
+  secret_id                   = var.secret_id
+  secret_key                  = var.secret_key
+  region                      = var.region
+  zone                        = var.zone
+  instance_type               = var.instance_type
+  source_image_id             = var.source_image_id
+  communicator                = "winrm"
+  winrm_username              = var.winrm_username
+  winrm_password              = var.winrm_password
+  winrm_use_ssl               = true
+  winrm_insecure              = true
+  winrm_timeout               = "10m"
+  image_name                  = local.image_name
+  vpc_id                      = var.vpc_id
+  subnet_id                   = var.subnet_id
+  security_group_id           = var.security_group_id
+  associate_public_ip_address = var.associate_public_ip_address
+  image_copy_regions          = var.image_copy_regions
+  image_tags = {
+    cis_level  = local.level_short
+    os         = var.image_os_tag
+    benchmark  = var.image_benchmark
+    built_with = "ciscvm"
+  }
+  run_tags = {
+    purpose   = "cis-image-build"
+    ephemeral = "true"
+  }
+}
+
+build {
+  sources = ["source.tencentcloud-cvm.default"]
+
+  # CIS remediation：控制器侧 ansible 通过 winrm 连到临时 Windows CVM 跑 lockdown 角色
+  # （角色需在 build 前由 ciscvm 在控制器侧 `ansible-galaxy role install git+...` 预装）
+  provisioner "ansible" {
+    playbook_file = "ansible/site.yml"
+    user          = var.winrm_username
+    use_proxy     = false
+    extra_arguments = [
+      "-e", "ansible_connection=winrm",
+      "-e", "ansible_winrm_server_cert_validation=ignore",
+      "-e", "ansible_winrm_transport=basic"
+    ]
+  }
+}
+"""
+
+SITE_YML_WIN_TEMPLATE = r"""---
+- hosts: all
+  gather_facts: true
+  vars:
+    # WinRM 连接（控制器 ansible 通过 winrm 连到临时 Windows CVM）
+    ansible_connection: winrm
+    ansible_winrm_server_cert_validation: ignore
+    ansible_winrm_transport: basic
+
+    # ---- CIS 等级（Windows 用成员服务器 L1/L2 变量；GPO/域相关默认关闭）----
+    __L1VAR__: __L1VAL__
+    __L2VAR__: __L2VAL__
+    __REMED_VAR__: true
+    __GPO_VAR__: false
+
+    # ---- 云环境例外：保留 WinRM / 远程管理，避免把自己锁死 ----
+    # Windows 镜像默认允许 WinRM；CIS 加固不要禁用，否则 provisioner 后续连不上。
+  roles:
+    - __ROLE__
+
+# 注意：Windows 角色按 section 应用 CIS 设置，L1/L2 用成员服务器变量区分；
+# 不同 CIS 版本变量名可能不同，跑前请以角色 defaults/main.yml 为准。
+"""
+
 INSTALL_SH_TEMPLATE = r"""#!/usr/bin/env bash
 # 在临时 CVM 内安装 ansible 与 CIS lockdown 角色（由 Packer shell provisioner 调用）
 set -euo pipefail
@@ -309,6 +461,13 @@ sudo python3 -m pip install 'ansible-core>=2.15' pexpect passlib
 __INSTALL_ROLE__
 
 echo "ansible + CIS role ready"
+"""
+
+INSTALL_WIN_TEMPLATE = r"""#!/usr/bin/env bash
+# Windows 画像：ansible 不在实例内运行（角色在「控制器侧」安装并执行）。
+# 此文件仅作离线参考；真实安装由 ciscvm 在 build 前自动执行：
+#   __INSTALL_ROLE__
+echo "Windows: CIS role is installed on the controller, not inside the VM."
 """
 
 VERIFY_SH_TEMPLATE = r"""#!/usr/bin/env bash
@@ -462,9 +621,11 @@ def resolve(data: dict) -> dict:
     p = PROFILES[profile_name]
     meta = data.get("meta", {})
     level = data["cis"]["level"]
+    family = p.get("family", "linux")
     return {
         "profile_name": profile_name,
         "profile": p,
+        "family": family,
         "preview": p.get("preview", False),
         "region": data["build"]["region"],
         "zone": data["build"]["zone"],
@@ -474,7 +635,8 @@ def resolve(data: dict) -> dict:
         "subnet_id": data["build"]["subnet_id"],
         "security_group_id": data["build"]["security_group_id"],
         "associate_public_ip": data["build"]["associate_public_ip"],
-        "ssh_username": p["ssh_username"],
+        "ssh_username": p.get("ssh_username", ""),
+        "winrm_username": p.get("winrm_username", ""),
         "image_name_prefix": data["image"]["name_prefix"],
         "image_copy_regions": data["image"]["copy_regions"],
         "cis_level_tag": f"level{level}-server",
@@ -482,6 +644,7 @@ def resolve(data: dict) -> dict:
         "cis_audit_dir": data["cis"]["audit_dir"],
         "secret_id_env": data["cloud"]["secret_id_env"],
         "secret_key_env": data["cloud"]["secret_key_env"],
+        "winrm_password_env": data.get("cloud", {}).get("winrm_password_env", "WINRM_PASSWORD"),
         "image_os_tag": meta.get("os_tag", p["os_tag"]),
         "image_benchmark": meta.get("benchmark", p["benchmark"]),
         "level": level,
@@ -493,24 +656,44 @@ def resolve(data: dict) -> dict:
 # ----------------------------------------------------------------------------
 def render_pkrvars(r: dict) -> str:
     lines = []
-    flat = {
-        "region": r["region"],
-        "zone": r["zone"],
-        "instance_type": r["instance_type"],
-        "source_image_id": r["source_image_id"],
-        "ssh_username": r["ssh_username"],
-        "vpc_id": r["vpc_id"],
-        "subnet_id": r["subnet_id"],
-        "security_group_id": r["security_group_id"],
-        "associate_public_ip_address": r["associate_public_ip"],
-        "image_name_prefix": r["image_name_prefix"],
-        "image_copy_regions": r["image_copy_regions"],
-        "cis_level": r["cis_level_tag"],
-        "cis_max_failures": r["cis_max_failures"],
-        "image_os_tag": r["image_os_tag"],
-        "image_benchmark": r["image_benchmark"],
-        "cis_audit_dir": r["cis_audit_dir"],
-    }
+    p = r["profile"]
+    if p.get("family") == "windows":
+        # Windows HCL 不声明 ssh_username / cis_max_failures / cis_audit_dir，必须对齐变量集
+        flat = {
+            "region": r["region"],
+            "zone": r["zone"],
+            "instance_type": r["instance_type"],
+            "source_image_id": r["source_image_id"],
+            "winrm_username": r["winrm_username"],
+            "vpc_id": r["vpc_id"],
+            "subnet_id": r["subnet_id"],
+            "security_group_id": r["security_group_id"],
+            "associate_public_ip_address": r["associate_public_ip"],
+            "image_name_prefix": r["image_name_prefix"],
+            "image_copy_regions": r["image_copy_regions"],
+            "cis_level": r["cis_level_tag"],
+            "image_os_tag": r["image_os_tag"],
+            "image_benchmark": r["image_benchmark"],
+        }
+    else:
+        flat = {
+            "region": r["region"],
+            "zone": r["zone"],
+            "instance_type": r["instance_type"],
+            "source_image_id": r["source_image_id"],
+            "ssh_username": r["ssh_username"],
+            "vpc_id": r["vpc_id"],
+            "subnet_id": r["subnet_id"],
+            "security_group_id": r["security_group_id"],
+            "associate_public_ip_address": r["associate_public_ip"],
+            "image_name_prefix": r["image_name_prefix"],
+            "image_copy_regions": r["image_copy_regions"],
+            "cis_level": r["cis_level_tag"],
+            "cis_max_failures": r["cis_max_failures"],
+            "image_os_tag": r["image_os_tag"],
+            "image_benchmark": r["image_benchmark"],
+            "cis_audit_dir": r["cis_audit_dir"],
+        }
     for k, v in flat.items():
         if isinstance(v, bool):
             lines.append(f"{k} = {'true' if v else 'false'}")
@@ -524,6 +707,12 @@ def render_pkrvars(r: dict) -> str:
 
 
 def render_install(p: dict) -> str:
+    if p.get("family") == "windows":
+        # Windows：角色在「控制器侧」安装，用 git 源最稳（galaxy 名随版本可能变动）
+        repo = p["git_repo"]
+        install_line = f'ansible-galaxy role install "git+https://github.com/ansible-lockdown/{repo}.git" --force'
+        # 该 install 命令由 ciscvm 在 build 前于控制器执行，这里仅作参考/离线记录
+        return (INSTALL_WIN_TEMPLATE.replace("__INSTALL_ROLE__", install_line))
     if p.get("role_version"):
         install_line = f'ansible-galaxy install "{p["role"]},{p["role_version"]}" --force'
     else:
@@ -534,9 +723,34 @@ def render_install(p: dict) -> str:
             .replace("__INSTALL_ROLE__", install_line))
 
 
+def render_requirements(p: dict) -> str:
+    repo = p["git_repo"]
+    return (
+        "# Windows CIS 角色（控制器侧安装，供 ansible provisioner 使用）\n"
+        "# ciscvm 会在 build 前自动执行：\n"
+        f"#   ansible-galaxy role install git+https://github.com/ansible-lockdown/{repo}.git --force\n"
+        "roles:\n"
+        f"  - src: git+https://github.com/ansible-lockdown/{repo}.git\n"
+        f"    name: {repo}\n"
+    )
+
+
 def render_site(p: dict, level: int) -> str:
     l1 = "true" if level == 1 else "false"
     l2 = "true" if level == 2 else "false"
+    if p.get("family") == "windows":
+        # 成员服务器 L1/L2 变量前缀（win22cis_ / win19cis_ ...）
+        prefix = p["level1_var"].split("_l1")[0]
+        rem = f"{prefix}_ansible_remediation"
+        gpo = f"{prefix}_create_gpos"
+        return (SITE_YML_WIN_TEMPLATE
+                .replace("__ROLE__", p["role"])
+                .replace("__L1VAR__", p["level1_var"])
+                .replace("__L1VAL__", l1)
+                .replace("__L2VAR__", p["level2_var"])
+                .replace("__L2VAL__", l2)
+                .replace("__REMED_VAR__", rem)
+                .replace("__GPO_VAR__", gpo))
     extra = [f"    {p['boot_pass_var']}: false   # 关闭引导/GRUB 密码，避免把自己锁死"]
     if p.get("os_check_var"):
         extra.append(f"    {p['os_check_var']}: false   # 非 RHEL 派生系统，关闭 OS 校验")
@@ -554,21 +768,30 @@ def render_site(p: dict, level: int) -> str:
 
 def render_all(workdir: Path, r: dict) -> None:
     p = r["profile"]
+    is_win = p.get("family") == "windows"
     (workdir / "packer" / "scripts").mkdir(parents=True, exist_ok=True)
     (workdir / "ansible").mkdir(parents=True, exist_ok=True)
 
-    (workdir / "packer" / "main.pkr.hcl").write_text(
-        HCL_TEMPLATE.replace("__CLEAN_CMD__", p["clean_cmd"]), encoding="utf-8")
+    if is_win:
+        hcl = HCL_WIN_TEMPLATE.replace("__WINRM_PASSWORD_ENV__", r["winrm_password_env"])
+        (workdir / "packer" / "main.pkr.hcl").write_text(hcl, encoding="utf-8")
+    else:
+        (workdir / "packer" / "main.pkr.hcl").write_text(
+            HCL_TEMPLATE.replace("__CLEAN_CMD__", p["clean_cmd"]), encoding="utf-8")
     (workdir / "packer" / "auto.pkrvars.hcl").write_text(render_pkrvars(r), encoding="utf-8")
-    (workdir / "packer" / "scripts" / "install-ansible.sh").write_text(
-        render_install(p), encoding="utf-8")
-    (workdir / "packer" / "scripts" / "verify-cis.sh").write_text(
-        VERIFY_SH_TEMPLATE, encoding="utf-8")
-    (workdir / "ansible" / "site.yml").write_text(
-        render_site(p, r["level"]), encoding="utf-8")
-    # 脚本需要可执行位
-    for sh in (workdir / "packer" / "scripts").glob("*.sh"):
-        sh.chmod(0o755)
+    (workdir / "ansible" / "site.yml").write_text(render_site(p, r["level"]), encoding="utf-8")
+
+    if is_win:
+        # Windows：控制器侧预装角色；requirements.yml 供离线/CI 参考
+        (workdir / "ansible" / "requirements.yml").write_text(
+            render_requirements(p), encoding="utf-8")
+    else:
+        (workdir / "packer" / "scripts" / "install-ansible.sh").write_text(
+            render_install(p), encoding="utf-8")
+        (workdir / "packer" / "scripts" / "verify-cis.sh").write_text(
+            VERIFY_SH_TEMPLATE, encoding="utf-8")
+        for sh in (workdir / "packer" / "scripts").glob("*.sh"):
+            sh.chmod(0o755)
 
 
 # ----------------------------------------------------------------------------
@@ -615,6 +838,27 @@ def run_preflight(data: dict, r: dict) -> bool:
         fail("PATH 中找不到 packer，请先安装：https://developer.hashicorp.com/packer/install")
         all_ok = False
 
+    # Windows 画像：控制器侧需要 ansible + pywinrm + WinRM 密码
+    if r["family"] == "windows":
+        if shutil.which("ansible"):
+            ok("ansible 已在 PATH（Windows 画像需控制器侧 ansible + pywinrm）")
+        else:
+            fail("Windows 画像需要控制器侧 ansible（pip install 'ansible' pywinrm）")
+            all_ok = False
+        try:
+            import importlib
+            importlib.import_module("winrm")
+            ok("pywinrm 已安装")
+        except Exception:
+            fail("控制器缺少 pywinrm（pip install pywinrm）")
+            all_ok = False
+        env_win = r["winrm_password_env"]
+        if os.environ.get(env_win):
+            ok(f"WinRM 密码环境变量 {env_win} 已设置")
+        else:
+            fail(f"WinRM 密码环境变量 {env_win} 未设置（Windows 管理员密码，export 后再跑）")
+            all_ok = False
+
     # 关键参数非空 / 非占位
     checks = [
         ("region", r["region"]),
@@ -643,6 +887,24 @@ def run_preflight(data: dict, r: dict) -> bool:
     else:
         warn("自检有失败项，请先修复再继续。")
     return all_ok
+
+
+def ensure_controller_roles(r: dict) -> int:
+    """Windows 画像：build 前在控制器侧预装 CIS 角色（ansible provisioner 需要）。"""
+    p = r["profile"]
+    if p.get("family") != "windows":
+        return 0
+    repo = p["git_repo"]
+    cmd = ["ansible-galaxy", "role", "install",
+           f"git+https://github.com/ansible-lockdown/{repo}.git", "--force"]
+    banner("controller role install (windows)")
+    info(f"Windows 画像：控制器侧安装 CIS 角色 {repo} ...")
+    res = subprocess.run(cmd)
+    if res.returncode != 0:
+        fail(f"ansible-galaxy 安装 {repo} 失败（见上方输出）")
+    else:
+        ok(f"角色 {repo} 已就绪")
+    return res.returncode
 
 
 def run_packer(workdir: Path, subcmd: str, quiet: bool) -> int:
@@ -681,6 +943,8 @@ def cmd_validate(args: argparse.Namespace) -> int:
         return 1
     if not run_preflight(data, r):
         return 1
+    if ensure_controller_roles(r) != 0:
+        return 1
     workdir = Path(args.workdir)
     workdir.mkdir(parents=True, exist_ok=True)
     render_all(workdir, r)
@@ -703,6 +967,8 @@ def cmd_build(args: argparse.Namespace) -> int:
         fail(str(e))
         return 1
     if not run_preflight(data, r):
+        return 1
+    if ensure_controller_roles(r) != 0:
         return 1
     workdir = Path(args.workdir)
     workdir.mkdir(parents=True, exist_ok=True)

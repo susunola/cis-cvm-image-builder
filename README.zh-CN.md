@@ -4,14 +4,21 @@
 
 # ciscvm — Packer × 腾讯云 CVM × CIS 镜像构建工具
 
-用 Packer 起临时 CVM，通过 `ansible-local` provisioner 跑
+用 Packer 起临时 CVM，通过 provisioner 跑
 [ansible-lockdown](https://github.com/ansible-lockdown) 的 CIS 角色做系统加固（remediation），
-再用 goss 审计做 build 期 gate，最终产出符合 CIS 基准的自定义镜像（golden image）。
+最终产出符合 CIS 基准的自定义镜像（golden image）。
+
+- **Linux**（Ubuntu / RHEL / CentOS）：通过 `ansible-local` provisioner **在实例内**执行加固，
+  goss 审计做 build 期 gate。
+- **Windows Server**（2019 / 2022，*preview*）：使用 **WinRM** + 远程 `ansible` provisioner
+  （Ansible 在控制器侧执行，不是在 VM 里）；Windows 没有 goss 审计——见
+  [Windows Server（preview）](#windows-serverpreview)。
 
 整套流程收敛成一个**配置驱动的单命令工具**：`ciscvm.toml` 是唯一事实来源，
 HCL / playbook / 脚本全部在构建时由配置渲染生成，不用手改 HCL。
 
-> **默认目标**：**Ubuntu 22.04 + CIS Level 1**。换 OS / Level 见下方「换操作系统」。
+> **默认目标**：Ubuntu 22.04 + CIS Level 1。换 OS / Level 见下方「换操作系统」
+> （Ubuntu 24 / RHEL 8/9 / CentOS 8/9 / Windows Server 2019/2022）。
 
 ## 项目结构
 
@@ -110,17 +117,22 @@ playbook 和角色都直接在实例里跑。
 
 ### 内置画像一览
 
-| profile | OS | 角色 | ssh 用户 | 状态 |
-|---|---|---|---|---|
-| `ubuntu22` | Ubuntu 22.04 | `ansible-lockdown.ubuntu22_cis` | ubuntu | 完整支持（已验证） |
-| `ubuntu24` | Ubuntu 24.04 | `ansible-lockdown.ubuntu24_cis` | ubuntu | Preview* |
-| `rhel8` | RHEL 8 | `ansible-lockdown.rhel8_cis` | root | Preview* |
-| `rhel9` | RHEL 9 | `ansible-lockdown.rhel9_cis` | root | Preview* |
-| `centos8` | CentOS 8（映射 RHEL 8 角色） | `ansible-lockdown.rhel8_cis` | root | Preview* |
-| `centos9` | CentOS 9（映射 RHEL 9 角色） | `ansible-lockdown.rhel9_cis` | root | Preview* |
+| profile | OS | 角色 | 登录 | 状态 |
+|---|---|---|---|---|---|
+| `ubuntu22` | Ubuntu 22.04 | `ansible-lockdown.ubuntu22_cis` | ubuntu (ssh) | 完整支持（已验证） |
+| `ubuntu24` | Ubuntu 24.04 | `ansible-lockdown.ubuntu24_cis` | ubuntu (ssh) | Preview* |
+| `rhel8` | RHEL 8 | `ansible-lockdown.rhel8_cis` | root (ssh) | Preview* |
+| `rhel9` | RHEL 9 | `ansible-lockdown.rhel9_cis` | root (ssh) | Preview* |
+| `centos8` | CentOS 8（映射 RHEL 8 角色） | `ansible-lockdown.rhel8_cis` | root (ssh) | Preview* |
+| `centos9` | CentOS 9（映射 RHEL 9 角色） | `ansible-lockdown.rhel9_cis` | root (ssh) | Preview* |
+| `windows2019` | Windows Server 2019 | `Windows-2019-CIS` | Administrator (WinRM) | Preview** |
+| `windows2022` | Windows Server 2022 | `Windows-2022-CIS` | Administrator (WinRM) | Preview** |
 
 \* 角色名与变量前缀均已对照 ansible-lockdown 源码核实，但尚未在腾讯云端到端实跑。
 按 preview 对待：核对你角色版本的 `[cis].audit_dir`，验证后把 `role_version` 固定。
+\*\* Windows 在架构上有本质不同（WinRM + 远程 ansible，不在 VM 里跑 ansible、
+无 goss 审计）。WinRM 的 provisioner 接线、成员服务器 L1/L2 变量
+（`win22cis_l1_ms` / `win19cis_l1_ms`）需用真实的 Windows 构建来验证——见下方。
 
 ### 情况 A：用内置已支持的
 
@@ -137,7 +149,8 @@ SSH 用户、CIS 角色名、包管理器、审计目录等 profile 已带，自
 ### 情况 B：全新 OS（内置没有）
 
 在 `ciscvm.py` 的 `PROFILES` 字典里加一项，再在 `ciscvm.toml` 用它的 key。模板
-（RHEL 系示例；非 RHEL 去掉 `os_check_var` / `root_login_rule_var`）：
+（RHEL 系示例；非 RHEL 去掉 `os_check_var` / `root_login_rule_var`；
+Windows 模板参考 `PROFILES` 已有的 `windows2019` / `windows2022` 项）：
 
 ```python
 "almalinux9": {
@@ -176,6 +189,54 @@ SSH 用户、CIS 角色名、包管理器、审计目录等 profile 已带，自
 公共镜像默认不满足，需先在源镜像或 user_data 里分好区再 build。
 
 之后照旧：`preflight` → `validate` → `build`。
+
+## Windows Server（preview）
+
+Windows 镜像不能用 `ansible-local` / SSH，也没有 goss 审计。因此工具对 `windows2019` / `windows2022`
+渲染的是**不同的流水线**：
+
+| | Linux | Windows |
+|---|---|---|
+| 通信方式 | SSH | **WinRM**（`communicator = "winrm"`） |
+| Provisioner | `ansible-local`（VM 内执行） | `ansible`（远程，控制器 → 客户机走 WinRM） |
+| 角色安装 | 临时 CVM 内（`install-ansible.sh`） | **控制器侧**，`packer build` 前自动 `ansible-galaxy role install git+…` |
+| Build 期 gate | goss 审计（`verify-cis.sh`） | **无**（验证方式见下方） |
+| 等级选择 | `<role>_level_1/2` + `--tags` | 成员服务器变量 `win22cis_l1_ms` / `win19cis_l1_ms` |
+
+### 构建 Windows CIS 镜像
+
+```toml
+[build]
+profile         = "windows2022"
+source_image_id = "img-真实Windows2022公共镜像ID"
+
+[cloud]
+winrm_password_env = "WINRM_PASSWORD"   # Windows 管理员密码（环境变量名）
+```
+
+```bash
+export TENCENTCLOUD_SECRET_ID=AKIDxxxx
+export TENCENTCLOUD_SECRET_KEY=xxxx
+export WINRM_PASSWORD='<符合复杂度要求的 Windows Administrator 密码>'
+# 控制器需要有 ansible + pywinrm：
+pip install 'ansible' pywinrm
+python3 ciscvm.py preflight && python3 ciscvm.py build
+```
+
+渲染出的 `ansible/site.yml` 会设 `win22cis_ansible_remediation: true` /
+`win22cis_create_gpos: false`（GPO / 域相关变量保持关闭，适配独立 golden image）以及
+成员服务器 Level（`win22cis_l1_ms: true`，Level 2 则是 `l2_ms`）。WinRM **不会被**加固关掉——
+关掉会导致 provisioner 连不上。
+
+### 验证（Windows 没有 goss）
+
+因为 goss 不支持 Windows，build 期 gate **对 Windows 不生效**。在镜像产出**之后**做合规验证：
+
+- 用 **Microsoft Policy Analyzer** 或 **CIS-CAT Pro** 扫描产出的镜像，或
+- 用角色自带的上报（按你的角色版本设置 `win22cis_run_audit` / section 级别检查）。
+
+在真实的 Windows 构建验证 WinRM 接线和 L1/L2 成员服务器变量之前，`windows2019` / `windows2022`
+均按 **preview** 对待，跑前请以角色 `defaults/main.yml` 为准。
 
 ## 接 CI
 
