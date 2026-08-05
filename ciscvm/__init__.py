@@ -96,6 +96,7 @@ def banner(title: str) -> None:
 #   role_dir      Bundled role directory name under roles/
 #   ssh_username  Initial SSH user for Packer (ubuntu / root)
 #   ssh_port      SSH port (default 22)
+#   ssh_timeout   Packer SSH timeout (default "10m")
 #   os_tag        CVM source image OS tag
 #   benchmark     CIS benchmark version
 #   pkg_update    Package index update command
@@ -300,6 +301,7 @@ class ResolvedConfig:
     security_group_id: str
     associate_public_ip: bool
     ssh_port: int
+    ssh_timeout: str
     ssh_username: str
     winrm_username: str
     winrm_password_env: str
@@ -438,6 +440,7 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         security_group_id=str(data["build"]["security_group_id"]),
         associate_public_ip=bool(data["build"]["associate_public_ip"]),
         ssh_port=int(p.get("ssh_port", 22)),
+        ssh_timeout=str(p.get("ssh_timeout", "10m")),
         ssh_username=str(p.get("ssh_username", "")),
         winrm_username=str(p.get("winrm_username", "")),
         winrm_password_env=str(data.get("cloud", {}).get("winrm_password_env", "WINRM_PASSWORD")),
@@ -528,6 +531,7 @@ variable "instance_type"               { type = string }
 variable "source_image_id"             { type = string }
 variable "ssh_username"                { type = string }
 variable "ssh_port"                    { type = number }
+variable "ssh_timeout"                 { type = string }
 variable "vpc_id"                      { type = string }
 variable "subnet_id"                   { type = string }
 variable "security_group_id"           { type = string }
@@ -555,6 +559,7 @@ source "tencentcloud-cvm" "default" {
   source_image_id             = var.source_image_id
   ssh_username                = var.ssh_username
   ssh_port                    = var.ssh_port
+  ssh_timeout                 = var.ssh_timeout
   image_name                  = local.image_name
   vpc_id                      = var.vpc_id
   subnet_id                   = var.subnet_id
@@ -803,6 +808,7 @@ def render_pkrvars(r: ResolvedConfig) -> str:
     else:
         flat["ssh_username"] = r.ssh_username
         flat["ssh_port"] = r.ssh_port
+        flat["ssh_timeout"] = r.ssh_timeout
 
     return "\n".join(f"{k} = {_format_hcl_value(v)}" for k, v in flat.items()) + "\n"
 
