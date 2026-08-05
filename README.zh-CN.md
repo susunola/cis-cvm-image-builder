@@ -196,6 +196,9 @@ benchmark = "CIS-v1.0.0"
 | | `winrm_password_env` | string | Windows Admin 密码环境变量名（仅 Windows） |
 | `[meta]` | `os_tag` | string | 产出镜像标签值 |
 | | `benchmark` | string | CIS benchmark 版本标签 |
+| | `ssh_port` | int | SSH 端口（默认 22；TencentOS profile 默认 36000） |
+| | `ssh_timeout` | string | Packer SSH 超时（默认 "10m"） |
+| | `ssh_debug_password` | string | 设置 root 密码以便 VNC 排查（默认不设置） |
 
 ## 架构
 

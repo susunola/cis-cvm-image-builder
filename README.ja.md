@@ -201,6 +201,9 @@ benchmark = "CIS-v1.0.0"
 | | `winrm_password_env` | string | Windows Administrator パスワードの環境変数名（Windows のみ） |
 | `[meta]` | `os_tag` | string | 出力イメージのタグ値 |
 | | `benchmark` | string | CIS benchmark バージョンのタグ |
+| | `ssh_port` | int | SSH ポート (デフォルト 22; TencentOS: 36000) |
+| | `ssh_timeout` | string | Packer SSH タイムアウト (デフォルト "10m") |
+| | `ssh_debug_password` | string | VNC デバッグ用 root パスワード (デフォルト: 設定なし) |
 
 ## アーキテクチャ
 
