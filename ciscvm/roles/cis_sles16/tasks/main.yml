@@ -5,10 +5,6 @@
 - name: Run CIS benchmark
   ansible.builtin.include_tasks: run.yml
 
-- name: Generate reports
-  ansible.builtin.include_tasks: report.yml
-  when: cis_report_html or cis_report_json or cis_report_csv
-
 - name: Gate on findings
   ansible.builtin.include_tasks: gate.yml
   when: cis_fail_on_findings | default(false)
