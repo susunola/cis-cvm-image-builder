@@ -11,7 +11,7 @@ Supported OS: Ubuntu 20/22/24, RHEL 8/9/10, TencentOS 3/4, SLES 15/16,
 
 Engine:  Bundled cis_engine.py (Linux) / cis_engine.ps1 (Windows).
          In-role gate via cis_fail_on_findings — no external audit.
-         Roles ship locally in roles/ — no network dependency at build time.
+         Roles ship inside the package (ciscvm/roles/) — no network at build time.
 
 Dependencies: Python >= 3.11 (stdlib only), Packer >= 1.9, ansible-core >= 2.15.
 
@@ -90,7 +90,7 @@ def banner(title: str) -> None:
 # ---------------------------------------------------------------------------
 # All roles use the bundled cis-os engine (cis_engine.py / cis_engine.ps1)
 # with in-role gate (cis_fail_on_findings: true).  Roles are shipped locally
-# in roles/ alongside ciscvm.py — no ansible-galaxy or network dependency.
+# in ciscvm/roles/ inside the package — no ansible-galaxy or network dependency.
 #
 # Profile keys common to Linux profiles:
 #   role_dir      Bundled role directory name under roles/
@@ -446,7 +446,7 @@ def _bundle_role(workdir: Path, role_dir: str) -> None:
     if not src.is_dir():
         raise ConfigError(
             f"Bundled role directory not found: {src}. "
-            f"Ensure roles/{role_dir}/ exists alongside ciscvm.py."
+            f"The package may be corrupted — reinstall ciscvm."
         )
     dst = workdir / "ansible" / "roles" / role_dir
     if dst.exists():
@@ -729,8 +729,12 @@ def _format_hcl_value(value: Any) -> str:
     if isinstance(value, (int, float)):
         return str(value)
     if isinstance(value, list):
+        # json.dumps escapes quotes/backslashes; valid for HCL string lists.
         return json.dumps(value, ensure_ascii=False)
-    return f'"{value}"'
+    # Escape backslashes and double quotes so arbitrary strings can't break
+    # out of the HCL string literal (or inject HCL).
+    escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def render_pkrvars(r: ResolvedConfig) -> str:
@@ -872,8 +876,11 @@ def run_packer(
         return PackerResult(exit_code=1)
 
     if init_res.returncode != 0:
-        fail("packer init failed (see output above).")
         combined = (init_res.stdout or "") + (init_res.stderr or "")
+        # init output is captured (not streamed) — surface it before failing.
+        if combined.strip():
+            print(combined.rstrip("\n"), file=sys.stderr)
+        fail("packer init failed (see output above).")
         return PackerResult(
             exit_code=init_res.returncode,
             stdout_lines=combined.splitlines(),
@@ -944,8 +951,8 @@ def run_preflight(r: ResolvedConfig) -> bool:
     if _check_bundled_role(r.role_dir):
         ok(f"Bundled role '{r.role_dir}' ready ({Path(__file__).parent / 'roles' / r.role_dir})")
     else:
-        fail(f"Bundled role directory missing: roles/{r.role_dir}/. "
-             f"Ensure it exists alongside ciscvm.py.")
+        fail(f"Bundled role directory missing: {r.role_dir}. "
+             f"The package may be corrupted — reinstall ciscvm.")
         all_ok = False
 
     # Key parameters
@@ -1052,9 +1059,8 @@ def cmd_validate(args: argparse.Namespace) -> int:
     info("Running packer init + packer validate ...")
     result = run_packer(workdir, "validate", quiet=args.quiet)
 
-    for line in result.stdout_lines:
-        print(line)
-
+    # Output is already streamed live by run_packer (or surfaced on init
+    # failure); do not re-print result.stdout_lines here.
     if result.exit_code == 0:
         ok("packer validate passed")
     else:
@@ -1097,12 +1103,13 @@ def cmd_build(args: argparse.Namespace) -> int:
 
     result = run_packer(workdir, "build", quiet=args.quiet, capture=True)
 
-    # Stream output + extract image ID
+    # Output is already streamed live by run_packer; only scan the captured
+    # lines to extract the resulting image ID (do not re-print them).
     image_id: str | None = None
     for line in result.stdout_lines:
-        print(line)
-        if image_id is None and (m := re.search(r"Created image ID:\s*(\S+)", line)):
+        if m := re.search(r"Created image ID:\s*(\S+)", line):
             image_id = m.group(1)
+            break
 
     if result.exit_code == 0:
         ok("packer build succeeded")
@@ -1213,11 +1220,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_pre.set_defaults(func=cmd_preflight)
 
     p_val = sub.add_parser("validate", parents=[common], help="Render + packer validate")
-    p_val.add_argument("--quiet", action="store_true", help="Suppress verbose output")
+    p_val.add_argument("--quiet", action="store_true",
+                       help="Suppress packer output (show only the ciscvm summary)")
     p_val.set_defaults(func=cmd_validate)
 
     p_bld = sub.add_parser("build", parents=[common], help="Render + packer build (produce image)")
-    p_bld.add_argument("--quiet", action="store_true", help="Suppress verbose output")
+    p_bld.add_argument("--quiet", action="store_true",
+                       help="Suppress packer output (show only the ciscvm summary)")
     p_bld.add_argument("-y", "--yes", action="store_true", help="Skip confirmation prompt")
     p_bld.set_defaults(func=cmd_build)
 

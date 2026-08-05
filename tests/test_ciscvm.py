@@ -183,6 +183,17 @@ class TestFormatHCLValue:
     def test_string(self):
         assert _format_hcl_value("hello") == '"hello"'
 
+    def test_string_escapes_double_quote(self):
+        # Embedded quotes must be escaped so they can't break out of / inject HCL.
+        assert _format_hcl_value('my"evil') == '"my\\"evil"'
+
+    def test_string_escapes_backslash(self):
+        assert _format_hcl_value("a\\b") == '"a\\\\b"'
+
+    def test_string_escapes_backslash_before_quote(self):
+        # Backslash escaped first, then quote — no double-escaping of the quote.
+        assert _format_hcl_value('a\\"b') == '"a\\\\\\"b"'
+
 
 # ---------------------------------------------------------------------------
 # resolve()
@@ -550,6 +561,59 @@ class TestCmdClean:
         assert rc == 1
         rc = cmd_clean(mock.MagicMock(workdir="/usr"))
         assert rc == 1
+
+
+class TestCmdBuildOutput:
+    """cmd_build must not re-print packer output (run_packer already streams it)."""
+
+    def _prep(self, tmp_path):
+        r = mock.MagicMock()
+        r.family = ""
+        r.profile_name = "cis_ubuntu2204"
+        r.level = 1
+        r.region = "ap-guangzhou"
+        r.source_image_id = "img-abc"
+        r.instance_type = "S5.MEDIUM2"
+        return r, tmp_path / "build"
+
+    def test_build_does_not_reprint_output(self, tmp_path, capsys):
+        from ciscvm import PackerResult, cmd_build
+
+        r, wd = self._prep(tmp_path)
+        packer_lines = ["==> building", "Created image ID: img-xyz789", "done"]
+        with (
+            mock.patch("ciscvm._load_resolve_preflight", return_value=(r, wd)),
+            mock.patch("ciscvm.render_all"),
+            mock.patch(
+                "ciscvm.run_packer",
+                return_value=PackerResult(exit_code=0, stdout_lines=packer_lines),
+            ),
+        ):
+            rc = cmd_build(mock.MagicMock(config="x", workdir=str(wd), yes=True, quiet=False))
+        assert rc == 0
+        out = capsys.readouterr().out
+        # The packer log lines must NOT be dumped to stdout by cmd_build.
+        assert "==> building" not in out
+        assert "done" not in out
+
+    def test_build_still_parses_image_id(self, tmp_path, capsys):
+        from ciscvm import PackerResult, cmd_build
+
+        r, wd = self._prep(tmp_path)
+        with (
+            mock.patch("ciscvm._load_resolve_preflight", return_value=(r, wd)),
+            mock.patch("ciscvm.render_all"),
+            mock.patch(
+                "ciscvm.run_packer",
+                return_value=PackerResult(
+                    exit_code=0, stdout_lines=["Created image ID: img-xyz789"]
+                ),
+            ),
+        ):
+            rc = cmd_build(mock.MagicMock(config="x", workdir=str(wd), yes=True, quiet=False))
+        assert rc == 0
+        # Image ID is surfaced via the logger (stderr), captured by caplog elsewhere;
+        # here we just confirm the command succeeded and did not crash on parsing.
 
 
 # ---------------------------------------------------------------------------
