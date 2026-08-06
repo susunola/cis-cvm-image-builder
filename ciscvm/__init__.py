@@ -641,7 +641,7 @@ build {
   # 3. Reboot to activate kmod blacklist / sysctl / SELinux changes
   provisioner "shell" {
     pause_before = "10s"
-    script_path  = "/opt/ciscvm-ansible/reboot.sh"
+    remote_path  = "/opt/ciscvm-ansible/reboot.sh"
     inline       = ["sudo reboot"]
   }
 
@@ -660,7 +660,7 @@ build {
   # 5. Cleanup package cache before snapshot
   provisioner "shell" {
     pause_before = "10s"
-    script_path  = "/opt/ciscvm-ansible/cleanup.sh"
+    remote_path  = "/opt/ciscvm-ansible/cleanup.sh"
     inline = [
       "__CLEAN_CMD__",
       "rm -rf /tmp/ansible /opt/ciscvm-ansible/staging /opt/ciscvm-ansible/reboot.sh /opt/ciscvm-ansible/cleanup.sh ~/.ansible/roles 2>/dev/null || true"
