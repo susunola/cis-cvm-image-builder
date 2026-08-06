@@ -2842,6 +2842,19 @@ def c_firewalld_zone_target(ctx, p):
     return "pass", "active zone(s) %s do not target ACCEPT" % ", ".join(z.strip() for z in zones)
 
 
+def _detect_ssh_port():
+    """Read Port from /etc/ssh/sshd_config, fallback to 22."""
+    try:
+        with open("/etc/ssh/sshd_config") as fh:
+            for line in fh:
+                m = re.match(r'^\s*Port\s+(\d+)', line, re.I)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    return "22"
+
+
 @fix("firewalld_zone_target")
 def f_firewalld_zone_target(ctx, p):
     if not pkg_installed("firewalld"):
@@ -2849,15 +2862,21 @@ def f_firewalld_zone_target(ctx, p):
     zones = [z.strip() for z in
              out("firewall-cmd --get-active-zones 2>/dev/null | grep -v '^\\s'",
                  30).splitlines() if z.strip()]
+    ssh_port = _detect_ssh_port()
     done = []
     for z in zones:
         if out(["firewall-cmd", "--zone=%s" % z, "--get-target"], 30).strip() == "ACCEPT":
+            # Whitelist SSH before locking down, otherwise DROP blocks
+            # Packer reconnection and manual admin access.
+            sh(["firewall-cmd", "--zone=%s" % z,
+                "--add-port=%s/tcp" % ssh_port, "--permanent"], 60)
             sh(["firewall-cmd", "--zone=%s" % z, "--set-target=DROP", "--permanent"], 60)
             done.append(z)
     if not done:
         return False, "no zone needed a change"
     sh(["firewall-cmd", "--reload"], 60)
-    return True, "set target=DROP on zone(s): " + ", ".join(done)
+    return True, "set target=DROP on zone(s): %s (SSH port %s/tcp allowed)" % (
+        ", ".join(done), ssh_port)
 
 # ==========================================================================
 # User / group hygiene  (family: user_audit)
