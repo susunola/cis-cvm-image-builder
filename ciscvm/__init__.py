@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -622,6 +622,12 @@ __USER_DATA_BLOCK__
 build {
   sources = ["source.tencentcloud-cvm.default"]
 
+  # 0. Version banner — makes it trivial to confirm which ciscvm code
+  #    generated this template (no more guessing from pause_before values).
+  provisioner "shell" {
+    inline = ["echo '==> ciscvm version: __VERSION__'"]
+  }
+
   # 1. Install ansible-core (roles uploaded by ciscvm — no galaxy needed)
   provisioner "shell" {
     script = "packer/scripts/install-ansible.sh"
@@ -653,7 +659,7 @@ build {
       "[ -z \"$SSH_PORT\" ] && SSH_PORT=$(sudo awk '/^[Pp]ort[ \\t]+[0-9]+/{print $2; exit}' /etc/ssh/sshd_config)",
       "[ -z \"$SSH_PORT\" ] && SSH_PORT=22",
       "echo \"[ssh-guard] ensuring SSH port $SSH_PORT stays open\"",
-      "if command -v firewall-cmd >/dev/null 2>&1 && sudo systemctl is-active firewalld >/dev/null 2>&1; then for z in $(sudo firewall-cmd --get-active-zones 2>/dev/null | grep -v '^ '); do sudo firewall-cmd --zone=$z --add-port=$SSH_PORT/tcp --permanent; done; sudo firewall-cmd --reload; fi",
+      "if command -v firewall-cmd >/dev/null 2>&1 && sudo systemctl is-active firewalld >/dev/null 2>&1; then for z in $(sudo firewall-cmd --get-active-zones 2>/dev/null | grep -v '^ '); do sudo firewall-cmd --zone=$z --add-port=$SSH_PORT/tcp; sudo firewall-cmd --zone=$z --add-port=$SSH_PORT/tcp --permanent; done; sudo firewall-cmd --reload; fi",
       "if command -v nft >/dev/null 2>&1 && sudo systemctl is-active nftables >/dev/null 2>&1; then sudo nft add rule inet filter input tcp dport $SSH_PORT accept 2>/dev/null || true; fi",
       "if command -v iptables >/dev/null 2>&1; then sudo iptables -C INPUT -p tcp --dport $SSH_PORT -j ACCEPT 2>/dev/null || sudo iptables -I INPUT -p tcp --dport $SSH_PORT -j ACCEPT 2>/dev/null || true; fi",
       "true"
@@ -1061,7 +1067,7 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
     if family == "windows":
         hcl = HCL_WIN_TEMPLATE.replace("__WINRM_PASSWORD_ENV__", r.winrm_password_env)
     else:
-        hcl = HCL_LINUX_TEMPLATE.replace("__CLEAN_CMD__", str(p["clean_cmd"]))
+        hcl = HCL_LINUX_TEMPLATE.replace("__CLEAN_CMD__", str(p["clean_cmd"])).replace("__VERSION__", VERSION)
         user_data = ""
         if r.ssh_debug_password:
             quoted = shlex.quote(f"root:{r.ssh_debug_password}")
