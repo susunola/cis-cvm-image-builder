@@ -599,6 +599,7 @@ source "tencentcloud-cvm" "default" {
   ssh_username                = var.ssh_username
   ssh_port                    = var.ssh_port
   ssh_timeout                 = var.ssh_timeout
+  ssh_handshake_attempts      = 60
   image_name                  = local.image_name
   vpc_id                      = var.vpc_id
   subnet_id                   = var.subnet_id
@@ -639,20 +640,21 @@ build {
   }
 
   # 3. Reboot to activate kmod blacklist / sysctl / SELinux changes
-  # shutdown -r +1 schedules reboot 1 min later — enough time for this
-  # provisioner to exit cleanly. remote_path avoids /tmp (noexec after CIS).
+  # expect_disconnect tells Packer SSH WILL drop — it won't treat this as
+  # an error and will wait for the machine to come back before the next
+  # provisioner. remote_path avoids /tmp (noexec after CIS).
+  # ssh_handshake_attempts = 60 × ~5s = ~5 min retry window.
   provisioner "shell" {
-    pause_before     = "10s"
-    remote_path      = "/opt/ciscvm-ansible/reboot.sh"
-    inline           = ["sudo shutdown -r +1"]
-    valid_exit_codes = [0, 1]
+    pause_before      = "10s"
+    remote_path       = "/opt/ciscvm-ansible/reboot.sh"
+    expect_disconnect = true
+    inline            = ["sudo shutdown -r now"]
+    valid_exit_codes  = [0, 1, 255]
   }
 
   # 4. Re-audit after reboot + gate check (score >= 85%)
-  # 300s timeline: 60s shutdown delay + 120s cloud VM reboot + 60s SSH
-  # startup + 60s safety buffer. Previous 180s only gave ~120s for reboot.
+  # No pause_before — Packer auto-waits for SSH after expect_disconnect.
   provisioner "ansible-local" {
-    pause_before = "300s"
     command          = "/opt/ciscvm-ansible/bin/ansible-playbook"
     playbook_dir     = "ansible"
     playbook_file    = "ansible/site-audit.yml"
