@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.9.4"
+VERSION = "0.10.0"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -703,7 +703,9 @@ build {
     valid_exit_codes  = [0, 1, -1]
   }
 
-  # 6. Re-audit after reboot + gate check (score >= 85%)
+  # 6. Re-audit after reboot + gate check (score >= 85%).
+  #    cis_keep_remote_artifacts=true keeps /tmp/cis-*/result.json so
+  #    provisioner #7.5 can persist it to /opt for the ciscvm report.
   provisioner "ansible-local" {
     command          = "/opt/ciscvm-ansible/bin/ansible-playbook"
     playbook_dir     = "ansible"
@@ -711,7 +713,8 @@ build {
     staging_directory = "/opt/ciscvm-ansible/staging"
     extra_arguments  = [
       "-v",
-      "-e", "ansible_python_interpreter=/opt/ciscvm-ansible/bin/python"
+      "-e", "ansible_python_interpreter=/opt/ciscvm-ansible/bin/python",
+      "-e", "cis_keep_remote_artifacts=true"
     ]
   }
 
@@ -729,6 +732,41 @@ build {
       "for f in /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf; do [ -f \"$f\" ] || continue; sudo sed -i 's/^[ \\t]*PermitRootLogin[ \\t].*/PermitRootLogin no/' \"$f\"; done",
       "sudo systemctl reload sshd 2>/dev/null || true",
       "rm -rf /tmp/ansible /opt/ciscvm-ansible/staging /opt/ciscvm-ansible/reboot.sh /opt/ciscvm-ansible/ssh-guard.sh /opt/ciscvm-ansible/reconnected.sh /opt/ciscvm-ansible/cleanup.sh ~/.ansible/roles 2>/dev/null || true"
+    ]
+  }
+
+  # 7.5 Persist the re-audit JSON to /opt for the ciscvm report and banner,
+  #     then clean up the temp workdir before the snapshot.  The re-audit
+  #     role runs with cis_keep_remote_artifacts=true (provisioner #6),
+  #     so /tmp/cis-*/result.json still exists when we get here.
+  provisioner "shell" {
+    pause_before = "5s"
+    remote_path  = "/opt/ciscvm-ansible/collect-audit.sh"
+    inline = [
+      "set +e",
+      "SRC=$(ls -dt /tmp/cis-*/result.json 2>/dev/null | head -1)",
+      "if [ -n \"$SRC\" ] && [ -f \"$SRC\" ]; then",
+      "  sudo install -m 0600 -o root -g root \"$SRC\" /opt/ciscvm-AUDIT-RESULT.json",
+      "  sudo rm -rf \"$(dirname \"$SRC\")\"",
+      "  echo \"[ciscvm] saved audit result to /opt/ciscvm-AUDIT-RESULT.json\"",
+      "else",
+      "  echo \"[ciscvm] WARNING: no /tmp/cis-*/result.json found; banner/report will lack audit details\"",
+      "  sudo install -m 0600 -o root -g root /dev/null /opt/ciscvm-AUDIT-RESULT.json 2>/dev/null || true",
+      "fi",
+      "true"
+    ]
+  }
+
+  # 8. Generate the ciscvm banner + /opt report and wire the banner into
+  #    SSH (/etc/ssh/sshd_config.d/99-ciscvm-banner.conf) and /etc/motd.
+  #    This is the LAST user-visible step before Packer snapshots the image,
+  #    so the in-image channels (login banner, post-login motd, /opt report)
+  #    are written with the build's actual metadata and final audit results.
+  provisioner "shell" {
+    pause_before = "5s"
+    remote_path  = "/opt/ciscvm-ansible/ciscvm-finalize.sh"
+    inline = [
+      "sudo bash /opt/ciscvm-ansible/ciscvm-finalize.sh __SOURCE_IMAGE__ __IMAGE_NAME__ __IMAGE_OS__ __CIS_LEVEL__ __IMAGE_BENCHMARK__ __CISCVM_VERSION__"
     ]
   }
 }
@@ -1000,6 +1038,280 @@ echo "ansible ready in $VENV (cis-os engine)"
 """
 
 
+# ── Linux ciscvm-finalize.sh (writes banner, motd, /opt report) ──
+# Runs as the last user-visible step before Packer snapshots the image.
+# Reads /opt/ciscvm-AUDIT-RESULT.json (persisted by provisioner #7.5)
+# and emits:
+#   /etc/ciscvm/banner                              — pre-login SSH banner
+#   /etc/motd                                       — post-login message
+#   /etc/issue, /etc/issue.net                      — console login banner
+#   /etc/ssh/sshd_config.d/99-ciscvm-banner.conf    — wires the SSH Banner
+#   /opt/ciscvm-REPORT.md                           — full hardening report
+#   /usr/local/bin/ciscvm-info                      — helper to view the report
+FINALIZE_SH_TEMPLATE = r"""#!/usr/bin/env bash
+# ciscv finalize — banner + /opt report.
+# Usage: ciscvm-finalize.sh <source_image_id> <image_name> <os_tag> <cis_level> <benchmark> <ciscvm_version>
+set -euo pipefail
+
+SRC_IMG="$1"; IMG_NAME="$2"; OS_TAG="$3"; CIS_LEVEL="$4"; BENCH="$5"; VER="$6"
+AUDIT="/opt/ciscvm-AUDIT-RESULT.json"
+REPORT="/opt/ciscvm-REPORT.md"
+BUILD_TS="$(date -u +%FT%TZ)"
+
+# 1. /etc/ciscvm/banner — colored, shown by SSH Banner directive
+sudo install -d -m 0755 /etc/ciscvm
+
+sudo tee /etc/ciscvm/banner > /dev/null <<'BANNER_EOF'
+\x1b[38;5;117m              .---..---.\x1b[0m
+\x1b[38;5;117m          .-'          '-.           \x1b[1;37mSECX  SERIES\x1b[0m
+\x1b[38;5;75m        .'                '.         \x1b[38;5;75m  ___ ___  ___  ___\x1b[0m
+\x1b[1;38;5;75m      .'                    '.       \x1b[1;38;5;75m / __/ _ \/ __|/ __|\x1b[0m
+\x1b[1;38;5;75m     /         ()    ()       \      \x1b[1;38;5;75m| (_| (_) \__ \ (__ \x1b[0m
+\x1b[1;38;5;75m    |                        |      \x1b[1;38;5;75m \___\___/|___/\___|\x1b[0m
+\x1b[1;38;5;33m     \                      /       \x1b[37m  CIS-HARDENED IMAGE BUILDER\x1b[0m
+\x1b[1;38;5;33m      '.                  .'
+\x1b[1;38;5;33m        '.              .'
+\x1b[1;38;5;33m          '---.------.---'
+BANNER_EOF
+sudo chmod 0644 /etc/ciscvm/banner
+
+# 2. /etc/motd — post-login message (with build metadata)
+{
+    cat /etc/ciscvm/banner
+    printf '\n'
+    printf '\x1b[1mImage:\x1b[0m     %s\n' "__IMAGE_NAME__"
+    printf '\x1b[1mSource:\x1b[0m    %s\n' "__SOURCE_IMAGE__"
+    printf '\x1b[1mOS/Level:\x1b[0m  %s / %s\n' "__IMAGE_OS__" "__CIS_LEVEL__"
+    printf '\x1b[1mBenchmark:\x1b[0m %s\n' "__IMAGE_BENCHMARK__"
+    printf '\x1b[1mBuilt:\x1b[0m     %s by ciscv %s\n\n' "$BUILD_TS" "__CISCVM_VERSION__"
+    printf '\x1b[33m[ REPORT  ]\x1b[0m cat /opt/ciscvm-REPORT.md     (or run: ciscvm-info)\n'
+    printf '\x1b[33m[ ADMIN   ]\x1b[0m ssh ciscvm@<host>            (root login disabled per CIS 5.1.22)\n'
+    printf '\x1b[33m[ ESCALATE]\x1b[0m sudo -i                        (NOPASSWD via /etc/sudoers.d/ciscvm-build)\n'
+} | sudo tee /etc/motd > /dev/null
+sudo chmod 0644 /etc/motd
+
+# 3. /etc/issue, /etc/issue.net — console / pre-network-login (no ANSI,
+#    colour escape sequences render as garbage on serial consoles).
+{
+    printf 'ciscv  CIS-HARDENED IMAGE BUILDER  --  %s\n' "__IMAGE_NAME__"
+    printf 'OS/Level: %s / %s   Benchmark: %s\n' "__IMAGE_OS__" "__CIS_LEVEL__" "__IMAGE_BENCHMARK__"
+    printf 'Built:    %s   by ciscv %s\n' "$BUILD_TS" "__CISCVM_VERSION__"
+    printf 'Report:   /opt/ciscvm-REPORT.md  (run "ciscvm-info")\n'
+    printf 'Admin:    ssh ciscvm@<host>      (root login disabled per CIS)\n'
+} | sudo tee /etc/issue      > /dev/null
+{
+    printf 'ciscv  CIS-HARDENED IMAGE BUILDER  --  %s\n' "__IMAGE_NAME__"
+    printf 'OS/Level: %s / %s   Built: %s by ciscv %s\n' "__IMAGE_OS__" "__CIS_LEVEL__" "$BUILD_TS" "__CISCVM_VERSION__"
+    printf 'Report: /opt/ciscvm-REPORT.md\n'
+} | sudo tee /etc/issue.net  > /dev/null
+sudo chmod 0644 /etc/issue /etc/issue.net
+
+# 4. Wire the banner into sshd (drop-in; survives sshd_config rewrites by CIS)
+sudo install -d -m 0755 /etc/ssh/sshd_config.d
+sudo tee /etc/ssh/sshd_config.d/99-ciscvm-banner.conf > /dev/null <<'SSHD_EOF'
+# ciscv — show the build banner before authentication.
+# Patched on top of CIS hardening by ciscvm-finalize.sh.
+Banner /etc/ciscvm/banner
+SSHD_EOF
+sudo chmod 0644 /etc/ssh/sshd_config.d/99-ciscvm-banner.conf
+sudo systemctl reload sshd 2>/dev/null || true
+
+# 5. /opt/ciscvm-REPORT.md — what was done to the base image
+sudo /opt/ciscvm-ansible/bin/python - "$SRC_IMG" "$IMG_NAME" "$OS_TAG" "$CIS_LEVEL" "$BENCH" "$VER" "$BUILD_TS" "$AUDIT" "$REPORT" <<'PY_EOF'
+import json, os, sys, tempfile
+src, name, os_tag, level, bench, ver, ts, audit_p, report_p = sys.argv[1:10]
+try:
+    with open(audit_p) as f:
+        a = json.load(f)
+except Exception:
+    a = {}
+s = (a.get("summary") or {}).get("all") or {}
+total      = s.get("total", 0)
+applied    = s.get("applied", 0)
+pending    = s.get("applied_pending", 0)
+failed     = s.get("apply_failed", 0)
+disruptive = s.get("skipped_disruptive", 0)
+score      = a.get("score", "?")
+mode       = a.get("mode", "scan")
+results    = a.get("results") or []
+
+def _short(r):
+    return "- `{}` {}".format(r.get("id", "?"), (r.get("title") or "")[:80])
+fails = [r for r in results if r.get("status") == "fail"]
+pends = [r for r in results if r.get("status") == "applied_pending"]
+errs  = [r for r in results if r.get("status") == "error"]
+disc  = [r for r in results if (r.get("apply_status") or "") == "skipped_disruptive"
+         or (r.get("risk") == "disruptive" and r.get("status") == "fail"
+             and r.get("apply_status") == "not_applied")]
+
+lines = []
+lines.append("# ciscv — CIS Hardening Report")
+lines.append("")
+lines.append("This image was hardened by **ciscv** (CIS-hardened image builder).")
+lines.append("It documents what was done to the base image and how to use the system.")
+lines.append("")
+lines.append("## Build metadata")
+lines.append("")
+lines.append("| Field        | Value |")
+lines.append("|--------------|-------|")
+lines.append("| Final image  | `{}` |".format(name))
+lines.append("| Source image | `{}` |".format(src))
+lines.append("| OS / Level   | `{}` / `{}` |".format(os_tag, level))
+lines.append("| Benchmark    | `{}` |".format(bench))
+lines.append("| Built at     | `{}` |".format(ts))
+lines.append("| ciscv ver.   | `{}` |".format(ver))
+lines.append("| Re-audit     | `{}` (score `{}%`) |".format(mode, score))
+lines.append("")
+lines.append("## What ciscv did")
+lines.append("")
+lines.append("Starting from the public source image `{}`, ciscv:".format(src))
+lines.append("")
+lines.append("1. **Provisioned** a dedicated non-root build user `ciscvm`")
+lines.append("   (passwordless sudo via `/etc/sudoers.d/ciscvm-build`, root SSH login")
+lines.append("   is disabled per CIS 5.1.22 / 5.2.10).")
+lines.append("2. **Applied the CIS engine** (`cis_engine.py` + `rules.json` for `{}`)".format(os_tag))
+lines.append("   against every L{} rule, tagging destructive fixes as `disruptive`".format(level.replace("level", "")))
+lines.append("   so they are NOT auto-applied.")
+lines.append("3. **Rebooted** the instance to materialise kernel / audit / selinux settings.")
+lines.append("4. **Re-audited** (`{}` mode) and persisted the result here.".format(mode))
+lines.append("5. **Finalised**: installed the banner, motd and this report; locked the")
+lines.append("   SSH channel back to the CIS target state (root key login disabled,")
+lines.append("   `ciscvm` user is the supported admin channel).")
+lines.append("")
+lines.append("## Hardening summary")
+lines.append("")
+lines.append("| Metric                  | Count |")
+lines.append("|-------------------------|-------|")
+lines.append("| Total L{} rules checked | {} |".format(level.replace("level", ""), total))
+lines.append("| Auto-remediated         | {} |".format(applied))
+lines.append("| Pending reboot / verify | {} |".format(pending))
+lines.append("| Apply failed            | {} |".format(failed))
+lines.append("| Skipped (disruptive)    | {} |".format(disruptive))
+if errs:
+    lines.append("| Errors                  | {} |".format(len(errs)))
+lines.append("| **Final score**         | **{}%** |".format(score))
+lines.append("")
+
+if fails:
+    lines.append("## Outstanding failures (need follow-up)")
+    lines.append("")
+    lines.extend(_short(r) for r in fails[:15])
+    if len(fails) > 15:
+        lines.append("")
+        lines.append("_... and {} more._".format(len(fails) - 15))
+    lines.append("")
+
+if pends:
+    lines.append("## Pending reboot / verify (already applied, will show pass next boot)")
+    lines.append("")
+    lines.extend(_short(r) for r in pends[:10])
+    if len(pends) > 10:
+        lines.append("")
+        lines.append("_... and {} more._".format(len(pends) - 10))
+    lines.append("")
+
+if disc:
+    lines.append("## Skipped — disruptive (opt-in)")
+    lines.append("")
+    lines.append("These rules were skipped because they would break an active service or")
+    lines.append("require a manual decision. Re-run ciscv with `--allow-disruptive` to")
+    lines.append("apply them, or remediate them in your own control plane.")
+    lines.append("")
+    if disruptive:
+        lines.append("_({} rule(s) total)_".format(disruptive))
+    lines.append("")
+
+lines.append("## How to use this image")
+lines.append("")
+lines.append("```bash")
+lines.append("# 1. Log in as the dedicated build user (root is disabled per CIS)")
+lines.append("ssh ciscvm@<host>")
+lines.append("")
+lines.append("# 2. View this report any time")
+lines.append("cat /opt/ciscvm-REPORT.md          # this file")
+lines.append("ciscvm-info                        # summary one-liner")
+lines.append("")
+lines.append("# 3. Escalate to root when needed")
+lines.append("sudo -i")
+lines.append("")
+lines.append("# 4. Re-run the scan on this machine")
+lines.append("sudo /opt/ciscvm-ansible/bin/python \\")
+lines.append("  /opt/ciscvm-ansible/roles/cis_*/files/cis_engine.py \\")
+lines.append("  --catalog /opt/ciscvm-ansible/roles/cis_*/files/rules.json \\")
+lines.append("  --mode scan --profile {} --out /tmp/cis-recheck.json".format(level))
+lines.append("```")
+lines.append("")
+lines.append("## Files left behind by ciscv")
+lines.append("")
+lines.append("| Path | Purpose |")
+lines.append("|------|---------|")
+lines.append("| `/etc/ciscvm/banner` | The login banner (also in `/etc/motd`, `/etc/issue`). |")
+lines.append("| `/etc/ssh/sshd_config.d/99-ciscvm-banner.conf` | SSH `Banner` directive. |")
+lines.append("| `/opt/ciscvm-AUDIT-RESULT.json` | Raw JSON output of the re-audit. |")
+lines.append("| `/opt/ciscvm-ansible/` | The ciscv engine + bundled role (kept for re-audits). |")
+lines.append("| `/etc/sudoers.d/ciscvm-build` | NOPASSWD sudo for the `ciscvm` user. |")
+lines.append("")
+lines.append("---")
+lines.append("")
+lines.append("Generated by **ciscv {}** on `{}`.".format(ver, ts))
+content = "\n".join(lines) + "\n"
+with tempfile.NamedTemporaryFile("w", delete=False, suffix=".md") as fh:
+    fh.write(content)
+    tmp = fh.name
+os.system("sudo install -m 0644 -o root -g root {} {}".format(tmp, report_p))
+try:
+    os.unlink(tmp)
+except FileNotFoundError:
+    pass  # install -m moves the file atomically; tmp may already be gone
+PY_EOF
+sudo chmod 0644 /opt/ciscvm-REPORT.md
+
+# 6. /usr/local/bin/ciscvm-info — one-shot summary command
+sudo tee /usr/local/bin/ciscvm-info > /dev/null <<'INFO_EOF'
+#!/usr/bin/env bash
+# ciscvm-info — show a short summary of this image's CIS hardening.
+set -euo pipefail
+REPORT="/opt/ciscvm-REPORT.md"
+if [ ! -f "$REPORT" ]; then
+    echo "ciscvm-info: $REPORT not found" >&2
+    exit 1
+fi
+awk '
+    /^## Build metadata$/ {flag=1; next}
+    /^## / {flag=0}
+    flag && /^\|/ {print}
+' "$REPORT"
+echo
+echo "Full report: cat $REPORT  (or 'less $REPORT')"
+INFO_EOF
+sudo chmod 0755 /usr/local/bin/ciscvm-info
+
+echo "[ciscvm] finalize complete: banner + motd + /opt/ciscvm-REPORT.md"
+"""
+
+
+def render_finalize(r: ResolvedConfig, p: dict[str, Any]) -> str:
+    """Generate ciscvm-finalize.sh for Linux profiles.
+
+    Substitutes the build's actual metadata into the finalize script.
+    The image_name uses ciscv's convention (prefix + level + snapshot time);
+    we compute it deterministically here so the report and banner agree.
+    """
+    from datetime import datetime, timezone
+    snap_ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    level_short = r.cis_level_tag.replace("-server", "")
+    image_name = f"{r.image_name_prefix}-{level_short}-{snap_ts}"
+    return (
+        FINALIZE_SH_TEMPLATE
+        .replace("__SOURCE_IMAGE__", r.source_image_id)
+        .replace("__IMAGE_NAME__", image_name)
+        .replace("__IMAGE_OS__", r.image_os_tag)
+        .replace("__CIS_LEVEL__", r.cis_level_tag)
+        .replace("__IMAGE_BENCHMARK__", r.image_benchmark)
+        .replace("__CISCVM_VERSION__", VERSION)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Render functions
 # ---------------------------------------------------------------------------
@@ -1121,7 +1433,21 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
     if family == "windows":
         hcl = HCL_WIN_TEMPLATE.replace("__WINRM_PASSWORD_ENV__", r.winrm_password_env)
     else:
-        hcl = HCL_LINUX_TEMPLATE.replace("__CLEAN_CMD__", str(p["clean_cmd"])).replace("__VERSION__", VERSION)
+        # Substitute the build's actual metadata into the finalize provisioner
+        # so the in-image banner/report show the right source/level/OS.
+        from datetime import datetime, timezone
+        snap_ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        level_short = r.cis_level_tag.replace("-server", "")
+        image_name = f"{r.image_name_prefix}-{level_short}-{snap_ts}"
+        hcl = (HCL_LINUX_TEMPLATE
+               .replace("__CLEAN_CMD__", str(p["clean_cmd"]))
+               .replace("__VERSION__", VERSION)
+               .replace("__SOURCE_IMAGE__", r.source_image_id)
+               .replace("__IMAGE_NAME__", image_name)
+               .replace("__IMAGE_OS__", r.image_os_tag)
+               .replace("__CIS_LEVEL__", r.cis_level_tag)
+               .replace("__IMAGE_BENCHMARK__", r.image_benchmark)
+               .replace("__CISCVM_VERSION__", VERSION))
         user_data = ""
         if r.ssh_debug_password:
             quoted = shlex.quote(f"root:{r.ssh_debug_password}")
@@ -1155,6 +1481,14 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
         install_path = workdir / "packer" / "scripts" / "install-ansible.sh"
         install_path.write_text(install, encoding="utf-8")
         install_path.chmod(0o755)
+
+    # 6. Finalize script — writes banner + /opt report (Linux only)
+    if family != "windows":
+        finalize = render_finalize(r, p)
+        _assert_no_markers(finalize, "ciscvm-finalize.sh")
+        finalize_path = workdir / "packer" / "scripts" / "ciscvm-finalize.sh"
+        finalize_path.write_text(finalize, encoding="utf-8")
+        finalize_path.chmod(0o755)
 
 
 # ---------------------------------------------------------------------------

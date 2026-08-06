@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 from unittest import mock
@@ -330,6 +333,8 @@ class TestRenderAll:
         assert (wd / "ansible" / "site.yml").exists()
         assert (wd / "packer" / "scripts" / "install-ansible.sh").exists()
         assert os.access(wd / "packer" / "scripts" / "install-ansible.sh", os.X_OK)
+        assert (wd / "packer" / "scripts" / "ciscvm-finalize.sh").exists()
+        assert os.access(wd / "packer" / "scripts" / "ciscvm-finalize.sh", os.X_OK)
         assert (wd / "ansible" / "roles" / "cis_tencentos3" / "tasks" / "main.yml").exists()
         assert not (wd / "packer" / "scripts" / "verify-cis.sh").exists()
 
@@ -351,6 +356,172 @@ class TestRenderAll:
             if stripped.startswith(("#", "//")):
                 continue  # comment
             assert ";" not in ln, "semicolons are not valid in HCL: %r" % ln
+
+    def test_banner_and_report_provisioner_present(self, valid_toml, tmp_path):
+        """v0.10.0+: the HCL must collect the audit JSON and run the finalize
+        step that writes /etc/ciscvm/banner, /etc/motd, and /opt/ciscvm-REPORT.md."""
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        finalize = (wd / "packer" / "scripts" / "ciscvm-finalize.sh").read_text()
+        # HCL: re-audit must keep the result so we can persist it; new
+        # provisioner #7.5 collects it; new #8 runs the finalize.
+        assert "cis_keep_remote_artifacts=true" in hcl
+        assert "ciscvm-AUDIT-RESULT.json" in hcl
+        assert "collect-audit.sh" in hcl
+        assert "ciscvm-finalize.sh" in hcl
+        assert "remote_path  = \"/opt/ciscvm-ansible/ciscvm-finalize.sh\"" in hcl
+        # Finalize script: all the in-image channels are written.
+        assert "/etc/ciscvm/banner" in finalize
+        assert "/etc/motd" in finalize
+        assert "/etc/issue" in finalize
+        assert "/etc/issue.net" in finalize
+        assert "/etc/ssh/sshd_config.d/99-ciscvm-banner.conf" in finalize
+        assert "/opt/ciscvm-REPORT.md" in finalize
+        assert "/usr/local/bin/ciscvm-info" in finalize
+        assert "Banner /etc/ciscvm/banner" in finalize
+        # The source image, OS and ciscv version are wired through.
+        assert valid_toml["build"]["source_image_id"] in finalize
+        assert valid_toml["meta"]["os_tag"] in finalize
+        # The ciscv banner ASCII is embedded.
+        assert "SECX  SERIES" in finalize
+        assert "CIS-HARDENED IMAGE BUILDER" in finalize
+        # Bash syntax must be clean (catches missing fi/quote before delivery).
+        import subprocess
+        p = subprocess.run(
+            ["bash", "-n", str(wd / "packer" / "scripts" / "ciscvm-finalize.sh")],
+            capture_output=True, text=True,
+        )
+        assert p.returncode == 0, f"bash -n failed: {p.stderr}"
+
+    def test_banner_uses_no_placeholder_markers(self, valid_toml, tmp_path):
+        """The ASCII art must not contain runs of underscores that would
+        trigger the _assert_no_markers check (regex: __[A-Z_]+__)."""
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        finalize = (wd / "packer" / "scripts" / "ciscvm-finalize.sh").read_text()
+        import re
+        leftovers = re.findall(r"__[A-Z_]+__", finalize)
+        assert not leftovers, f"unreplaced markers: {leftovers}"
+
+    def test_finalize_args_substituted_into_hcl(self, valid_toml, tmp_path):
+        """Build metadata must reach the HCL's inline command verbatim —
+        no `__SOURCE_IMAGE__` etc. should remain after render_all."""
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        for m in ("__SOURCE_IMAGE__", "__IMAGE_NAME__", "__IMAGE_OS__",
+                  "__CIS_LEVEL__", "__IMAGE_BENCHMARK__", "__CISCVM_VERSION__"):
+            assert m not in hcl, f"unsubstituted marker {m} in HCL"
+        # And the actual values should appear in the HCL inline (as Packer
+        # bakes them in at runtime via shell quoting).
+        assert valid_toml["build"]["source_image_id"] in hcl
+        assert valid_toml["meta"]["os_tag"] in hcl
+        assert valid_toml["meta"]["benchmark"] in hcl
+
+    def test_windows_has_no_banner_provisioner(self, tmp_path):
+        """v0.10.0: the banner/report is Linux-only (per user request)."""
+        r = resolve(_make_win_toml("win2022"))
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        assert "ciscvm-finalize.sh" not in hcl
+        assert "ciscvm-AUDIT-RESULT.json" not in hcl
+        assert not (wd / "packer" / "scripts" / "ciscvm-finalize.sh").exists()
+
+    def test_report_generator_handles_audit_json(self, valid_toml, tmp_path):
+        """The python heredoc embedded in ciscvm-finalize.sh must produce a
+        well-formed markdown report when fed a representative audit JSON."""
+        import subprocess as _sp
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        finalize = (wd / "packer" / "scripts" / "ciscvm-finalize.sh").read_text()
+
+        # Extract the embedded python heredoc (between "<<'PY_EOF'" and PY_EOF).
+        in_py = False
+        py_lines = []
+        for ln in finalize.splitlines():
+            if ln.startswith("sudo /opt/ciscvm-ansible/bin/python"):
+                in_py = True
+                continue
+            if in_py and ln.strip() == "PY_EOF":
+                break
+            if in_py:
+                py_lines.append(ln)
+        py = "\n".join(py_lines)
+        assert py, "expected an embedded python heredoc in finalize.sh"
+
+        # Make the heredoc runnable on macOS (no sudo, no /opt).
+        # 1) swap `os.system("sudo install -m 0644 ...") ` for a plain copy.
+        # The heredoc only contains one os.system call so this is safe.
+        py = re.sub(
+            r"os\.system\([^)]*\)[^\n]*",
+            'open(report_p, "w").write(open(tmp).read())',
+            py,
+        )
+        # 2) tolerate the optional unlink (file already moved).
+        py = re.sub(
+            r"(\s*)os\.unlink\(tmp\)\s*$",
+            r"\1try:\n\1    os.unlink(tmp)\n\1except FileNotFoundError:\n\1    pass",
+            py,
+            flags=re.MULTILINE,
+        )
+        # 3) ensure shutil is in scope.
+        if "import shutil" not in py:
+            py = py.replace("import json, os, sys, tempfile",
+                            "import json, os, shutil, sys, tempfile")
+        py_path = tmp_path / "report_gen.py"
+        py_path.write_text(py)
+
+        # Build a representative audit JSON.
+        audit = {
+            "mode": "scan",
+            "score": 85.1,
+            "summary": {"all": {
+                "total": 224, "applied": 94, "applied_pending": 24,
+                "apply_failed": 0, "skipped_disruptive": 18,
+                "pass": 187, "fail": 33, "manual": 0, "notapplicable": 0,
+            }},
+            "results": [
+                {"id": "5.2.7",  "title": "Ensure access to the su command is restricted", "status": "fail"},
+                {"id": "3.4.2.1", "title": "Ensure firewalld service is enabled",            "status": "applied_pending"},
+            ],
+        }
+        audit_p = tmp_path / "audit.json"
+        audit_p.write_text(json.dumps(audit))
+        report_p = tmp_path / "ciscv-REPORT.md"
+
+        # Run the embedded python with the same argv the in-image bash uses.
+        rc = _sp.run(
+            [sys.executable, str(py_path),
+             valid_toml["build"]["source_image_id"],
+             "t3-cis-level1-20260806-173729",
+             valid_toml["meta"]["os_tag"],
+             "level1-server",
+             valid_toml["meta"]["benchmark"],
+             ciscvm.VERSION,
+             "2026-08-06T17:37:29Z",
+             str(audit_p),
+             str(report_p)],
+            capture_output=True, text=True,
+        )
+        assert rc.returncode == 0, f"report gen failed: {rc.stderr}"
+
+        assert report_p.exists(), "report file not created"
+        body = report_p.read_text()
+        # Headings + key facts.
+        assert "# ciscv — CIS Hardening Report" in body
+        assert "Build metadata" in body
+        assert valid_toml["build"]["source_image_id"] in body
+        assert valid_toml["meta"]["os_tag"] in body
+        assert "85.1%" in body
+        # The actual rule IDs from the audit JSON surface in the report.
+        assert "5.2.7" in body
+        assert "3.4.2.1" in body
 
     def test_windows_renders_correctly(self, tmp_path):
         r = resolve(_make_win_toml("win2022"))
