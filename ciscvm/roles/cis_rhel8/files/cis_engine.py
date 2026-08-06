@@ -3820,6 +3820,9 @@ def main():
     if opts.out == "-":
         sys.stdout.write(payload)
     else:
+        out_dir = os.path.dirname(opts.out)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
         with open(opts.out, "w", encoding="utf-8") as fh:
             fh.write(payload)
         sys.stderr.write("wrote %s (%d rules, %.1fs)\n"
