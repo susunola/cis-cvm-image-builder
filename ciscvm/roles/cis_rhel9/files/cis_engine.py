@@ -675,7 +675,7 @@ def f_journald_fileperm(ctx, p):
                "z /var/log/journal 2640 root systemd-journal - -\n"
                "Z /var/log/journal/%m ~2640 root systemd-journal - -\n"
                "Z /var/log/journal/%m/*.journal* ~0640 root systemd-journal - -\n")
-    sh("systemd-tmpfiles --create /etc/tmpfiles.d/systemd.conf")
+    sh("systemd-tmpfiles --create --prefix=/run/log/journal --prefix=/var/log/journal /etc/tmpfiles.d/systemd.conf")
     sh("find /var/log/journal /run/log/journal -type f -name '*.journal*' "
        "-exec chmod 0640 {} + 2>/dev/null")
     return True, "wrote /etc/tmpfiles.d/systemd.conf and fixed existing journals"
