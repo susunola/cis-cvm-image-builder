@@ -864,6 +864,11 @@ def f_pkg_any_present(ctx, p):
 def c_svc_disabled(ctx, p):
     units = p.get("units") or []
     pkgs = p.get("packages") or []
+    if not units and not pkgs:
+        # A rule with no unit/package targets cannot be evaluated honestly.
+        # Report it as an error instead of a silent pass (which would inflate
+        # the score for catalogs with incomplete data).
+        return "error", "rule has no units/packages configured (incomplete catalog)"
     if pkgs and not any(pkg_installed(x) for x in pkgs):
         return "pass", "provider package not installed (%s)" % ", ".join(pkgs)
     bad, seen = [], []
@@ -904,6 +909,8 @@ def f_svc_disabled(ctx, p):
 def c_svc_enabled(ctx, p):
     units = p.get("units") or []
     pkgs = p.get("packages") or []
+    if not units and not pkgs:
+        return "error", "rule has no units/packages configured (incomplete catalog)"
     missing_pkg = [x for x in pkgs if not pkg_installed(x)]
     if pkgs and missing_pkg == pkgs:
         return "fail", "required package(s) not installed: " + ", ".join(pkgs)
@@ -3634,11 +3641,62 @@ def _pam_edit_targets(ctx):
     return targets
 
 
+PAM_APPLY_BACKUP = None  # populated on first apply-changes failure
+
+
+def _pam_snapshot():
+    """Copy the live PAM stack so a failed apply-changes can be rolled back.
+
+    authselect refuses to overwrite files it considers 'unexpectedly
+    changed' (TencentOS 3 ships a modified sssd profile) — in that case the
+    custom-profile sources we edit and /etc/pam.d can diverge, and a reboot
+    would leave sshd unable to authenticate anyone.  Snapshot before editing,
+    restore on failure.
+    """
+    snap = {}
+    for f in PAM_FILES:
+        rp = os.path.realpath(f) if exists(f) else f
+        if exists(rp):
+            snap[rp] = read(rp)
+    return snap
+
+
+def _pam_verify():
+    """Cheap sanity check that the live PAM stack still has the core modules."""
+    txt = ""
+    for f in PAM_FILES:
+        rp = os.path.realpath(f) if exists(f) else f
+        if exists(rp):
+            txt += read(rp) or ""
+    # pam_unix must survive — without it no password/SSH auth works at all.
+    if "pam_unix.so" not in txt:
+        return False, "pam_unix.so missing from the live PAM stack"
+    if not txt.strip():
+        return False, "PAM stack is empty"
+    return True, ""
+
+
 def _pam_apply(ctx):
     if have("authselect"):
         rc, o, e = sh(["authselect", "apply-changes"], 120)
         if rc != 0:
-            ctx.notes.append("authselect apply-changes: %s" % (e or o)[:160])
+            ctx.notes.append("authselect apply-changes: %s" % (e or o)[:200])
+            # Roll the live stack back to the pre-edit snapshot so sshd
+            # authentication cannot break on reboot.
+            global PAM_APPLY_BACKUP
+            if PAM_APPLY_BACKUP:
+                for path, content in PAM_APPLY_BACKUP.items():
+                    try:
+                        with open(path, "w", encoding="utf-8") as fh:
+                            fh.write(content)
+                    except OSError as exc:
+                        ctx.notes.append("PAM rollback %s: %s" % (path, exc))
+                ctx.notes.append("PAM rollback applied after apply-changes failure")
+            else:
+                ctx.notes.append("no PAM snapshot to roll back to")
+    ok, why = _pam_verify()
+    if not ok:
+        ctx.notes.append("PAM verification failed: %s" % why)
     ctx.invalidate("pam_paths")
 
 
@@ -3666,6 +3724,8 @@ def f_pam_module(ctx, p):
                 _pam_apply(ctx)
                 return True, "enabled authselect feature %s" % feat
             ctx.notes.append("enable-feature %s: %s" % (feat, (e or o)[:120]))
+    global PAM_APPLY_BACKUP
+    PAM_APPLY_BACKUP = _pam_snapshot()
     targets = _pam_edit_targets(ctx)
     if not targets:
         return False, "no writable PAM stack found"
@@ -3694,6 +3754,8 @@ def f_pam_module(ctx, p):
 @fix("pam_arg")
 def f_pam_arg(ctx, p):
     mod, arg, mode = p["module"], p["arg"], p.get("mode", "present")
+    global PAM_APPLY_BACKUP
+    PAM_APPLY_BACKUP = _pam_snapshot()
     targets = _pam_edit_targets(ctx)
     if not targets:
         return False, "no writable PAM stack found"
