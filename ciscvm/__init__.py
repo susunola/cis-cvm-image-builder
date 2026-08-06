@@ -520,7 +520,7 @@ def _bundle_role(workdir: Path, role_dir: str) -> None:
     dst = workdir / "ansible" / "roles" / role_dir
     if dst.exists():
         shutil.rmtree(dst)
-    shutil.copytree(src, dst, ignore=shutil.ignore_patterns(".git"))
+    shutil.copytree(src, dst, ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
 
 
 def _check_bundled_role(role_dir: str) -> bool:
@@ -639,18 +639,20 @@ build {
   }
 
   # 3. Reboot to activate kmod blacklist / sysctl / SELinux changes
-  # NOTE: (sleep 5 && sudo reboot) & — forks reboot so the provisioner exits
-  # cleanly before SSH drops. This lets Packer remove the temp script normally
-  # instead of getting stuck in reconnect-retry loops for 5 min.
+  # shutdown -r +1 schedules reboot 1 min later — Packer can finish cleanup
+  # before the machine goes down. remote_path avoids /tmp (noexec after CIS).
   provisioner "shell" {
     pause_before      = "10s"
     expect_disconnect = true
-    inline            = ["(sleep 5 && sudo reboot) &"]
+    remote_path       = "/opt/ciscvm-ansible/reboot.sh"
+    inline            = ["sudo shutdown -r +1"]
+    valid_exit_codes  = [0, 1]
   }
 
   # 4. Re-audit after reboot + gate check (score >= 85%)
+  # 180s ≈ 60s shutdown delay + 60s reboot + 60s SSH ready buffer
   provisioner "ansible-local" {
-    pause_before = "120s"
+    pause_before = "180s"
     command          = "/opt/ciscvm-ansible/bin/ansible-playbook"
     playbook_dir     = "ansible"
     playbook_file    = "ansible/site-audit.yml"
