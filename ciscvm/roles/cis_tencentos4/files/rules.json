@@ -818,7 +818,8 @@
    "value": ""
   },
   "risk": "none",
-  "page": 136
+  "page": 136,
+  "reboot_required": true
  },
  {
   "id": "1.7.1.3",
@@ -835,7 +836,8 @@
    "value": "targeted"
   },
   "risk": "safe",
-  "page": 138
+  "page": 138,
+  "reboot_required": true
  },
  {
   "id": "1.7.1.4",
@@ -852,7 +854,8 @@
    "value": ""
   },
   "risk": "safe",
-  "page": 140
+  "page": 140,
+  "reboot_required": true
  },
  {
   "id": "1.7.1.5",
@@ -869,7 +872,8 @@
    "value": ""
   },
   "risk": "disruptive",
-  "page": 143
+  "page": 143,
+  "reboot_required": true
  },
  {
   "id": "1.7.1.6",
@@ -886,7 +890,8 @@
    "value": ""
   },
   "risk": "safe",
-  "page": 146
+  "page": 146,
+  "reboot_required": true
  },
  {
   "id": "1.7.1.7",
@@ -1044,7 +1049,8 @@
    "kind": "not_legacy"
   },
   "risk": "disruptive",
-  "page": 165
+  "page": 165,
+  "reboot_required": true
  },
  {
   "id": "1.11",
@@ -1060,7 +1066,8 @@
    "kind": "future_or_fips"
   },
   "risk": "disruptive",
-  "page": 167
+  "page": 167,
+  "reboot_required": true
  },
  {
   "id": "2.1.1",
@@ -2478,7 +2485,8 @@
    "value": "1"
   },
   "risk": "disruptive",
-  "page": 343
+  "page": 343,
+  "reboot_required": true
  },
  {
   "id": "4.1.1.4",
@@ -2496,7 +2504,8 @@
    "min": 8192
   },
   "risk": "disruptive",
-  "page": 345
+  "page": 345,
+  "reboot_required": true
  },
  {
   "id": "4.1.2.1",
@@ -3107,7 +3116,8 @@
   "family": "audit_immutable",
   "params": {},
   "risk": "safe",
-  "page": 438
+  "page": 438,
+  "reboot_required": true
  },
  {
   "id": "4.1.4.1",
