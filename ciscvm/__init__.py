@@ -599,7 +599,7 @@ source "tencentcloud-cvm" "default" {
   ssh_username                = var.ssh_username
   ssh_port                    = var.ssh_port
   ssh_timeout                 = var.ssh_timeout
-  ssh_handshake_attempts      = 60
+  ssh_handshake_attempts      = 120
   image_name                  = local.image_name
   vpc_id                      = var.vpc_id
   subnet_id                   = var.subnet_id
