@@ -1969,6 +1969,16 @@ def c_shell_timeout(ctx, p):
                 m = re.search(r"^\s*(?:(?:readonly|export|declare)\s+(?:-[a-z]+\s+)?)?TMOUT\s*=\s*(\d+)", ln)
                 if m:
                     vals.append((path, int(m.group(1))))
+    # Detect old broken format in 60-cis-tmout.sh: bare TMOUT=N without
+    # bash guard or declare -rx. This works in bash but causes
+    # "TMOUT: command not found" in sh/scp shells. Force re-write.
+    tmout_path = "/etc/profile.d/60-cis-tmout.sh"
+    if os.path.isfile(tmout_path):
+        content = open(tmout_path).read()
+        has_bare = bool(re.search(r'(?m)^(?!\s*#)\s*TMOUT\s*=\s*\d+', content))
+        has_guard = "BASH_VERSION" in content or "declare -rx TMOUT" in content or "declare -r TMOUT" in content
+        if has_bare and not has_guard:
+            return "fail", "TMOUT uses broken bare syntax, needs declare -rx or bash guard"
     if not vals:
         return "fail", "TMOUT is not configured"
     bad = [(f, v) for f, v in vals if v == 0 or v > mx]
