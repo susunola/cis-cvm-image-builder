@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 
 # ---------------------------------------------------------------------------
 # Logging
