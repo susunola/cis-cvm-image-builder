@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.9.3"
+VERSION = "0.9.4"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -857,12 +857,14 @@ SITE_YML_TEMPLATE = r"""---
 
 SITE_AUDIT_TEMPLATE = r"""---
 # CIS re-audit after reboot — gate active
+# cis_mode is 'scan' (read-only). The engine only accepts scan|apply;
+# a literal 'audit' would fail the preflight validation.
 - name: "CIS __OS_NAME__ - audit after reboot (__CIS_LEVEL__)"
   hosts: localhost
   connection: local
   become: true
   vars:
-    cis_mode: audit
+    cis_mode: scan
     cis_profile: __CIS_LEVEL__
     cis_platform: server
     cis_allow_disruptive: false
