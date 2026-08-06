@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.9.4-blue?logo=pypi&logoColor=white" alt="Version 0.9.4">
+  <img src="https://img.shields.io/badge/version-0.10.0-blue?logo=pypi&logoColor=white" alt="Version 0.10.0">
   <img src="https://img.shields.io/badge/python-3.11_|_3.12_|_3.13-blue?logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/profiles-14-orange" alt="14 profiles">
   <img src="https://img.shields.io/badge/platform-Tencent%20Cloud-0052D9" alt="Tencent Cloud">
@@ -248,6 +248,48 @@ The **final image ships hardened**: the cleanup provisioner re-applies
 `PermitRootLogin no` before the snapshot is taken. To administer a built
 image, use the `ciscvm` user (`sudo -i` for root), or create your own user —
 root password login is disabled by design per CIS.
+
+#### What ships in the image (Linux)
+
+Every Linux build leaves a ciscv paper trail inside the image so admins know
+exactly what was done and which admin channel to use:
+
+| Path | Purpose |
+|------|---------|
+| `/etc/ciscvm/banner` | ASCII banner with the ciscv logo + image metadata (colored). |
+| `/etc/motd` | The same banner + build summary, shown after SSH login. |
+| `/etc/issue`, `/etc/issue.net` | Plain-text version for serial / network console. |
+| `/etc/ssh/sshd_config.d/99-ciscvm-banner.conf` | Wires the SSH `Banner` directive. |
+| `/opt/ciscvm-REPORT.md` | Full hardening report (what was done, score, follow-ups). |
+| `/opt/ciscvm-AUDIT-RESULT.json` | Raw re-audit JSON (the gate result). |
+| `/usr/local/bin/ciscvm-info` | One-shot summary command: `ciscvm-info`. |
+
+```bash
+$ ssh ciscvm@<host>
+              .---..---.
+          .-'          '-.           SECX  SERIES
+        .'                '.           ___ ___  ___  ___
+      .'                    '.       / __/ _ \/ __|/ __|
+     /         ()    ()       \      | (_| (_) \__ \ (__ 
+    |                        |       \___\___/|___/\___|
+     \                      /         CIS-HARDENED IMAGE BUILDER
+      '.                  .'
+        '.              .'
+          '---.------.---'
+
+Image:    t3-cis-level1-20260806-173729
+Source:   img-test-abc123
+OS/Level: tencentos-3 / level1-server
+Built:    2026-08-06T17:37:29Z by ciscv 0.10.0
+
+[ REPORT  ] cat /opt/ciscvm-REPORT.md     (or run: ciscvm-info)
+[ ADMIN   ] ssh ciscvm@<host>            (root login disabled per CIS 5.1.22)
+[ ESCALATE] sudo -i                        (NOPASSWD via /etc/sudoers.d/ciscvm-build)
+```
+
+The report at `/opt/ciscvm-REPORT.md` documents what ciscv did to the base
+image (per-rule counts, outstanding failures, how to re-run the scan) so
+the next admin does not have to guess.
 
 ### Windows pipeline
 
