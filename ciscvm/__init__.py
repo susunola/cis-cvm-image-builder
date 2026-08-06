@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.9.2"
+VERSION = "0.9.3"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -693,9 +693,13 @@ build {
   #    moment SSH is back — no fixed 7-minute dead wait. This alone
   #    saves several minutes per build when the VM reboots faster.
   provisioner "shell" {
-  pause_before      = "90s"
+    pause_before      = "90s"
     expect_disconnect = true
-    inline    = ["echo reconnected"]
+    # Upload to /opt (not /tmp): systemd-tmpfiles on the freshly rebooted
+    # image may purge /tmp (tmp.conf D-type cleanup), which made the
+    # reconnect probe fail with 'bash: script: Permission denied' (126).
+    remote_path       = "/opt/ciscvm-ansible/reconnected.sh"
+    inline            = ["echo reconnected"]
     valid_exit_codes  = [0, 1, -1]
   }
 
@@ -724,7 +728,7 @@ build {
       "__CLEAN_CMD__",
       "for f in /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf; do [ -f \"$f\" ] || continue; sudo sed -i 's/^[ \\t]*PermitRootLogin[ \\t].*/PermitRootLogin no/' \"$f\"; done",
       "sudo systemctl reload sshd 2>/dev/null || true",
-      "rm -rf /tmp/ansible /opt/ciscvm-ansible/staging /opt/ciscvm-ansible/reboot.sh /opt/ciscvm-ansible/ssh-guard.sh /opt/ciscvm-ansible/cleanup.sh ~/.ansible/roles 2>/dev/null || true"
+      "rm -rf /tmp/ansible /opt/ciscvm-ansible/staging /opt/ciscvm-ansible/reboot.sh /opt/ciscvm-ansible/ssh-guard.sh /opt/ciscvm-ansible/reconnected.sh /opt/ciscvm-ansible/cleanup.sh ~/.ansible/roles 2>/dev/null || true"
     ]
   }
 }
