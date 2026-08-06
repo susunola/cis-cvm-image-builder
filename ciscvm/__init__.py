@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.6.0"
+VERSION = "0.6.1"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -639,7 +639,28 @@ build {
     ]
   }
 
-  # 3. Schedule reboot. shutdown -r +1 gives Packer ~60s to finish
+  # 3. SSH survival guard (orchestration-layer safety net).
+  #    Independent of the CIS engine: unconditionally open the live SSH
+  #    port in firewalld / nftables / iptables so a DROP-target zone can
+  #    never lock us (or the admin) out after reboot. This is a hard
+  #    guarantee that no engine bug or stale install can defeat.
+  provisioner "shell" {
+    pause_before = "5s"
+    remote_path  = "/opt/ciscvm-ansible/ssh-guard.sh"
+    inline = [
+      "set +e",
+      "SSH_PORT=$(sudo sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')",
+      "[ -z \"$SSH_PORT\" ] && SSH_PORT=$(sudo awk '/^[Pp]ort[ \\t]+[0-9]+/{print $2; exit}' /etc/ssh/sshd_config)",
+      "[ -z \"$SSH_PORT\" ] && SSH_PORT=22",
+      "echo \"[ssh-guard] ensuring SSH port $SSH_PORT stays open\"",
+      "if command -v firewall-cmd >/dev/null 2>&1 && sudo systemctl is-active firewalld >/dev/null 2>&1; then for z in $(sudo firewall-cmd --get-active-zones 2>/dev/null | grep -v '^ '); do sudo firewall-cmd --zone=$z --add-port=$SSH_PORT/tcp --permanent; done; sudo firewall-cmd --reload; fi",
+      "if command -v nft >/dev/null 2>&1 && sudo systemctl is-active nftables >/dev/null 2>&1; then sudo nft add rule inet filter input tcp dport $SSH_PORT accept 2>/dev/null || true; fi",
+      "if command -v iptables >/dev/null 2>&1; then sudo iptables -C INPUT -p tcp --dport $SSH_PORT -j ACCEPT 2>/dev/null || sudo iptables -I INPUT -p tcp --dport $SSH_PORT -j ACCEPT 2>/dev/null || true; fi",
+      "true"
+    ]
+  }
+
+  # 4. Schedule reboot. shutdown -r +1 gives Packer ~60s to finish
   #    cleanup (rm reboot.sh) while SSH is still alive.
   #    Without expect_disconnect — SSH hasn't dropped yet at this point.
   provisioner "shell" {
@@ -648,18 +669,18 @@ build {
     inline       = ["sudo shutdown -r +1"]
   }
 
-  # 4. Wait for the machine to actually shut down, then wait for SSH
-  #    to come back. pause_before=120s ensures the machine is already
+  # 5. Wait for the machine to actually shut down, then wait for SSH
+  #    to come back. pause_before ensures the machine is already
   #    down when Packer connects (shutdown happens at ~+60s).
   #    expect_disconnect tells Packer to retry until SSH returns.
   provisioner "shell" {
     pause_before      = "420s"
     expect_disconnect = true
-    inline            = ["echo ok"]
+    inline       = ["echo ok"]
     valid_exit_codes  = [0, 1, -1]
   }
 
-  # 5. Re-audit after reboot + gate check (score >= 85%)
+  # 6. Re-audit after reboot + gate check (score >= 85%)
   provisioner "ansible-local" {
     command          = "/opt/ciscvm-ansible/bin/ansible-playbook"
     playbook_dir     = "ansible"
@@ -671,13 +692,13 @@ build {
     ]
   }
 
-  # 6. Cleanup package cache before snapshot
+  # 7. Cleanup package cache before snapshot
   provisioner "shell" {
     pause_before = "10s"
     remote_path  = "/opt/ciscvm-ansible/cleanup.sh"
     inline = [
       "__CLEAN_CMD__",
-      "rm -rf /tmp/ansible /opt/ciscvm-ansible/staging /opt/ciscvm-ansible/reboot.sh /opt/ciscvm-ansible/cleanup.sh ~/.ansible/roles 2>/dev/null || true"
+      "rm -rf /tmp/ansible /opt/ciscvm-ansible/staging /opt/ciscvm-ansible/reboot.sh /opt/ciscvm-ansible/ssh-guard.sh /opt/ciscvm-ansible/cleanup.sh ~/.ansible/roles 2>/dev/null || true"
     ]
   }
 }
