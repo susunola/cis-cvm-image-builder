@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@eb939dc/docs/ciscvm-logo.png" alt="ciscvm — SecX Series" width="520">
+  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@7203244/docs/ciscvm-logo.png" alt="ciscvm — SecX Series" width="520">
 </p>
 
 <p align="center">
