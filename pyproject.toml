@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ciscvm"
-version = "0.6.0"
+version = "0.6.1"
 description = "CIS-hardened golden image builder for Tencent Cloud — config-driven CLI, 14 OS profiles, bundled cis-os engine"
 license = {text = "MIT"}
 readme = "README.md"
