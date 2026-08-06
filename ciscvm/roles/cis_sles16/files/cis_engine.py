@@ -1966,7 +1966,7 @@ def c_shell_timeout(ctx, p):
             for ln in readlines(path):
                 if ln.lstrip().startswith("#"):
                     continue
-                m = re.search(r"^\s*(?:readonly\s+|export\s+)?TMOUT\s*=\s*(\d+)", ln)
+                m = re.search(r"^\s*(?:(?:readonly|export|declare)\s+(?:-[a-z]+\s+)?)?TMOUT\s*=\s*(\d+)", ln)
                 if m:
                     vals.append((path, int(m.group(1))))
     if not vals:
@@ -1987,7 +1987,8 @@ def f_shell_timeout(ctx, p):
                 comment_out(ctx, path, r"^\s*(readonly\s+|export\s+)?TMOUT\s*=")
     write_file(ctx, "/etc/profile.d/60-cis-tmout.sh",
                "# CIS hardening: idle shell timeout\n"
-               "TMOUT=%d\nreadonly TMOUT\nexport TMOUT\n" % mx)
+               '[ -n "$BASH_VERSION" ] || return 0\n'
+               "declare -rx TMOUT=%d\n" % mx)
     return True, "TMOUT=%d enforced via /etc/profile.d/60-cis-tmout.sh" % mx
 
 
