@@ -40,5 +40,5 @@ if [ "$CODE_VERSION" != "$BIN_VERSION" ]; then
     exit 1
 fi
 
-echo "[6/6] 构建 (日志: $LOG)"
-ciscvm build --config "$CONFIG" --yes --log-file "$LOG"
+echo "[6/6] 构建 (日志: $LOG, debug 开启)"
+ciscvm build --config "$CONFIG" --yes --debug --log-file "$LOG"
