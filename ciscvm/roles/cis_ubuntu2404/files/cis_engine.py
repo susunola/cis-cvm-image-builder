@@ -3790,12 +3790,18 @@ def run_rule(ctx, rule):
                 ok, adetail = False, "%s: %s" % (type(exc).__name__, exc)
             res["apply_detail"] = adetail
             if ok:
-                try:
-                    st2, d2 = fn(ctx, params)
-                except Exception as exc:
-                    st2, d2 = "error", str(exc)
-                res["status"], res["detail"] = st2, d2
-                res["apply_status"] = "applied" if st2 == "pass" else "applied_pending"
+                if rule.get("reboot_required"):
+                    # Fix wrote config; runtime state only changes after
+                    # reboot.  Skip the wasted re-check — the post-reboot
+                    # audit will verify everything in one pass.
+                    res["apply_status"] = "applied_pending"
+                else:
+                    try:
+                        st2, d2 = fn(ctx, params)
+                    except Exception as exc:
+                        st2, d2 = "error", str(exc)
+                    res["status"], res["detail"] = st2, d2
+                    res["apply_status"] = "applied" if st2 == "pass" else "applied_pending"
             else:
                 res["apply_status"] = "failed"
     elif ctx.opts.mode == "apply" and st == "pass":

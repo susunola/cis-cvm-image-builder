@@ -4404,7 +4404,8 @@
   "family": "audit_immutable",
   "params": {},
   "risk": "safe",
-  "page": 859
+  "page": 859,
+  "reboot_required": true
  },
  {
   "id": "6.3.3.21",

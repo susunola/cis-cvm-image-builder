@@ -4687,7 +4687,8 @@
   "family": "audit_immutable",
   "params": {},
   "risk": "safe",
-  "page": 817
+  "page": 817,
+  "reboot_required": true
  },
  {
   "id": "6.2.3.21",
