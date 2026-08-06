@@ -2865,21 +2865,28 @@ def f_firewalld_zone_target(ctx, p):
     zones = [z.strip() for z in
              out("firewall-cmd --get-active-zones 2>/dev/null | grep -v '^\\s'",
                  30).splitlines() if z.strip()]
+    if not zones:
+        return False, "no active firewalld zones"
     ssh_port = _detect_ssh_port()
-    done = []
+    # Always whitelist SSH port on every active zone, even when the
+    # target is already DROP.  Without this, a base image whose zone
+    # already targets DROP will lock out SSH after reboot because the
+    # permanent config never includes an allow rule for the ssh port.
+    for z in zones:
+        sh(["firewall-cmd", "--zone=%s" % z,
+            "--add-port=%s/tcp" % ssh_port, "--permanent"], 60)
+    target_changed = []
     for z in zones:
         if out(["firewall-cmd", "--zone=%s" % z, "--get-target"], 30).strip() == "ACCEPT":
-            # Whitelist SSH before locking down, otherwise DROP blocks
-            # Packer reconnection and manual admin access.
-            sh(["firewall-cmd", "--zone=%s" % z,
-                "--add-port=%s/tcp" % ssh_port, "--permanent"], 60)
             sh(["firewall-cmd", "--zone=%s" % z, "--set-target=DROP", "--permanent"], 60)
-            done.append(z)
-    if not done:
-        return False, "no zone needed a change"
+            target_changed.append(z)
     sh(["firewall-cmd", "--reload"], 60)
-    return True, "set target=DROP on zone(s): %s (SSH port %s/tcp allowed)" % (
-        ", ".join(done), ssh_port)
+    msgs = ["SSH port %s/tcp whitelisted on zone(s): %s" % (ssh_port, ", ".join(zones))]
+    if target_changed:
+        msgs.append("set target=DROP on zone(s): " + ", ".join(target_changed))
+    else:
+        msgs.append("zone target(s) already DROP")
+    return True, "; ".join(msgs)
 
 # ==========================================================================
 # User / group hygiene  (family: user_audit)
