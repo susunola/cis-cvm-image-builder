@@ -1313,6 +1313,20 @@ def c_kv_conf(ctx, p):
         w = as_int(want, 900)
         ok = n is not None and (n == 0 or n >= w)
     elif op == "tmout":
+        # If the file uses bare TMOUT=900 without bash guard,
+        # companion lines like "readonly TMOUT" / "export TMOUT"
+        # cause "TMOUT: command not found" in non-bash shells.
+        if path.endswith(".sh"):
+            try:
+                with open(path) as fh:
+                    content = fh.read()
+                if "BASH_VERSION" not in content or "declare -rx TMOUT" not in content:
+                    return "fail", (
+                        "TMOUT uses broken bare syntax in %s, "
+                        "needs declare -rx with bash guard"
+                    ) % os.path.basename(path)
+            except Exception:
+                pass
         n, w = as_int(curc), as_int(want, 900)
         ok = n is not None and 0 < n <= w
     else:
@@ -1336,6 +1350,19 @@ def f_kv_conf(ctx, p):
                    "# CIS hardening: disable core dumps\n"
                    "* hard core 0\n* soft core 0\n")
         return True, "wrote /etc/security/limits.d/60-cis-coredump.conf"
+
+    if op == "tmout":
+        target = (p.get("files") or ["/etc/cis-hardening.conf"])[0]
+        # Write with bash guard so non-bash shells (sh, scp) don't
+        # choke on bare "readonly TMOUT" / "export TMOUT".
+        write_file(ctx, target,
+                   "# CIS hardening: idle shell timeout
+"
+                   '[ -n "$BASH_VERSION" ] || return 0
+'
+                   "declare -rx TMOUT=%s
+" % want)
+        return True, "TMOUT=%s enforced via %s" % (want, os.path.basename(target))
 
     target = (p.get("files") or ["/etc/cis-hardening.conf"])[0]
     if op == "bool_present":
