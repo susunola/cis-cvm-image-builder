@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.5.1"
+VERSION = "0.5.2"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -478,7 +478,7 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         security_group_id=str(data["build"]["security_group_id"]),
         associate_public_ip=bool(data["build"]["associate_public_ip"]),
         ssh_port=int(meta.get("ssh_port") or p.get("ssh_port", 22)),
-        ssh_timeout=str(meta.get("ssh_timeout") or p.get("ssh_timeout", "10m")),
+        ssh_timeout=str(meta.get("ssh_timeout") or p.get("ssh_timeout", "15m")),
         ssh_username=str(p.get("ssh_username", "")),
         ssh_debug_password=str(meta.get("ssh_debug_password", "")),
         winrm_username=str(p.get("winrm_username", "")),
@@ -653,7 +653,7 @@ build {
   #    down when Packer connects (shutdown happens at ~+60s).
   #    expect_disconnect tells Packer to retry until SSH returns.
   provisioner "shell" {
-    pause_before      = "120s"
+    pause_before      = "420s"
     expect_disconnect = true
     inline            = ["echo ok"]
     valid_exit_codes  = [0, 1, -1]
