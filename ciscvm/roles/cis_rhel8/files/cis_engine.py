@@ -1969,16 +1969,19 @@ def c_shell_timeout(ctx, p):
                 m = re.search(r"^\s*(?:(?:readonly|export|declare)\s+(?:-[a-z]+\s+)?)?TMOUT\s*=\s*(\d+)", ln)
                 if m:
                     vals.append((path, int(m.group(1))))
-    # Detect old broken format in 60-cis-tmout.sh: bare TMOUT=N without
-    # bash guard or declare -rx. This works in bash but causes
-    # "TMOUT: command not found" in sh/scp shells. Force re-write.
+    # Ensure 60-cis-tmout.sh uses declare -rx with bash guard.
+    # SCP and /bin/sh sessions do NOT have $BASH_VERSION, so bare
+    # "TMOUT=900; readonly TMOUT" causes "TMOUT: command not found".
     tmout_path = "/etc/profile.d/60-cis-tmout.sh"
     if os.path.isfile(tmout_path):
-        content = open(tmout_path).read()
-        has_bare = bool(re.search(r'(?m)^(?!\s*#)\s*TMOUT\s*=\s*\d+', content))
-        has_guard = "BASH_VERSION" in content or "declare -rx TMOUT" in content or "declare -r TMOUT" in content
-        if has_bare and not has_guard:
-            return "fail", "TMOUT uses broken bare syntax, needs declare -rx or bash guard"
+        try:
+            with open(tmout_path) as fh:
+                content = fh.read()
+        except Exception as exc:
+            return "fail", "TMOUT file unreadable: %s" % exc
+        # Must have both the bash guard AND declare -rx
+        if "BASH_VERSION" not in content or "declare -rx TMOUT" not in content:
+            return "fail", "TMOUT file missing declare -rx or bash guard, will rewrite"
     if not vals:
         return "fail", "TMOUT is not configured"
     bad = [(f, v) for f, v in vals if v == 0 or v > mx]
