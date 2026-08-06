@@ -340,7 +340,14 @@ class TestRenderAll:
         hcl = (wd / "packer" / "main.pkr.hcl").read_text()
         assert "__CLEAN_CMD__" not in hcl
         assert "__WINRM_PASSWORD_ENV__" not in hcl
-        assert ";" not in hcl, "semicolons are not valid in HCL"
+        # HCL itself must not contain bare semicolons.  Shell snippets inside
+        # quoted inline strings (e.g. the awk in the ssh-guard provisioner)
+        # legitimately use ';' — they are quoted shell strings, not HCL syntax.
+        for ln in hcl.splitlines():
+            stripped = ln.strip()
+            if stripped.startswith('"') and stripped.rstrip(',').endswith('"'):
+                continue  # quoted shell string (inline list element)
+            assert ";" not in ln, "semicolons are not valid in HCL: %r" % ln
 
     def test_windows_renders_correctly(self, tmp_path):
         r = resolve(_make_win_toml("win2022"))
