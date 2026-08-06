@@ -237,6 +237,24 @@ Packer 在临时 CVM 上通过 `ansible-local` 执行三个阶段：
 3. **门禁** — 角色内执行：`cis_fail_on_findings: true` + `cis_min_score: 0`。
    加固后仍有残留发现项则 `ansible-playbook` 非零退出，Packer 构建失败。
 
+#### SSH 访问安全网
+
+CIS 规则会禁用 root 的 SSH 登录（`PermitRootLogin no` —— TencentOS 3 规则
+5.1.22 / TencentOS 4 规则 5.2.10）。由于构建工具本身以 `root` 连接，
+重启后会被锁在外面。ciscvm 因此在编排层增加两道每次构建都会重新生成的
+保障（不会因安装旧包而过期）：
+
+1. **专用构建用户 `ciscvm`** —— 由 `install-ansible.sh` 创建，具备免密
+   sudo，并继承当前 SSH 用户的 `authorized_keys`；即使 root 登录被完全
+   禁用也能重连。
+2. **SSH guard** —— 在 firewalld / nftables / iptables 中放行实际 SSH
+   端口；若 CIS 规则已设置 `PermitRootLogin no`，则临时恢复基于密钥的
+   root 登录，保证 Packer 能重连。
+
+**最终镜像交付时仍为加固态**：cleanup 阶段在快照前重新应用
+`PermitRootLogin no`。管理构建出的镜像请使用 `ciscvm` 用户（`sudo -i`
+获取 root），或自行创建用户 —— 按 CIS 要求，root 密码登录默认关闭。
+
 ### Windows 构建流水线（WinRM × 控制器侧 ansible）
 
 ```

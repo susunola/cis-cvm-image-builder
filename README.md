@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.9.0-blue?logo=pypi&logoColor=white" alt="Version 0.9.0">
+  <img src="https://img.shields.io/badge/version-0.9.1-blue?logo=pypi&logoColor=white" alt="Version 0.9.1">
   <img src="https://img.shields.io/badge/python-3.11_|_3.12_|_3.13-blue?logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/profiles-14-orange" alt="14 profiles">
   <img src="https://img.shields.io/badge/platform-Tencent%20Cloud-0052D9" alt="Tencent Cloud">
@@ -228,6 +228,26 @@ Four phases executed inside the ephemeral CVM via `ansible-local`:
 2. **Harden** — runs the bundled cis-os engine (`cis_engine.py` + `rules.json`). Variables: `cis_mode: apply`, `cis_profile: L1/L2`.
 3. **Reboot + re-audit** — reboots the instance and re-runs only the rules that were pending a reboot. Catches kernel parameters, audit daemon configs, and other settings that only take effect after restart.
 4. **Gate** — final score check against a configurable threshold (default 85%). If the score falls below, `ansible-playbook` exits non-zero and Packer fails the build — the image is never created.
+
+#### SSH access safety net
+
+CIS rules can disable root SSH login (`PermitRootLogin no` — TencentOS 3 rule
+5.1.22 / TencentOS 4 rule 5.2.10). Because the builder itself connects as
+`root`, this would lock the build out after the reboot. ciscvm therefore
+adds two orchestration-layer guarantees that are regenerated on every build
+(they can never go stale):
+
+1. **Dedicated build user `ciscvm`** — created by `install-ansible.sh` with
+   passwordless sudo and the same `authorized_keys` as the current SSH user,
+   so it can reconnect even if root login is fully disabled.
+2. **SSH guard** — opens the live SSH port in firewalld / nftables /
+   iptables, and if a CIS rule set `PermitRootLogin no`, temporarily restores
+   key-based root login so Packer can reconnect.
+
+The **final image ships hardened**: the cleanup provisioner re-applies
+`PermitRootLogin no` before the snapshot is taken. To administer a built
+image, use the `ciscvm` user (`sudo -i` for root), or create your own user —
+root password login is disabled by design per CIS.
 
 ### Windows pipeline
 
