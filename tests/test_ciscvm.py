@@ -343,10 +343,13 @@ class TestRenderAll:
         # HCL itself must not contain bare semicolons.  Shell snippets inside
         # quoted inline strings (e.g. the awk in the ssh-guard provisioner)
         # legitimately use ';' — they are quoted shell strings, not HCL syntax.
+        # Comment lines (starting with # or //) are also exempt.
         for ln in hcl.splitlines():
             stripped = ln.strip()
             if stripped.startswith('"') and stripped.rstrip(',').endswith('"'):
                 continue  # quoted shell string (inline list element)
+            if stripped.startswith(("#", "//")):
+                continue  # comment
             assert ";" not in ln, "semicolons are not valid in HCL: %r" % ln
 
     def test_windows_renders_correctly(self, tmp_path):

@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.9.0"
+VERSION = "0.9.1"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -648,8 +648,12 @@ build {
   # 3. SSH survival guard (orchestration-layer safety net).
   #    Independent of the CIS engine: unconditionally open the live SSH
   #    port in firewalld / nftables / iptables so a DROP-target zone can
-  #    never lock us (or the admin) out after reboot. This is a hard
-  #    guarantee that no engine bug or stale install can defeat.
+  #    never lock us (or the admin) out after reboot. Also guarantees the
+  #    SSH channel itself stays usable: if a CIS rule disabled root login
+  #    (PermitRootLogin no), restore key-based root login so Packer can
+  #    reconnect; the dedicated build user (created by install-ansible.sh)
+  #    is the primary fallback. This is a hard guarantee that no engine
+  #    bug or stale install can defeat.
   provisioner "shell" {
     pause_before = "5s"
     remote_path  = "/opt/ciscvm-ansible/ssh-guard.sh"
@@ -660,8 +664,15 @@ build {
       "[ -z \"$SSH_PORT\" ] && SSH_PORT=22",
       "echo \"[ssh-guard] ensuring SSH port $SSH_PORT stays open\"",
       "if command -v firewall-cmd >/dev/null 2>&1 && sudo systemctl is-active firewalld >/dev/null 2>&1; then for z in $(sudo firewall-cmd --get-active-zones 2>/dev/null | grep -v '^ '); do sudo firewall-cmd --zone=$z --add-port=$SSH_PORT/tcp; sudo firewall-cmd --zone=$z --add-port=$SSH_PORT/tcp --permanent; done; sudo firewall-cmd --reload; fi",
-      "if command -v nft >/dev/null 2>&1 && sudo systemctl is-active nftables >/dev/null 2>&1; then sudo nft add rule inet filter input tcp dport $SSH_PORT accept 2>/dev/null || true; fi",
+      "if command -v nft >/dev/null 2>&1 && sudo systemctl is-active nftables >/dev/null 2>&1; then for t in $(sudo nft list tables 2>/dev/null | awk '{print $2}'); do sudo nft add rule $t input tcp dport $SSH_PORT accept 2>/dev/null || true; done; fi",
       "if command -v iptables >/dev/null 2>&1; then sudo iptables -C INPUT -p tcp --dport $SSH_PORT -j ACCEPT 2>/dev/null || sudo iptables -I INPUT -p tcp --dport $SSH_PORT -j ACCEPT 2>/dev/null || true; fi",
+      "# Ensure key-based root login survives CIS hardening (PermitRootLogin no)",
+      "if sudo sshd -T 2>/dev/null | grep -qi '^permitrootlogin no'; then",
+      "  echo \"[ssh-guard] CIS disabled root login; restoring key-based root login\"",
+      "  for f in /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf; do [ -f \"$f\" ] || continue; sudo sed -i 's/^[ \\t]*PermitRootLogin[ \\t].*/PermitRootLogin prohibit-password/' \"$f\"; done",
+      "  sudo systemctl reload sshd",
+      "fi",
+      "# Build user fallback (created by install-ansible.sh) — sudoers.d already grants NOPASSWD; do NOT add to wheel (CIS 5.2.7 requires wheel to stay empty)",
       "true"
     ]
   }
@@ -700,12 +711,19 @@ build {
     ]
   }
 
-  # 7. Cleanup package cache before snapshot
+  # 7. Cleanup package cache before snapshot.
+  #    Also re-lock SSH to the CIS target state: the ssh-guard step above
+  #    temporarily restored key-based root login so Packer could reconnect
+  #    after reboot; the final image must ship hardened (PermitRootLogin no
+  #    per CIS 5.1.22/5.2.10).  The dedicated 'ciscvm' build user (sudo,
+  #    same authorized_keys) remains the supported admin channel.
   provisioner "shell" {
     pause_before = "10s"
     remote_path  = "/opt/ciscvm-ansible/cleanup.sh"
     inline = [
       "__CLEAN_CMD__",
+      "for f in /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf; do [ -f \"$f\" ] || continue; sudo sed -i 's/^[ \\t]*PermitRootLogin[ \\t].*/PermitRootLogin no/' \"$f\"; done",
+      "sudo systemctl reload sshd 2>/dev/null || true",
       "rm -rf /tmp/ansible /opt/ciscvm-ansible/staging /opt/ciscvm-ansible/reboot.sh /opt/ciscvm-ansible/ssh-guard.sh /opt/ciscvm-ansible/cleanup.sh ~/.ansible/roles 2>/dev/null || true"
     ]
   }
@@ -941,6 +959,36 @@ VENV=/opt/ciscvm-ansible
 sudo "$PY" -m venv "$VENV"
 sudo "$VENV/bin/python" -m pip install --disable-pip-version-check \
     __PIP_INDEX_FLAG__ '__ANSIBLE_CORE_SPEC__' pexpect passlib
+
+# 4. Create a non-root build user.  CIS rules can disable root SSH login
+#    (e.g. PermitRootLogin no); Packer reconnects as this user after the
+#    reboot, so the build can never lock itself out.  The user inherits the
+#    same authorized_keys as the current SSH user (root on TencentOS).
+BUILD_USER=ciscvm
+if ! id "$BUILD_USER" >/dev/null 2>&1; then
+    sudo useradd -m -s /bin/bash "$BUILD_USER"
+fi
+# Passwordless sudo for the build user (cis role needs root on the target).
+if [ ! -f /etc/sudoers.d/ciscvm-build ]; then
+    echo "$BUILD_USER ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/ciscvm-build >/dev/null
+    sudo chmod 440 /etc/sudoers.d/ciscvm-build
+fi
+# Inherit the current user's SSH keys so Packer's keypair works after reboot.
+CUR_USER=$(whoami)
+if [ "$CUR_USER" != "$BUILD_USER" ] && [ -f "/home/$CUR_USER/.ssh/authorized_keys" ]; then
+    sudo mkdir -p "/home/$BUILD_USER/.ssh"
+    sudo cp "/home/$CUR_USER/.ssh/authorized_keys" "/home/$BUILD_USER/.ssh/authorized_keys"
+    sudo chown -R "$BUILD_USER:$BUILD_USER" "/home/$BUILD_USER/.ssh"
+    sudo chmod 700 "/home/$BUILD_USER/.ssh"
+    sudo chmod 600 "/home/$BUILD_USER/.ssh/authorized_keys"
+elif [ "$CUR_USER" = "root" ] && [ -f /root/.ssh/authorized_keys ]; then
+    sudo mkdir -p "/home/$BUILD_USER/.ssh"
+    sudo cp /root/.ssh/authorized_keys "/home/$BUILD_USER/.ssh/authorized_keys"
+    sudo chown -R "$BUILD_USER:$BUILD_USER" "/home/$BUILD_USER/.ssh"
+    sudo chmod 700 "/home/$BUILD_USER/.ssh"
+    sudo chmod 600 "/home/$BUILD_USER/.ssh/authorized_keys"
+fi
+echo "build user '$BUILD_USER' ready (sudo + shared SSH key)"
 
 echo "ansible ready in $VENV (cis-os engine)"
 """
