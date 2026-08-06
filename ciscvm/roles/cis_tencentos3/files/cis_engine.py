@@ -19,17 +19,18 @@ reported in the JSON document written to stdout (or --out).
 
 import argparse
 import glob as globmod
+import grp
 import json
 import os
 import pwd
-import grp
 import re
 import shutil
 import stat
 import subprocess
 import sys
-import time
 import tempfile
+import threading
+import time
 
 VERSION = "1.0.0"
 
@@ -69,22 +70,25 @@ class Ctx(object):
         self.allow_disruptive = opts.allow_disruptive
         self.backup_dir = opts.backup_dir
         self._cache = {}
+        self._cache_lock = threading.Lock()
         self.changed_files = []
         self.notes = []
 
     # -- caching helper ---------------------------------------------------
     def cached(self, key, producer):
-        if key not in self._cache:
-            try:
-                self._cache[key] = producer()
-            except Exception as exc:            # pragma: no cover
-                self._cache[key] = None
-                self.notes.append("cache %s: %s" % (key, exc))
-        return self._cache[key]
+        with self._cache_lock:
+            if key not in self._cache:
+                try:
+                    self._cache[key] = producer()
+                except Exception as exc:            # pragma: no cover
+                    self._cache[key] = None
+                    self.notes.append("cache %s: %s" % (key, exc))
+            return self._cache[key]
 
     def invalidate(self, *keys):
-        for k in keys:
-            self._cache.pop(k, None)
+        with self._cache_lock:
+            for k in keys:
+                self._cache.pop(k, None)
 
 
 # --------------------------------------------------------------------------
@@ -316,13 +320,69 @@ def systemd_present():
 
 
 def pkg_installed(name):
-    rc, _, _ = sh(["rpm", "-q", name])
-    return rc == 0
+    return name in _installed_pkgs()
+
+
+_PKG_CACHE = None
+_PKG_CACHE_LOCK = threading.Lock()
+
+
+def _installed_pkgs():
+    """Set of installed package names (rpm -qa, one subprocess, cached)."""
+    global _PKG_CACHE
+    if _PKG_CACHE is None:
+        with _PKG_CACHE_LOCK:
+            if _PKG_CACHE is None:
+                rc, o, _ = sh(["rpm", "-qa"], 120)
+                _PKG_CACHE = set(o.split())
+    return _PKG_CACHE
+
+
+def _pkg_cache_invalidate():
+    """Call after dnf install/remove so the next pkg_installed() re-queries."""
+    global _PKG_CACHE
+    with _PKG_CACHE_LOCK:
+        _PKG_CACHE = None
 
 
 def unit_exists(unit):
-    rc, o, _ = sh(["systemctl", "list-unit-files", unit])
-    return rc == 0 and unit.split(".")[0] in o
+    return unit in _unit_db()
+
+
+def _unit_state(unit):
+    en, ac = _unit_db().get(unit, ("", ""))
+    return en, ac
+
+
+_UNIT_DB = None
+_UNIT_DB_LOCK = threading.Lock()
+
+
+def _unit_db():
+    """{unit: (enabled_state, active_state)} snapshot, one subprocess pass."""
+    global _UNIT_DB
+    if _UNIT_DB is None:
+        with _UNIT_DB_LOCK:
+            if _UNIT_DB is None:
+                db = {}
+                rc, o, _ = sh(["systemctl", "list-unit-files"], 60)
+                for ln in (o or "").splitlines():
+                    f = ln.split()
+                    if len(f) >= 2:
+                        db.setdefault(f[0], ["", ""])[0] = f[1]
+                rc, o, _ = sh(["systemctl", "list-units", "--all"], 60)
+                for ln in (o or "").splitlines():
+                    f = ln.split()
+                    if len(f) >= 4:
+                        db.setdefault(f[0], ["", ""])[1] = f[2]
+                _UNIT_DB = db
+    return _UNIT_DB
+
+
+def _unit_db_invalidate():
+    global _UNIT_DB
+    with _UNIT_DB_LOCK:
+        _UNIT_DB = None
 
 # ==========================================================================
 # Filesystem / kernel families
@@ -608,26 +668,82 @@ def f_path_perm_glob(ctx, p):
     return True, "fixed %d host key file(s)" % len(files)
 
 
+def _fs_scan(ctx):
+    """One full-filesystem pass collecting every permission category the
+    audit needs.  Returns a dict of path lists:
+      world_files      - regular files writable by anyone
+      world_dirs       - world-writable directories lacking the sticky bit
+      unowned          - files/dirs with no owner or no group (nouser|nogroup)
+      ungrouped        - files/dirs with no group (nogroup)
+      privileged       - setuid/setgid regular files
+    A single `find` walk is ~10s on a full image; the per-rule scans below
+    used to each walk the tree independently (5x).  Fixes that chmod/chown
+    invalidate the cache so the post-fix re-check re-scans.
+    """
+    def load():
+        cmd = ("df --local -P 2>/dev/null | awk '{if (NR!=1) print $6}' | "
+               "while read -r m; do find \"$m\" -xdev \\( "
+               "-type f -perm -0002 -printf 'F|%p\\n' , "
+               "-type d -perm -0002 ! -perm -1000 -printf 'D|%p\\n' , "
+               "\\( -nouser -o -nogroup \\) -printf 'U|%p\\n' , "
+               "-nogroup -printf 'G|%p\\n' , "
+               "\\( -perm -4000 -o -perm -2000 \\) -type f -printf 'P|%p\\n' "
+               "\\) 2>/dev/null; done")
+        res = {"world_files": [], "world_dirs": [], "unowned": [],
+               "ungrouped": [], "privileged": []}
+        rc, o, _ = sh(cmd, 600)
+        if rc != 0:
+            # Fallback: GNU find may be missing -printf/',' support
+            # (e.g. busybox).  Run the legacy independent scans.
+            return _fs_scan_legacy(res)
+        for ln in o.splitlines():
+            if len(ln) < 3 or ln[1] != "|":
+                continue
+            tag, path = ln[0], ln[2:]
+            key = {"F": "world_files", "D": "world_dirs", "U": "unowned",
+                   "G": "ungrouped", "P": "privileged"}.get(tag)
+            if key:
+                res[key].append(path)
+        return res
+    return ctx.cached("fs_scan", load)
+
+
+def _fs_scan_legacy(res):
+    """Fallback scans when GNU find -printf is unavailable (busybox etc.)."""
+    scans = [
+        ("world_files", "-type f -perm -0002"),
+        ("world_dirs", "-type d -perm -0002 ! -perm -1000"),
+        ("unowned", r"\( -nouser -o -nogroup \)"),
+        ("ungrouped", "-nogroup"),
+        ("privileged", r"\( -perm -4000 -o -perm -2000 \) -type f"),
+    ]
+    for key, cond in scans:
+        cmd = ("df --local -P 2>/dev/null | awk '{if (NR!=1) print $6}' | "
+               "while read -r m; do find \"$m\" -xdev %s 2>/dev/null; done" % cond)
+        rc, o, _ = sh(cmd, 300)
+        if rc == 0 and o:
+            res[key] = [p for p in o.splitlines() if p]
+    return res
+
+
 @check("world_writable")
 def c_world_writable(ctx, p):
-    cmd = ("df --local -P 2>/dev/null | awk '{if (NR!=1) print $6}' | "
-           "while read -r m; do find \"$m\" -xdev -type f -perm -0002 "
-           "2>/dev/null; done | head -50")
-    res = out(cmd, 300)
-    if res:
-        n = len(res.splitlines())
+    files = _fs_scan(ctx)["world_files"]
+    if files:
         return "fail", "%d world-writable file(s), e.g. %s" % (
-            n, ", ".join(res.splitlines()[:5]))
+            len(files), ", ".join(files[:5]))
     return "pass", "no world-writable files found"
 
 
 @fix("world_writable")
 def f_world_writable(ctx, p):
-    cmd = ("df --local -P 2>/dev/null | awk '{if (NR!=1) print $6}' | "
-           "while read -r m; do find \"$m\" -xdev -type f -perm -0002 "
-           "-exec chmod o-w {} + 2>/dev/null; done")
-    sh(cmd, 600)
-    return True, "removed world-write bit from regular files"
+    files = _fs_scan(ctx)["world_files"]
+    if not files:
+        return False, "already clean"
+    for f in files:
+        sh(["chmod", "o-w", f], 60)
+    ctx.invalidate("fs_scan")
+    return True, "removed world-write bit from %d regular file(s)" % len(files)
 
 
 @check("logfile_perm")
@@ -700,6 +816,7 @@ def f_pkg_absent(ctx, p):
     rc, o, e = sh(["dnf", "-y", "remove"] + present, 600)
     if rc != 0:
         return False, "dnf remove failed: %s" % (e or o)[:200]
+    _pkg_cache_invalidate()
     return True, "removed " + ", ".join(present)
 
 
@@ -719,6 +836,7 @@ def f_pkg_present(ctx, p):
     rc, o, e = sh(["dnf", "-y", "install"] + missing, 900)
     if rc != 0:
         return False, "dnf install failed: %s" % (e or o)[:200]
+    _pkg_cache_invalidate()
     return True, "installed " + ", ".join(missing)
 
 
@@ -738,13 +856,8 @@ def f_pkg_any_present(ctx, p):
     rc, o, e = sh(["dnf", "-y", "install", tgt], 900)
     if rc != 0:
         return False, "dnf install %s failed: %s" % (tgt, (e or o)[:200])
+    _pkg_cache_invalidate()
     return True, "installed " + tgt
-
-
-def _unit_state(unit):
-    _, en, _ = sh(["systemctl", "is-enabled", unit])
-    _, ac, _ = sh(["systemctl", "is-active", unit])
-    return en.strip(), ac.strip()
 
 
 @check("svc_disabled")
@@ -783,6 +896,7 @@ def f_svc_disabled(ctx, p):
         sh(["systemctl", "stop", u], 120)
         sh(["systemctl", "--now", "disable", u], 120)
         sh(["systemctl", "mask", u], 120)
+    _unit_db_invalidate()
     return True, "stopped, disabled and masked: " + ", ".join(units)
 
 
@@ -817,6 +931,7 @@ def f_svc_enabled(ctx, p):
         rc, o, e = sh(["dnf", "-y", "install"] + missing, 900)
         if rc != 0:
             return False, "cannot install %s: %s" % (", ".join(missing), (e or o)[:160])
+        _pkg_cache_invalidate()
     acts = []
     for u in p.get("units") or []:
         if u == "aidecheck.timer" and not unit_exists("aidecheck.timer"):
@@ -828,6 +943,7 @@ def f_svc_enabled(ctx, p):
         acts.append(u)
     if not acts:
         return False, "no matching units present"
+    _unit_db_invalidate()
     return True, "enabled and started: " + ", ".join(acts)
 
 
@@ -2463,10 +2579,7 @@ def c_audit_privileged(ctx, p):
     if not pkg_installed("audit"):
         return "notapplicable", "the audit package is not installed"
     umin = uid_min()
-    cmd = ("df --local -P 2>/dev/null | awk '{if (NR!=1) print $6}' | "
-           "while read -r m; do find \"$m\" -xdev \\( -perm -4000 -o -perm -2000 \\) "
-           "-type f 2>/dev/null; done | sort -u")
-    binaries = [b for b in out(cmd, 300).splitlines() if b]
+    binaries = _fs_scan(ctx)["privileged"]
     if not binaries:
         return "pass", "no setuid/setgid binaries found"
     pool = _running_rules(ctx) + _ondisk_rules(ctx)
@@ -2487,10 +2600,7 @@ def f_audit_privileged(ctx, p):
     if not pkg_installed("audit"):
         return False, "the audit package is not installed"
     umin = uid_min()
-    cmd = ("df --local -P 2>/dev/null | awk '{if (NR!=1) print $6}' | "
-           "while read -r m; do find \"$m\" -xdev \\( -perm -4000 -o -perm -2000 \\) "
-           "-type f 2>/dev/null; done | sort -u")
-    binaries = [b for b in out(cmd, 300).splitlines() if b]
+    binaries = _fs_scan(ctx)["privileged"]
     if not binaries:
         return False, "no setuid/setgid binaries found"
     lines = ["# CIS hardening: privileged command execution"]
@@ -2628,6 +2738,7 @@ def _create_aidecheck_units(ctx):
         if not exists(path):
             write_file(ctx, path, content, 0o644)
     sh(["systemctl", "daemon-reload"], 30)
+    _unit_db_invalidate()
 
 
 def _aide_conf():
@@ -2815,6 +2926,7 @@ def f_single_user_auth(ctx, p):
         d = "/etc/systemd/system/%s.d" % unit
         write_file(ctx, os.path.join(d, "60-cis.conf"), tmpl % mode)
     sh(["systemctl", "daemon-reload"], 60)
+    _unit_db_invalidate()
     return True, "forced sulogin for rescue.service and emergency.service"
 
 
@@ -3052,34 +3164,26 @@ def _ua_world_writable(ctx):
 
 
 def _ua_sticky_bit(ctx):
-    cmd = ("df --local -P 2>/dev/null | awk '{if (NR!=1) print $6}' | "
-           "while read -r m; do find \"$m\" -xdev -type d -perm -0002 ! -perm -1000 "
-           "2>/dev/null; done | head -30")
-    res = out(cmd, 300)
-    if res:
+    dirs = _fs_scan(ctx)["world_dirs"]
+    if dirs:
         return "fail", "%d world-writable dir(s) without the sticky bit, e.g. %s" % (
-            len(res.splitlines()), ", ".join(res.splitlines()[:4]))
+            len(dirs), ", ".join(dirs[:4]))
     return "pass", "all world-writable directories have the sticky bit"
 
 
 def _ua_unowned(ctx):
-    cmd = ("df --local -P 2>/dev/null | awk '{if (NR!=1) print $6}' | "
-           "while read -r m; do find \"$m\" -xdev \\( -nouser -o -nogroup \\) "
-           "2>/dev/null; done | head -30")
-    res = out(cmd, 300)
-    if res:
+    paths = _fs_scan(ctx)["unowned"]
+    if paths:
         return "fail", "%d unowned/ungrouped path(s), e.g. %s" % (
-            len(res.splitlines()), ", ".join(res.splitlines()[:4]))
+            len(paths), ", ".join(paths[:4]))
     return "pass", "no unowned or ungrouped files or directories"
 
 
 def _ua_ungrouped(ctx):
-    cmd = ("df --local -P 2>/dev/null | awk '{if (NR!=1) print $6}' | "
-           "while read -r m; do find \"$m\" -xdev -nogroup 2>/dev/null; done | head -30")
-    res = out(cmd, 300)
-    if res:
+    paths = _fs_scan(ctx)["ungrouped"]
+    if paths:
         return "fail", "%d ungrouped path(s), e.g. %s" % (
-            len(res.splitlines()), ", ".join(res.splitlines()[:4]))
+            len(paths), ", ".join(paths[:4]))
     return "pass", "no ungrouped files or directories"
 
 
@@ -3253,10 +3357,13 @@ def c_user_audit(ctx, p):
 def f_user_audit(ctx, p):
     kind = p["kind"]
     if kind == "sticky_bit":
-        sh("df --local -P 2>/dev/null | awk '{if (NR!=1) print $6}' | "
-           "while read -r m; do find \"$m\" -xdev -type d -perm -0002 ! -perm -1000 "
-           "-exec chmod a+t {} + 2>/dev/null; done", 600)
-        return True, "added the sticky bit to world-writable directories"
+        dirs = _fs_scan(ctx)["world_dirs"]
+        if not dirs:
+            return False, "no world-writable dirs without the sticky bit"
+        for d in dirs:
+            sh(["chmod", "a+t", d], 60)
+        ctx.invalidate("fs_scan")
+        return True, "added the sticky bit to %d world-writable dir(s)" % len(dirs)
     if kind == "world_writable":
         return f_world_writable(ctx, p)
     if kind == "nologin_locked":
@@ -3375,17 +3482,13 @@ def f_user_audit(ctx, p):
             return False, "nothing to change"
         return True, "created directories: " + ", ".join(created)
     if kind == "unowned":
-        # Assign unowned files to root:root
-        cmd = ("df --local -P 2>/dev/null | awk '{if (NR!=1) print $6}' | "
-               "while read -r m; do find \"$m\" -xdev \\( -nouser -o -nogroup \\) "
-               "2>/dev/null; done | head -50")
-        res = out(cmd, 300)
-        if not res:
+        # Assign unowned files to root:root (reuse the shared fs scan)
+        paths = _fs_scan(ctx)["unowned"]
+        if not paths:
             return False, "no unowned files found"
         done = []
-        for f in res.strip().split("\n"):
-            f = f.strip()
-            if f and os.path.lexists(f):
+        for f in paths:
+            if os.path.lexists(f):
                 try:
                     os.chown(f, 0, 0)
                     done.append(os.path.basename(f))
@@ -3393,6 +3496,7 @@ def f_user_audit(ctx, p):
                     ctx.notes.append("cannot chown %s" % f)
         if not done:
             return False, "could not chown any unowned path"
+        ctx.invalidate("fs_scan")
         return True, "assigned root:root to %d path(s)" % len(done)
     return False, ("finding requires human judgement (accounts, ownership or data "
                    "loss risk); remediate manually")
@@ -3864,8 +3968,20 @@ def main():
 
     ctx = Ctx(opts)
     started = time.time()
-    results = [run_rule(ctx, r) for r in sorted(
-        sel, key=lambda x: [int(n) for n in x["id"].split(".")])]
+    ordered = sorted(sel, key=lambda x: [int(n) for n in x["id"].split(".")])
+    # scan/audit mode is read-only: run the per-rule checks in parallel to
+    # cut wall time on the post-reboot re-audit.  apply mode stays serial
+    # because fixes have ordering dependencies (packages, services, sshd).
+    if opts.mode == "apply":
+        results = [run_rule(ctx, r) for r in ordered]
+    else:
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+            workers = min(8, max(1, os.cpu_count() or 1))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                results = list(pool.map(lambda r: run_rule(ctx, r), ordered))
+        except Exception:                       # pragma: no cover
+            results = [run_rule(ctx, r) for r in ordered]
     elapsed = time.time() - started
 
     doc = {
