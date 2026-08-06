@@ -639,20 +639,20 @@ build {
   }
 
   # 3. Reboot to activate kmod blacklist / sysctl / SELinux changes
-  # shutdown -r +1 schedules reboot 1 min later — Packer can finish cleanup
-  # before the machine goes down. remote_path avoids /tmp (noexec after CIS).
+  # shutdown -r +1 schedules reboot 1 min later — enough time for this
+  # provisioner to exit cleanly. remote_path avoids /tmp (noexec after CIS).
   provisioner "shell" {
-    pause_before      = "10s"
-    expect_disconnect = true
-    remote_path       = "/opt/ciscvm-ansible/reboot.sh"
-    inline            = ["sudo shutdown -r +1"]
-    valid_exit_codes  = [0, 1]
+    pause_before     = "10s"
+    remote_path      = "/opt/ciscvm-ansible/reboot.sh"
+    inline           = ["sudo shutdown -r +1"]
+    valid_exit_codes = [0, 1]
   }
 
   # 4. Re-audit after reboot + gate check (score >= 85%)
-  # 180s ≈ 60s shutdown delay + 60s reboot + 60s SSH ready buffer
+  # 300s timeline: 60s shutdown delay + 120s cloud VM reboot + 60s SSH
+  # startup + 60s safety buffer. Previous 180s only gave ~120s for reboot.
   provisioner "ansible-local" {
-    pause_before = "180s"
+    pause_before = "300s"
     command          = "/opt/ciscvm-ansible/bin/ansible-playbook"
     playbook_dir     = "ansible"
     playbook_file    = "ansible/site-audit.yml"
