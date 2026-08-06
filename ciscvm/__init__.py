@@ -640,21 +640,25 @@ build {
   }
 
   # 3. Reboot to activate kmod blacklist / sysctl / SELinux changes
-  # shutdown -r +1 delays reboot by 60s — Packer's shell provisioner
-  # can complete its temp-script cleanup while SSH is still up.
-  # Without the +1 delay, Packer retries cleanup forever (SSH is down)
-  # and the build fails. remote_path avoids /tmp (noexec after CIS).
+  # shutdown -r +1 delays reboot by 60s — Packer's cleanup (rm of
+  # reboot.sh) completes while SSH is still up.
+  # expect_disconnect tells Packer SSH WILL drop after this provisioner;
+  # Packer then enters its ssh_handshake_attempts retry loop (~5 min)
+  # instead of immediately failing the next provisioner.
+  # The 60s delay + Packer's retry window covers: 60s shutdown delay +
+  # up to 5 min for cloud VM reboot + SSH ready.
   provisioner "shell" {
-    pause_before = "10s"
-    remote_path  = "/opt/ciscvm-ansible/reboot.sh"
-    inline       = ["sudo shutdown -r +1"]
+    pause_before      = "10s"
+    remote_path       = "/opt/ciscvm-ansible/reboot.sh"
+    expect_disconnect = true
+    inline            = ["sudo shutdown -r +1"]
+    valid_exit_codes  = [0, 1]
   }
 
   # 4. Re-audit after reboot + gate check (score >= 85%)
-  # 360s timeline: 60s shutdown delay + 120s cloud VM reboot +
-  # 60s SSH startup + 120s safety buffer (this CVM takes ~3 min).
+  # No pause_before — Packer auto-waits for SSH after expect_disconnect.
+  # ssh_handshake_attempts=60 × ~5s = ~5 min retry window.
   provisioner "ansible-local" {
-    pause_before = "360s"
     command          = "/opt/ciscvm-ansible/bin/ansible-playbook"
     playbook_dir     = "ansible"
     playbook_file    = "ansible/site-audit.yml"
