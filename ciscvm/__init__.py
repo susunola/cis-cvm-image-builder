@@ -640,13 +640,15 @@ build {
 
   # 3. Reboot to activate kmod blacklist / sysctl / SELinux changes
   provisioner "shell" {
-    pause_before = "10s"
-    remote_path  = "/opt/ciscvm-ansible/reboot.sh"
-    inline       = ["sudo reboot"]
+    pause_before      = "10s"
+    expect_disconnect = true
+    remote_path       = "/opt/ciscvm-ansible/reboot.sh"
+    inline            = ["sudo reboot"]
   }
 
   # 4. Re-audit after reboot + gate check (score >= 85%)
   provisioner "ansible-local" {
+    pause_before = "60s"
     command          = "/opt/ciscvm-ansible/bin/ansible-playbook"
     playbook_dir     = "ansible"
     playbook_file    = "ansible/site-audit.yml"
