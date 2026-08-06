@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.6.1"
+VERSION = "0.7.0"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -669,14 +669,16 @@ build {
     inline       = ["sudo shutdown -r +1"]
   }
 
-  # 5. Wait for the machine to actually shut down, then wait for SSH
-  #    to come back. pause_before ensures the machine is already
-  #    down when Packer connects (shutdown happens at ~+60s).
-  #    expect_disconnect tells Packer to retry until SSH returns.
+  # 5. Wait for the reboot, then continue AS SOON AS SSH returns.
+  #  pause_before=90s only needs to cover the shutdown delay (+60s),
+  #    so Packer is already disconnected before it first probes.
+  # expect_disconnect then makes Packer poll and reconnect the very
+  #    moment SSH is back — no fixed 7-minute dead wait. This alone
+  #    saves several minutes per build when the VM reboots faster.
   provisioner "shell" {
-    pause_before      = "420s"
+  pause_before      = "90s"
     expect_disconnect = true
-    inline       = ["echo ok"]
+    inline    = ["echo reconnected"]
     valid_exit_codes  = [0, 1, -1]
   }
 
@@ -871,9 +873,22 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
-# 1. System dependencies
-__PKG_UPDATE__
-__PKG_INSTALL__
+# 1. System dependencies.
+#    Refreshing package indexes (apt-get update / dnf makecache / zypper
+#    refresh) is one of the slowest steps and is pure waste when the base
+#    image already ships python3 venv + pip. Probe first, only touch the
+#    package manager when something is actually missing.
+need_pkgs=0
+command -v git >/dev/null 2>&1 || need_pkgs=1
+# venv module + ensurepip must both work to build the ansible venv offline
+python3 -c 'import venv, ensurepip' >/dev/null 2>&1 || need_pkgs=1
+if [ "$need_pkgs" = "1" ]; then
+    echo "==> base deps missing, refreshing package manager"
+    __PKG_UPDATE__
+    __PKG_INSTALL__
+else
+    echo "==> base deps (python3-venv, pip, git) already present — skipping pkg refresh"
+fi
 
 # 2. Pick a Python >=3.8 (ansible-core >=2.12 requires it; RHEL 8 / TencentOS 3 ship 3.6)
 # NOTE: Python 3.12 has a multiprocessing atexit bug (FileNotFoundError for
@@ -913,11 +928,13 @@ if [ -z "$PY" ]; then
 fi
 echo "==> Using $($PY --version) for ansible venv"
 
-# 3. Ansible in a dedicated venv so we do not mutate system pip
+# 3. Ansible in a dedicated venv so we do not mutate system pip.
+#    Single pip run (no separate --upgrade pip round-trip) + disabled
+#    version check keeps this to one network install pass.
 VENV=/opt/ciscvm-ansible
 sudo "$PY" -m venv "$VENV"
-sudo "$VENV/bin/python" -m pip install --upgrade pip __PIP_INDEX_FLAG__
-sudo "$VENV/bin/python" -m pip install __PIP_INDEX_FLAG__ '__ANSIBLE_CORE_SPEC__' pexpect passlib
+sudo "$VENV/bin/python" -m pip install --disable-pip-version-check \
+    __PIP_INDEX_FLAG__ '__ANSIBLE_CORE_SPEC__' pexpect passlib
 
 echo "ansible ready in $VENV (cis-os engine)"
 """
