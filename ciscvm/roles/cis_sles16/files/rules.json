@@ -853,7 +853,8 @@
   "family": "selinux",
   "params": {},
   "risk": "safe",
-  "page": 151
+  "page": 151,
+  "reboot_required": true
  },
  {
   "id": "1.3.1.4",
@@ -904,7 +905,8 @@
   "family": "selinux",
   "params": {},
   "risk": "safe",
-  "page": 158
+  "page": 158,
+  "reboot_required": true
  },
  {
   "id": "1.3.1.7",
@@ -5196,7 +5198,8 @@
   "family": "audit_immutable",
   "params": {},
   "risk": "safe",
-  "page": 904
+  "page": 904,
+  "reboot_required": true
  },
  {
   "id": "6.2.3.35",
