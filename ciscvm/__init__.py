@@ -639,16 +639,18 @@ build {
   }
 
   # 3. Reboot to activate kmod blacklist / sysctl / SELinux changes
+  # NOTE: (sleep 5 && sudo reboot) & — forks reboot so the provisioner exits
+  # cleanly before SSH drops. This lets Packer remove the temp script normally
+  # instead of getting stuck in reconnect-retry loops for 5 min.
   provisioner "shell" {
     pause_before      = "10s"
     expect_disconnect = true
-    remote_path       = "/opt/ciscvm-ansible/reboot.sh"
-    inline            = ["sudo reboot"]
+    inline            = ["(sleep 5 && sudo reboot) &"]
   }
 
   # 4. Re-audit after reboot + gate check (score >= 85%)
   provisioner "ansible-local" {
-    pause_before = "60s"
+    pause_before = "120s"
     command          = "/opt/ciscvm-ansible/bin/ansible-playbook"
     playbook_dir     = "ansible"
     playbook_file    = "ansible/site-audit.yml"
