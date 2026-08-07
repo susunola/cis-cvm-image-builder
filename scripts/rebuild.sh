@@ -4,7 +4,7 @@
 set -euo pipefail
 
 REPO=/opt/cis-cvm-image-builder
-CONFIG=/opt/ciscvm.toml
+CONFIG="$REPO/ciscvm.toml"
 ENV_FILE=/opt/env
 LOG=/opt/run.log
 
@@ -15,6 +15,9 @@ source "$ENV_FILE"
 set +a
 
 echo "[2/6] Purging old files"
+# Preserve the local build config across the repo wipe — it lives INSIDE
+# the checkout ($REPO/ciscvm.toml) so it is clearly project-scoped.
+[ -f "$CONFIG" ] && cp "$CONFIG" /tmp/ciscvm.toml.save
 # Old checkout (may contain .venv / __pycache__ / *.egg-info /
 # .ciscvm-build render leftovers)
 rm -rf "$REPO"
@@ -29,6 +32,11 @@ echo "[3/6] Cloning latest code (main branch)"
 git clone https://github.com/susunola/cis-cvm-image-builder.git "$REPO"
 cd "$REPO"
 echo "     commit: $(git rev-parse --short HEAD)"
+if [ -f /tmp/ciscvm.toml.save ]; then
+    cp /tmp/ciscvm.toml.save "$CONFIG"
+    rm -f /tmp/ciscvm.toml.save
+    echo "     restored $CONFIG"
+fi
 
 echo "[4/6] Fresh-installing ciscvm"
 pip install --no-cache-dir --force-reinstall .
