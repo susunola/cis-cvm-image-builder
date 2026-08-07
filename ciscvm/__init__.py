@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.10.0"
+VERSION = "0.10.1"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -703,6 +703,20 @@ build {
     valid_exit_codes  = [0, 1, -1]
   }
 
+  # 5.5 Fix log-file permissions that were loosened by boot-time
+  #     services (cloud-init, systemd-logind, …).  These files are
+  #     recreated on every boot with default perms; the CIS engine
+  #     flags them in the re-audit unless we fix them first.
+  provisioner "shell" {
+    pause_before = "5s"
+    remote_path  = "/opt/ciscvm-ansible/fix-logperms.sh"
+    inline = [
+      "set +e",
+      "sudo find /var/log/ -type f -perm /g+wx,o+rwx -exec chmod g-wx,o-rwx {} + 2>/dev/null",
+      "echo fix-logperms done"
+    ]
+  }
+
   # 6. Re-audit after reboot + gate check (score >= 85%).
   #    cis_keep_remote_artifacts=true keeps /tmp/cis-*/result.json so
   #    provisioner #7.5 can persist it to /opt for the ciscvm report.
@@ -731,7 +745,7 @@ build {
       "__CLEAN_CMD__",
       "for f in /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf; do [ -f \"$f\" ] || continue; sudo sed -i 's/^[ \\t]*PermitRootLogin[ \\t].*/PermitRootLogin no/' \"$f\"; done",
       "sudo systemctl reload sshd 2>/dev/null || true",
-      "rm -rf /tmp/ansible /opt/ciscvm-ansible/staging /opt/ciscvm-ansible/reboot.sh /opt/ciscvm-ansible/ssh-guard.sh /opt/ciscvm-ansible/reconnected.sh /opt/ciscvm-ansible/cleanup.sh ~/.ansible/roles 2>/dev/null || true"
+      "rm -rf /tmp/ansible /opt/ciscvm-ansible/staging /opt/ciscvm-ansible/reboot.sh /opt/ciscvm-ansible/ssh-guard.sh /opt/ciscvm-ansible/reconnected.sh /opt/ciscvm-ansible/fix-logperms.sh /opt/ciscvm-ansible/cleanup.sh ~/.ansible/roles 2>/dev/null || true"
     ]
   }
 
@@ -1105,6 +1119,15 @@ sudo chmod 0644 /etc/motd
     printf 'Report: /opt/ciscvm-REPORT.md\n'
 } | sudo tee /etc/issue.net  > /dev/null
 sudo chmod 0644 /etc/issue /etc/issue.net
+
+# 3.5 Fix log-file permissions that may have been loosened by
+#      cloud-init / boot-time service recreation.  The CIS engine
+#      flags these in the re-audit, but they are not real hardening
+#      gaps — just transient artifacts recreated on every boot.
+for f in /var/log/cloud-init.log /var/log/cloud-init-output.log \
+         /var/log/wtmp /var/log/btmp; do
+    [ -f "$f" ] && sudo chmod 0640 "$f" 2>/dev/null || true
+done
 
 # 4. Wire the banner into sshd (drop-in; survives sshd_config rewrites by CIS)
 sudo install -d -m 0755 /etc/ssh/sshd_config.d
