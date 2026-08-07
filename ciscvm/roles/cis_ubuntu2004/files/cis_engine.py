@@ -62,7 +62,7 @@ def fix(*names):
 
 
 class Ctx(object):
-    """Execution context / shared caches."""
+    """Execution context / shared caches – thread-safe for parallel apply."""
 
     def __init__(self, opts):
         self.opts = opts
@@ -72,7 +72,12 @@ class Ctx(object):
         self._cache = {}
         self._cache_lock = threading.Lock()
         self.changed_files = []
+        self._changed_files_lock = threading.Lock()
         self.notes = []
+        self._notes_lock = threading.Lock()
+        self._pkg_lock = threading.Lock()
+        self._svc_lock = threading.Lock()
+        self._svc_queue = set()      # services to restart en-masse after apply
 
     # -- caching helper ---------------------------------------------------
     def cached(self, key, producer):
@@ -89,6 +94,32 @@ class Ctx(object):
         with self._cache_lock:
             for k in keys:
                 self._cache.pop(k, None)
+
+    def add_changed_file(self, path):
+        with self._changed_files_lock:
+            if path not in self.changed_files:
+                self.changed_files.append(path)
+
+    def add_note(self, note):
+        with self._notes_lock:
+            self.notes.append(note)
+
+    def defer_restart(self, svc_name):
+        """Queue a service restart.  All queued services are restarted once
+        at the end of apply — eliminating redundant restarts of the same
+        service after each individual fix."""
+        with self._svc_lock:
+            self._svc_queue.add(svc_name)
+
+    def flush_restarts(self):
+        """Restart every queued service (deduplicated, daemon-reload first)."""
+        with self._svc_lock:
+            if not self._svc_queue:
+                return
+            sh(["systemctl", "daemon-reload"], 30)
+            for svc in sorted(self._svc_queue):
+                sh(["systemctl", "restart", svc], 120)
+            self._svc_queue.clear()
 
 
 # --------------------------------------------------------------------------
@@ -147,7 +178,7 @@ def backup(ctx, path):
     while rel.startswith("/"):
         rel = rel[1:]
     if ".." in rel.split(os.sep):
-        ctx.notes.append("backup skipped (path traversal): %s" % path)
+        ctx.add_note("backup skipped (path traversal): %s" % path)
         return
     dest = os.path.join(ctx.backup_dir, rel)
     if os.path.exists(dest):
@@ -156,7 +187,7 @@ def backup(ctx, path):
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         shutil.copy2(path, dest)
     except Exception as exc:
-        ctx.notes.append("backup %s: %s" % (path, exc))
+        ctx.add_note("backup %s: %s" % (path, exc))
 
 
 def atomic_write(path, content, mode=None, preserve_owner=True):
@@ -201,7 +232,7 @@ def write_file(ctx, path, content, mode=0o644):
     if d:
         os.makedirs(d, exist_ok=True)
     atomic_write(path, content, mode=mode)
-    ctx.changed_files.append(path)
+    ctx.add_changed_file(path)
 
 
 def set_kv_in_file(ctx, path, key, value, sep=" ", comment_re=None,
@@ -230,7 +261,7 @@ def set_kv_in_file(ctx, path, key, value, sep=" ", comment_re=None,
         os.makedirs(d, exist_ok=True)
     content = "\n".join(res).rstrip("\n") + "\n"
     atomic_write(path, content, mode=mode)
-    ctx.changed_files.append(path)
+    ctx.add_changed_file(path)
 
 
 def comment_out(ctx, path, pattern):
@@ -249,7 +280,7 @@ def comment_out(ctx, path, pattern):
             res.append(ln)
     if n:
         atomic_write(path, "\n".join(res).rstrip("\n") + "\n", mode=None)
-        ctx.changed_files.append(path)
+        ctx.add_changed_file(path)
     return n
 
 
@@ -475,7 +506,7 @@ def f_mount_opt(ctx, p):
         if changed:
             with open("/etc/fstab", "w", encoding="utf-8") as fh:
                 fh.write("\n".join(res).rstrip("\n") + "\n")
-            ctx.changed_files.append("/etc/fstab")
+            ctx.add_changed_file("/etc/fstab")
     # 2. apply live
     rc, _, err = sh(["mount", "-o", "remount," + opt, mp])
     ctx.invalidate("mounts")
@@ -510,7 +541,7 @@ def f_partition(ctx, p):
         fstab_line = "tmpfs  %s  tmpfs  defaults,noexec,nosuid,nodev  0 0" % mp
         with open("/etc/fstab", "a", encoding="utf-8") as fh:
             fh.write("\n" + fstab_line + "\n")
-        ctx.changed_files.append("/etc/fstab")
+        ctx.add_changed_file("/etc/fstab")
     os.makedirs(mp, exist_ok=True)
     rc, _, err = sh(["mount", "-t", "tmpfs", "-o", "noexec,nosuid,nodev", "tmpfs", mp])
     ctx.invalidate("mounts")
@@ -592,7 +623,7 @@ def f_file_perm(ctx, p):
     if not exists(path):
         if p.get("kind") == "dir":
             os.makedirs(path, exist_ok=True)
-            ctx.changed_files.append(path)
+            ctx.add_changed_file(path)
         else:
             return False, "%s does not exist" % path
     acts = []
@@ -602,7 +633,7 @@ def f_file_perm(ctx, p):
     if p.get("owner") or p.get("group"):
         sh(["chown", "%s:%s" % (p.get("owner") or "", p.get("group") or ""), path])
         acts.append("chown %s:%s" % (p.get("owner") or "", p.get("group") or ""))
-    ctx.changed_files.append(path)
+    ctx.add_changed_file(path)
     return True, "%s -> %s" % (path, ", ".join(acts))
 
 
@@ -664,7 +695,7 @@ def f_path_perm_glob(ctx, p):
         else:
             sh(["chown", "root:root", f])
             os.chmod(f, 0o644)
-        ctx.changed_files.append(f)
+        ctx.add_changed_file(f)
     return True, "fixed %d host key file(s)" % len(files)
 
 
@@ -1001,7 +1032,7 @@ def f_dnf_flag(ctx, p):
         if chg:
             with open(rp, "w", encoding="utf-8") as fh:
                 fh.write("\n".join(res).rstrip("\n") + "\n")
-            ctx.changed_files.append(rp)
+            ctx.add_changed_file(rp)
     return True, "set %s=%s in dnf.conf and repo files" % (key, want)
 
 
@@ -1160,7 +1191,7 @@ def f_gdm_conf(ctx, p):
             res.append("%s=%s" % (p["key"], p["value"]))
     with open(path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(res).rstrip("\n") + "\n")
-    ctx.changed_files.append(path)
+    ctx.add_changed_file(path)
     return True, "set [%s] %s=%s in %s" % (p["section"], p["key"], p["value"], path)
 
 
@@ -1250,8 +1281,8 @@ def f_mta_local(ctx, p):
         return False, "postfix not installed"
     set_kv_in_file(ctx, "/etc/postfix/main.cf", "inet_interfaces",
                    "loopback-only", sep=" = ")
-    sh(["systemctl", "restart", "postfix"], 120)
-    return True, "set inet_interfaces = loopback-only and restarted postfix"
+    ctx.defer_restart("postfix")
+    return True, "set inet_interfaces = loopback-only"
 
 
 @check("chrony_user")
@@ -1276,7 +1307,7 @@ def f_chrony_user(ctx, p):
         return False, "chrony is not installed"
     set_kv_in_file(ctx, "/etc/sysconfig/chronyd", "OPTIONS",
                    '"-F 2 -u chrony"', sep="=")
-    sh(["systemctl", "restart", "chronyd"], 120)
+    ctx.defer_restart("chronyd")
     return True, "forced -u chrony in /etc/sysconfig/chronyd"
 
 
@@ -1322,7 +1353,7 @@ def f_rsyslog_filecreatemode(ctx, p):
         comment_out(ctx, f, r"^\s*\$FileCreateMode")
     set_kv_in_file(ctx, "/etc/rsyslog.d/60-cis.conf", "$FileCreateMode",
                    p["mode"], sep=" ")
-    sh(["systemctl", "restart", "rsyslog"], 120)
+    ctx.defer_restart("rsyslog")
     return True, "set $FileCreateMode %s in /etc/rsyslog.d/60-cis.conf" % p["mode"]
 
 
@@ -1365,8 +1396,8 @@ def f_rsyslog_no_receive(ctx, p):
                 n += comment_out(ctx, path, rx)
     if not n:
         return False, "nothing to change"
-    sh(["systemctl", "restart", "rsyslog"], 120)
-    return True, "commented out %d imtcp directive(s) and restarted rsyslog" % n
+    ctx.defer_restart("rsyslog")
+    return True, "commented out %d imtcp directive(s)" % n
 
 # ==========================================================================
 # Generic key/value configuration family
@@ -1512,7 +1543,7 @@ def f_kv_conf(ctx, p):
             os.makedirs(os.path.dirname(target) or "/", exist_ok=True)
             with open(target, "a", encoding="utf-8") as fh:
                 fh.write("\n%s\n" % key)
-            ctx.changed_files.append(target)
+            ctx.add_changed_file(target)
         return True, "ensured flag %s in %s" % (key, target)
     mode = 0o644
     if target.endswith(".sh"):
@@ -1646,7 +1677,7 @@ def _sshd_write(ctx, pairs):
     rc, _, err = sh(["sshd", "-t"], 30)
     if rc != 0:
         return tgt, err
-    sh(["systemctl", "reload", "sshd"], 60)
+    ctx.defer_restart("sshd")
     ctx.invalidate("sshd_T")
     return tgt, None
 
@@ -1731,7 +1762,7 @@ def f_sshd_crypto_policy(ctx, p):
     n = comment_out(ctx, "/etc/sysconfig/sshd", r"^\s*CRYPTO_POLICY\s*=")
     if not n:
         return False, "nothing to change"
-    sh(["systemctl", "reload", "sshd"], 60)
+    ctx.defer_restart("sshd")
     return True, "commented out CRYPTO_POLICY in /etc/sysconfig/sshd"
 
 
@@ -1758,7 +1789,7 @@ def f_sshd_config_perm(ctx, p):
         if exists(f):
             sh(["chown", "root:root", f])
             os.chmod(f, 0o600)
-            ctx.changed_files.append(f)
+            ctx.add_changed_file(f)
             n += 1
     return True, "set 0600 root:root on %d file(s)" % n
 
@@ -1973,7 +2004,7 @@ def _sudo_append(ctx, line):
         backup(ctx, SUDO_DROPIN)
         os.replace(tmp, SUDO_DROPIN)
         os.chmod(SUDO_DROPIN, 0o440)
-        ctx.changed_files.append(SUDO_DROPIN)
+        ctx.add_changed_file(SUDO_DROPIN)
         ctx.invalidate("sudoers")
         return True, "added %r to %s" % (line, SUDO_DROPIN)
     except Exception as exc:
@@ -2477,10 +2508,10 @@ def f_audit_perm(ctx, p):
             try:
                 os.chmod(f, int(p["mode"], 8))
             except Exception as exc:
-                ctx.notes.append("chmod %s: %s" % (f, exc))
+                ctx.add_note("chmod %s: %s" % (f, exc))
         if p.get("owner") or p.get("group"):
             sh(["chown", "%s:%s" % (p.get("owner") or "", p.get("group") or ""), f])
-        ctx.changed_files.append(f)
+        ctx.add_changed_file(f)
     if p["kind"] in ("logfile", "logfiles") and p.get("mode"):
         set_kv_in_file(ctx, "/etc/audit/auditd.conf", "log_group", "root", sep=" = ")
     return True, "applied to %d %s target(s)" % (len(targets), p["kind"])
@@ -2798,7 +2829,7 @@ def f_aide_audit_tools(ctx, p):
         fh.write("\n# CIS hardening: audit tools\n")
         for t in add:
             fh.write("%s %s\n" % (t, AIDE_SEL))
-    ctx.changed_files.append(conf)
+    ctx.add_changed_file(conf)
     return True, "added %d audit tool selection line(s) to %s" % (len(add), conf)
 
 
@@ -2912,7 +2943,7 @@ def f_bootloader_perm(ctx, p):
     for f in targets:
         sh(["chown", "root:root", f])
         os.chmod(f, 0o600)
-        ctx.changed_files.append(f)
+        ctx.add_changed_file(f)
     if not targets:
         return False, "no bootloader files found"
     return True, "set 0600 root:root on %d file(s)" % len(targets)
@@ -3508,7 +3539,7 @@ def f_user_audit(ctx, p):
                     os.chown(f, 0, 0)
                     done.append(os.path.basename(f))
                 except OSError:
-                    ctx.notes.append("cannot chown %s" % f)
+                    ctx.add_note("cannot chown %s" % f)
         if not done:
             return False, "could not chown any unowned path"
         ctx.invalidate("fs_scan")
@@ -3581,7 +3612,7 @@ def f_cron_allow(ctx, p):
             acts.append("created " + allow)
         os.chmod(allow, 0o640)
         sh(["chown", "root:root", allow])
-        ctx.changed_files.append(allow)
+        ctx.add_changed_file(allow)
     return True, "; ".join(acts) or "normalised ownership and permissions"
 
 
@@ -3617,7 +3648,7 @@ def _ensure_custom_profile(ctx):
     rc, o, e = sh(["authselect", "create-profile", CIS_AUTHSELECT_PROFILE,
                    "-b", base, "--symlink-meta"], 60)
     if rc != 0 and "already exists" not in (o + e):
-        ctx.notes.append("authselect create-profile: %s" % (e or o)[:160])
+        ctx.add_note("authselect create-profile: %s" % (e or o)[:160])
         return None
     d = "/etc/authselect/custom/%s" % CIS_AUTHSELECT_PROFILE
     if not os.path.isdir(d):
@@ -3625,7 +3656,7 @@ def _ensure_custom_profile(ctx):
     rc, o, e = sh(["authselect", "select", "custom/%s" % CIS_AUTHSELECT_PROFILE]
                   + feats + ["--force"], 120)
     if rc != 0:
-        ctx.notes.append("authselect select: %s" % (e or o)[:160])
+        ctx.add_note("authselect select: %s" % (e or o)[:160])
     return d
 
 
@@ -3688,7 +3719,7 @@ def _pam_apply(ctx):
     if have("authselect"):
         rc, o, e = sh(["authselect", "apply-changes"], 120)
         if rc != 0:
-            ctx.notes.append("authselect apply-changes: %s" % (e or o)[:200])
+            ctx.add_note("authselect apply-changes: %s" % (e or o)[:200])
             # Roll the live stack back to the pre-edit snapshot so sshd
             # authentication cannot break on reboot.
             global PAM_APPLY_BACKUP
@@ -3698,13 +3729,13 @@ def _pam_apply(ctx):
                         with open(path, "w", encoding="utf-8") as fh:
                             fh.write(content)
                     except OSError as exc:
-                        ctx.notes.append("PAM rollback %s: %s" % (path, exc))
-                ctx.notes.append("PAM rollback applied after apply-changes failure")
+                        ctx.add_note("PAM rollback %s: %s" % (path, exc))
+                ctx.add_note("PAM rollback applied after apply-changes failure")
             else:
-                ctx.notes.append("no PAM snapshot to roll back to")
+                ctx.add_note("no PAM snapshot to roll back to")
     ok, why = _pam_verify()
     if not ok:
-        ctx.notes.append("PAM verification failed: %s" % why)
+        ctx.add_note("PAM verification failed: %s" % why)
     ctx.invalidate("pam_paths")
 
 
@@ -3731,7 +3762,7 @@ def f_pam_module(ctx, p):
             if rc == 0:
                 _pam_apply(ctx)
                 return True, "enabled authselect feature %s" % feat
-            ctx.notes.append("enable-feature %s: %s" % (feat, (e or o)[:120]))
+            ctx.add_note("enable-feature %s: %s" % (feat, (e or o)[:120]))
     global PAM_APPLY_BACKUP
     PAM_APPLY_BACKUP = _pam_snapshot()
     targets = _pam_edit_targets(ctx)
@@ -4039,19 +4070,108 @@ def main():
     ctx = Ctx(opts)
     started = time.time()
     ordered = sorted(sel, key=lambda x: [int(n) for n in x["id"].split(".")])
-    # scan/audit mode is read-only: run the per-rule checks in parallel to
-    # cut wall time on the post-reboot re-audit.  apply mode stays serial
-    # because fixes have ordering dependencies (packages, services, sshd).
-    if opts.mode == "apply":
-        results = [run_rule(ctx, r) for r in ordered]
-    else:
-        try:
-            from concurrent.futures import ThreadPoolExecutor
-            workers = min(8, max(1, os.cpu_count() or 1))
+
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        workers = min(8, max(1, os.cpu_count() or 1))
+    except ImportError:                              # pragma: no cover
+        workers = 1
+
+    def _in_pool(fn, items):
+        if workers > 1:
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                results = list(pool.map(lambda r: run_rule(ctx, r), ordered))
-        except Exception:                       # pragma: no cover
-            results = [run_rule(ctx, r) for r in ordered]
+                return list(pool.map(fn, items))
+        return [fn(r) for r in items]
+
+    if opts.mode == "apply":
+        # ── Phase 0: Pre-scan (parallel, read-only scan mode) ──
+        # Run every rule's check (no fixes) to discover which packages are
+        # missing.  We use a scan-mode context so run_rule() never triggers
+        # the fix path — this is purely diagnostic.
+        sys.stderr.write("cis-engine: phase 0 pre-scan (%d rules, %d workers)\n"
+                         % (len(ordered), workers))
+        from argparse import Namespace as _NS
+        scan_opts = _NS(**{k: v for k, v in vars(opts).items()})
+        scan_opts.mode = "scan"
+        ctx_scan = Ctx(scan_opts)
+        pre_results = _in_pool(lambda r: run_rule(ctx_scan, r), ordered)
+
+        # ── Phase 1: Batch-install missing packages ──
+        missing_pkgs = set()
+        for r in pre_results:
+            if r["status"] == "fail":
+                d = r.get("detail", "")
+                m = re.search(r"missing:\s*(.+)$", d)
+                if m:
+                    missing_pkgs.add(m.group(1).strip())
+                elif "not installed" in d or "required package" in d.lower():
+                    # Try to extract package names from comma-separated list
+                    for seg in re.findall(r"([\w.-]+)", d):
+                        if len(seg) > 2 and seg not in ("not", "installed",
+                            "missing", "required", "package", "packages",
+                            "none", "of", "s"):
+                            missing_pkgs.add(seg)
+
+        if missing_pkgs:
+            pkg_list = sorted(missing_pkgs)
+            sys.stderr.write("cis-engine: phase 1 installing %d packages: %s\n"
+                             % (len(pkg_list), " ".join(pkg_list)))
+            rc, o, e = sh(["dnf", "-y", "install"] + pkg_list, 900)
+            if rc != 0:
+                sys.stderr.write("batch install warning: %s\n" % ((e or o)[:200]))
+            _pkg_cache_invalidate()
+
+        # ── Phase 2: Parallel apply ──
+        # Rules that touch the package manager are serialised via ctx._pkg_lock;
+        # all others (config writes, file perms, kernel params, etc.) run in
+        # parallel.  Service restarts are deferred to Phase 3.
+        sys.stderr.write("cis-engine: phase 2 parallel apply (%d rules, %d workers)\n"
+                         % (len(ordered), workers))
+
+        def _apply_one(ctx, rule):
+            fam = rule.get("family", "")
+            if fam in ("pkg_present", "pkg_not_present", "pkg_any_present",
+                       "pkg_not_installed", "pkg_installed", "pkg_removed",
+                       "pkg_audit", "pkg_firewall", "pkg_password"):
+                with ctx._pkg_lock:
+                    return run_rule(ctx, rule)
+            return run_rule(ctx, rule)
+
+        results = _in_pool(lambda r: _apply_one(ctx, r), ordered)
+
+        # ── Phase 3: Batch restart queued services ──
+        sys.stderr.write("cis-engine: phase 3 flushing %d service restart(s)\n"
+                         % len(ctx._svc_queue))
+        ctx.flush_restarts()
+
+        # ── Phase 4: Re-check fixed rules (parallel, read-only) ──
+        # Rules whose fix succeeded need a post-fix check to update status
+        # from "fail" to "pass".  This was previously done inline inside
+        # run_rule(); now we defer it so the checks run in parallel.
+        to_recheck = [r for r in results
+                      if r.get("apply_status") in ("applied", "applied_pending")]
+        if to_recheck:
+            sys.stderr.write("cis-engine: phase 4 re-checking %d rule(s)\n"
+                             % len(to_recheck))
+            ctx_re = Ctx(opts)
+            ctx_re.changed_files = ctx.changed_files  # share file list (read-only here)
+
+            def _recheck(r):
+                fn = CHECKS.get(r["family"])
+                if fn:
+                    try:
+                        st, detail = fn(ctx_re, r.get("params") or {})
+                        r["status"], r["detail"] = st, detail
+                    except Exception:                    # pragma: no cover
+                        pass
+                return r
+
+            results = _in_pool(_recheck, to_recheck) + \
+                      [r for r in results if r.get("apply_status") not in ("applied", "applied_pending")]
+
+    else:
+        # scan/audit mode: already parallel
+        results = _in_pool(lambda r: run_rule(ctx, r), ordered)
     elapsed = time.time() - started
 
     doc = {
