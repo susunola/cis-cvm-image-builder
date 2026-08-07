@@ -35,11 +35,12 @@ import subprocess
 import sys
 import threading
 import tomllib
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.13.11"
+VERSION = "0.14.0"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -244,9 +245,20 @@ secret_key_env = "TENCENTCLOUD_SECRET_KEY"
 # Windows builds also require:
 # winrm_password_env = "WINRM_PASSWORD"
 
+# Build notifications (WeCom group-robot webhook). Empty webhook = off.
+# on: always | success | failure (default failure)
+# [notify]
+# webhook = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxx"
+# on      = "failure"
+
+# SLSA-style provenance signing (GPG). Empty = provenance unsigned.
+# [sign]
+# gpg_key = "ABCDEF0123456789"
+
 [meta]
 os_tag    = "tencentos-3"
 benchmark = "CIS-v1.0.0"
+# smoke_test = true   # instance-level checks before the image snapshot
 """
 
 PROFILE_NAMES_HELP = ", ".join(PROFILES)
@@ -297,6 +309,10 @@ class ResolvedConfig:
     image_benchmark: str
     level: int
     role_dir: str
+    smoke_test: bool                    # [meta].smoke_test — run instance-level smoke checks before snapshot (default true)
+    notify_webhook: str                 # [notify].webhook — WeCom group-robot webhook URL ("" = off)
+    notify_on: str                      # [notify].on — "always" | "success" | "failure" (default "failure")
+    sign_key: str                       # [sign].gpg_key — GPG key id/fingerprint for SLSA provenance signing ("" = off)
 
 
 # ---------------------------------------------------------------------------
@@ -475,6 +491,19 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         raise ConfigError(
             f"[cloud].assume_role_duration must be 0-43200, got {assume_role_duration}")
 
+    # [meta].smoke_test — instance-level checks before the snapshot (default on).
+    smoke_test = bool(data.get("meta", {}).get("smoke_test", True))
+
+    # [notify] — WeCom group-robot webhook; empty webhook disables notifications.
+    notify_webhook = str(data.get("notify", {}).get("webhook", "")).strip()
+    notify_on = str(data.get("notify", {}).get("on", "failure")).strip().lower()
+    if notify_on not in ("always", "success", "failure"):
+        raise ConfigError(
+            f"[notify].on must be one of always|success|failure, got {notify_on!r}")
+
+    # [sign] — GPG key for SLSA-style provenance signing ("" = off).
+    sign_key = str(data.get("sign", {}).get("gpg_key", "")).strip()
+
     return ResolvedConfig(
         profile_name=profile_name,
         profile=p,
@@ -507,6 +536,10 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         image_benchmark=str(meta.get("benchmark", p.get("benchmark", ""))),
         level=level,
         role_dir=str(p["role_dir"]),
+        smoke_test=smoke_test,
+        notify_webhook=notify_webhook,
+        notify_on=notify_on,
+        sign_key=sign_key,
     )
 
 
@@ -872,7 +905,46 @@ build {
       "fi"
     ]
   }
+__SMOKE_TEST_BLOCK__
 }
+"""
+
+# ── Instance-level smoke test (Linux) ──
+# Runs as the very last provisioner, AFTER finalize + final re-audit and
+# BEFORE Packer snapshots the image.  Any failure exits non-zero → Packer
+# aborts → no image is produced.  This is the "Test" leg of the
+# build → test → distribute pipeline (AWS Image Builder style).
+SMOKE_LINUX_BLOCK = r"""  provisioner "shell" {
+    pause_before = "5s"
+    inline = [
+      "echo '[ciscvm] smoke test: sshd config parses'",
+      "sudo sshd -T >/dev/null 2>&1 || { echo '[ciscvm] SMOKE FAIL: sshd -T rejected config'; exit 1; }",
+      "echo '[ciscvm] smoke test: sshd active'",
+      "systemctl is-active --quiet sshd || { echo '[ciscvm] SMOKE FAIL: sshd not active'; exit 1; }",
+      "echo '[ciscvm] smoke test: auditd active'",
+      "systemctl is-active --quiet auditd || { echo '[ciscvm] SMOKE FAIL: auditd not active'; exit 1; }",
+      "echo '[ciscvm] smoke test: /dev/shm noexec'",
+      "awk '$2 == \"/dev/shm\" && $4 ~ /noexec/' /proc/mounts | grep -q . || { echo '[ciscvm] SMOKE FAIL: /dev/shm lacks noexec'; exit 1; }",
+      "echo '[ciscvm] smoke test: no weak SSH crypto'",
+      "if sudo sshd -T 2>/dev/null | tr ',' '\\n' | grep -Eiq 'hmac-sha1|hmac-md5|umac-64|chacha20|aes128-cbc|aes192-cbc|aes256-cbc'; then",
+      "  echo '[ciscvm] SMOKE FAIL: weak SSH crypto present'; exit 1;",
+      "fi",
+      "echo '[ciscvm] smoke test: journal-upload (if configured)'",
+      "if systemctl list-unit-files systemd-journal-upload.service >/dev/null 2>&1; then",
+      "  systemctl is-active --quiet systemd-journal-upload || { echo '[ciscvm] SMOKE FAIL: journal-upload inactive'; exit 1; }",
+      "fi",
+      "echo '[ciscvm] smoke test PASSED — image is buildable'"
+    ]
+  }
+"""
+
+# ── Instance-level smoke test (Windows) ──
+SMOKE_WIN_BLOCK = r"""  provisioner "powershell" {
+    inline = [
+      "if ((Get-Service -Name mpssvc -ErrorAction SilentlyContinue).Status -ne 'Running') { Write-Error '[ciscvm] SMOKE FAIL: Windows firewall inactive'; exit 1 }",
+      "Write-Host '[ciscvm] smoke test PASSED - image is buildable'"
+    ]
+  }
 """
 
 # ── Windows HCL (winrm communicator × controller-side ansible provisioner) ──
@@ -989,6 +1061,7 @@ build {
       "-e", "ansible_winrm_transport=basic"
     ]
   }
+__SMOKE_TEST_BLOCK__
 }
 """
 
@@ -1709,6 +1782,14 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
     else:
         assume_role_block = ""
 
+    # Instance-level smoke test (build → test → distribute): any failure
+    # aborts the build before Packer snapshots the image.
+    # Linux profiles carry family == "" (only Windows sets "windows").
+    if r.smoke_test:
+        smoke_block = SMOKE_LINUX_BLOCK if family != "windows" else SMOKE_WIN_BLOCK
+    else:
+        smoke_block = ""
+
     if family == "windows":
         if r.ssh_debug_password:
             warn("[meta].ssh_debug_password is ignored for Windows profiles "
@@ -1719,6 +1800,7 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
                .replace("__SECRET_ID_ENV__", r.secret_id_env)
                .replace("__SECRET_KEY_ENV__", r.secret_key_env)
                .replace("__SECURITY_TOKEN_ENV__", r.security_token_env)
+               .replace("__SMOKE_TEST_BLOCK__", smoke_block)
                .replace("__ASSUME_ROLE_BLOCK__", assume_role_block))
     else:
         # Substitute the build's actual metadata into the finalize provisioner
@@ -1737,6 +1819,7 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
                .replace("__SECRET_ID_ENV__", r.secret_id_env)
                .replace("__SECRET_KEY_ENV__", r.secret_key_env)
                .replace("__SECURITY_TOKEN_ENV__", r.security_token_env)
+               .replace("__SMOKE_TEST_BLOCK__", smoke_block)
                .replace("__ASSUME_ROLE_BLOCK__", assume_role_block))
         user_data = ""
         if r.ssh_debug_password:
@@ -2110,15 +2193,31 @@ def cmd_build(args: argparse.Namespace) -> int:
     # Output is already streamed live by run_packer; only scan the captured
     # lines to extract the resulting image ID (do not re-print them).
     image_ids = _extract_image_ids(result.stdout_lines)
+    score = _extract_score(result.stdout_lines)
+    image_name = _image_name(r)
+    success = result.exit_code == 0
 
-    if result.exit_code == 0:
+    if success:
         ok("packer build succeeded")
         if image_ids:
             ok(f"Output image ID(s): {', '.join(image_ids)}")
         else:
             info("Could not parse image ID from output — check the Tencent Cloud console.")
+        if score is not None:
+            ok(f"Re-audit score: {score:g}%")
+        # Build → test → distribute: record lineage + signed provenance
+        lin = _record_lineage(r, image_ids, image_name, score, ok=True)
+        if lin:
+            info(f"Lineage recorded -> {lin}")
+        prov = _write_provenance(r, image_ids, image_name, score)
+        if prov:
+            info(f"Provenance written -> {prov}")
     else:
         fail("packer build failed (see output above)")
+        _record_lineage(r, image_ids, image_name, score, ok=False)
+
+    # [notify] — WeCom webhook; never affects the exit code.
+    _send_notification(r, success, image_ids, score, image_name)
 
     if _fh is not None:
         logger.removeHandler(_fh)
@@ -2146,6 +2245,199 @@ def _extract_image_ids(stdout_lines: list[str]) -> list[str]:
             if ") were created" in line:
                 break
     return list(dict.fromkeys(image_ids))
+
+
+def _extract_score(stdout_lines: list[str]) -> float | None:
+    """Extract the re-audit score (e.g. 'Score: 91.5%') from packer output."""
+    for line in stdout_lines:
+        if m := re.search(r"Score:\s*(\d+(?:\.\d+)?)\s*%", line):
+            return float(m.group(1))
+    return None
+
+
+# ── Image lineage ────────────────────────────────────────────────────────────
+# Every successful build appends a record to ~/.ciscvm/lineage.jsonl, so
+# downstream tools (Terraform, ASG, scripts) can resolve "latest approved
+# image" instead of hand-copying image IDs.  This is the lightweight cousin
+# of HCP Packer's channels / AWS Image Builder distribution metadata.
+def _lineage_path() -> Path:
+    return Path.home() / ".ciscvm" / "lineage.jsonl"
+
+
+def _record_lineage(r: ResolvedConfig, image_ids: list[str], image_name: str,
+                    score: float | None, ok: bool) -> Path | None:
+    """Append one lineage record. Returns the file path, or None on failure."""
+    if not isinstance(r, ResolvedConfig):
+        return None  # defensive: only real resolved configs are recorded
+    try:
+        path = _lineage_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        from datetime import datetime, timezone
+        rec = {
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "status": "ok" if ok else "failed",
+            "ciscvm_version": VERSION,
+            "profile": r.profile_name,
+            "cis_level": r.level,
+            "region": r.region,
+            "zone": r.zone,
+            "source_image_id": r.source_image_id,
+            "image_name": image_name,
+            "image_ids": image_ids,
+            "score": score,
+        }
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        return path
+    except OSError:
+        return None
+
+
+def cmd_images(args: argparse.Namespace) -> int:
+    """List recorded builds (lineage) — most recent first."""
+    path = _lineage_path()
+    if not path.exists():
+        info(f"No lineage records yet at {path} — run a build first.")
+        return 0
+    records: list[dict] = []
+    with open(path, encoding="utf-8") as fh:
+        for ln in fh:
+            ln = ln.strip()
+            if not ln:
+                continue
+            try:
+                records.append(json.loads(ln))
+            except json.JSONDecodeError:
+                continue
+    records.reverse()  # newest first
+    limit = getattr(args, "limit", 10)
+    if args.latest:
+        records = records[:1]
+    elif limit > 0:
+        records = records[:limit]
+    if not records:
+        info("No records.")
+        return 0
+    for rec in records:
+        imgs = ", ".join(rec.get("image_ids") or [])
+        score = rec.get("score")
+        score_s = f"{score:g}%" if score is not None else "-"
+        status = rec.get("status", "?")
+        print(f"{rec.get('ts', '?'):s}  {status:6s}  L{rec.get('cis_level', '?')}  "
+              f"score={score_s:>6s}  {rec.get('image_name', ''):s}  "
+              f"src={rec.get('source_image_id', ''):s}  ->  {imgs}")
+    return 0
+
+
+# ── Build notifications (WeCom group robot) ─────────────────────────────────
+# [notify].webhook + [notify].on ("always"|"success"|"failure", default
+# "failure").  Combined with an external cron / systemd timer this turns
+# ciscvm build into a scheduled, self-reporting rebuild pipeline.
+def _send_notification(r: ResolvedConfig, ok: bool, image_ids: list[str],
+                       score: float | None, image_name: str) -> None:
+    if not isinstance(r, ResolvedConfig):
+        return
+    if not r.notify_webhook:
+        return
+    if r.notify_on == "success" and not ok:
+        return
+    if r.notify_on == "failure" and ok:
+        return
+    if ok:
+        head = "✅ ciscvm build OK"
+        body = (f"profile {r.profile_name} L{r.level} | image {image_name} | "
+                f"score {score:g}%" if score is not None else
+                f"profile {r.profile_name} L{r.level} | image {image_name}")
+        if image_ids:
+            body += f"\nimage-id: {', '.join(image_ids)}"
+        body += f"\nregion {r.region}"
+    else:
+        head = "❌ ciscvm build FAILED"
+        body = f"profile {r.profile_name} L{r.level} | region {r.region} — check the build log"
+    payload = json.dumps({"msgtype": "text", "text": {"content": f"{head}\n{body}"}},
+                         ensure_ascii=False).encode("utf-8")
+    try:
+        req = urllib.request.Request(
+            r.notify_webhook, data=payload,
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status == 200:
+                info(f"Notification sent to WeCom webhook")
+            else:
+                warn(f"Notification webhook returned HTTP {resp.status}")
+    except Exception as exc:  # notifications must never fail the build
+        warn(f"Notification webhook failed: {exc}")
+
+
+# ── SLSA-style provenance + signing ─────────────────────────────────────────
+# Tencent Cloud CVM images are img-* artifacts, NOT OCI images — cosign's
+# container signing does not apply.  We follow the SLSA provenance model
+# instead: emit a build provenance statement (SLSA v1.0-ish) and, when a GPG
+# key is configured, detach-sign it.  That gives an auditable, signed
+# record of exactly what produced the image (SLSA L1 + signed provenance).
+def _write_provenance(r: ResolvedConfig, image_ids: list[str], image_name: str,
+                      score: float | None) -> Path | None:
+    if not isinstance(r, ResolvedConfig):
+        return None
+    try:
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        dirp = _lineage_path().parent / "provenance"
+        dirp.mkdir(parents=True, exist_ok=True)
+        safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", image_name) or "image"
+        prov_path = dirp / f"{safe_name}.{ts.replace(':', '').replace('-', '').replace('T', '-')}.provenance.json"
+        prov = {
+            "_type": "https://in-toto.io/Statement/v1",
+            "predicateType": "https://slsa.dev/provenance/v1",
+            "subject": [{"name": i, "digest": {"sha256": "n/a"}} for i in image_ids],
+            "predicate": {
+                "buildDefinition": {
+                    "buildType": "https://ciscvm.dev/build/v1",
+                    "externalParameters": {
+                        "profile": r.profile_name,
+                        "cis_level": r.level,
+                        "region": r.region,
+                        "zone": r.zone,
+                        "source_image_id": r.source_image_id,
+                        "instance_type": r.instance_type,
+                        "benchmark": r.image_benchmark,
+                    },
+                    "internalParameters": {"ciscvm_version": VERSION},
+                },
+                "runDetails": {
+                    "builder": {"id": f"ciscvm@{VERSION}"},
+                    "metadata": {
+                        "invocationId": ts,
+                        "startedOn": ts,
+                        "finishedOn": ts,
+                    },
+                },
+            },
+        }
+        if score is not None:
+            prov["predicate"]["runDetails"]["metadata"]["reAuditScore"] = score
+        prov_path.write_text(json.dumps(prov, ensure_ascii=False, indent=1) + "\n",
+                             encoding="utf-8")
+        if r.sign_key:
+            sig = prov_path.with_suffix(prov_path.suffix + ".sig")
+            try:
+                rc = subprocess.run(
+                    ["gpg", "--batch", "--yes", "--detach-sign", "--armor",
+                     "--local-user", r.sign_key, "-o", str(sig), str(prov_path)],
+                    capture_output=True, text=True, timeout=60)
+                if rc.returncode == 0:
+                    ok(f"Provenance signed with GPG key {r.sign_key} -> {sig.name}")
+                else:
+                    warn(f"GPG signing failed (key {r.sign_key}?): "
+                         f"{(rc.stderr or rc.stdout).strip()[:200]}")
+            except FileNotFoundError:
+                warn("gpg not found — provenance written unsigned")
+            except subprocess.TimeoutExpired:
+                warn("gpg signing timed out — provenance written unsigned")
+        return prov_path
+    except OSError as exc:
+        warn(f"Could not write provenance: {exc}")
+        return None
 
 
 # Paths that must never be deleted by ciscvm clean.
@@ -2250,6 +2542,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_cln = sub.add_parser("clean", parents=[common], help="Remove working directory")
     p_cln.set_defaults(func=cmd_clean)
+
+    p_img = sub.add_parser("images", help="List recorded builds (image lineage)")
+    p_img.add_argument("--latest", action="store_true", help="Show only the newest record")
+    p_img.add_argument("-n", "--limit", type=int, default=10,
+                       help="Max records to show (default 10; 0 = all)")
+    p_img.set_defaults(func=cmd_images)
 
     return parser
 

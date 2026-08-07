@@ -204,6 +204,10 @@ benchmark = "CIS-v1.0.0"
 | | `ssh_port` | int | SSH port (default `22`; TencentOS: `36000`) |
 | | `ssh_timeout` | string | Packer SSH timeout (default `"15m"`) |
 | | `ssh_debug_password` | string | Root password for VNC debug (default empty) |
+| | `smoke_test` | bool | Instance-level checks before snapshot (default `true`) |
+| `[notify]` | `webhook` | string | WeCom group-robot webhook URL (empty = off) |
+| | `on` | string | `always` \| `success` \| `failure` (default `failure`) |
+| `[sign]` | `gpg_key` | string | GPG key id/fingerprint for provenance signing (empty = unsigned) |
 
 ---
 
@@ -435,6 +439,55 @@ and ciscvm hands the session token straight to Packer.
 Note: `security_token` and `assume_role` are independent — STS credentials
 can themselves be scoped to the OIDC role, so you typically do not need
 both at once.
+
+### Build → test → distribute (image governance)
+
+Beyond building the image, ciscvm covers the governance loop that Packer
+itself leaves to you (mirroring AWS Image Builder's build → test →
+distribute pipeline):
+
+- **Test (before snapshot)** — after finalize + re-audit, an instance-level
+  smoke test runs on the live VM *before* Packer snapshots it: `sshd -T`
+  parses, sshd/auditd active, `/dev/shm` carries `noexec`, no weak SSH
+  crypto, journal-upload active (when configured). Any failure aborts the
+  build — **no image is produced**. Disable with `[meta].smoke_test = false`.
+
+- **Lineage (distribute metadata)** — every build appends a record
+  (`~/.ciscvm/lineage.jsonl`): source image → output image IDs, level,
+  region, score, version, timestamp. Query it with:
+
+  ```bash
+  ciscvm images            # recent builds, newest first
+  ciscvm images --latest   # the most recent record
+  ```
+
+- **Notify (scheduling companion)** — post build results to a WeCom group
+  robot. Combine with cron / systemd timer / SCF for scheduled rebuilds:
+
+  ```toml
+  [notify]
+  webhook = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxx"
+  on      = "failure"     # always | success | failure
+  ```
+
+  ```bash
+  # systemd timer / cron example — rebuild monthly, only notify on failure
+  0 3 1 * *  ciscvm build --config /etc/ciscvm/ciscvm.toml -y
+  ```
+
+- **SLSA-style provenance** — after a successful build ciscvm writes a
+  signed provenance statement (`~/.ciscvm/provenance/…provenance.json`)
+  describing exactly what produced the image (source image, profile, level,
+  region, ciscvm version, score). Tencent CVM images are `img-*` artifacts,
+  not OCI images, so cosign container signing does not apply — instead the
+  provenance file is GPG-detached-signed (`[sign].gpg_key`), giving an
+  auditable, tamper-evident record (SLSA L1 + signed provenance). Verified
+  end-to-end with a real GPG key (`gpg --verify` → Good signature).
+
+  ```toml
+  [sign]
+  gpg_key = "ABCDEF0123456789"   # your GPG key id/fingerprint
+  ```
 
 ---
 
