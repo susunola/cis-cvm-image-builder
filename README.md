@@ -154,6 +154,7 @@ associate_public_ip = true
 
 [image]
 name_prefix  = "tencentos3-cis"
+# name = "my-cis-image"                  # optional: fixed image name (empty = auto prefix-level-timestamp)
 copy_regions = ["ap-shanghai"]            # [] to disable cross-region copy
 
 [cis]
@@ -163,6 +164,11 @@ level = 1                                 # 1 or 2
 secret_id_env  = "TENCENTCLOUD_SECRET_ID"
 secret_key_env = "TENCENTCLOUD_SECRET_KEY"
 # winrm_password_env = "WINRM_PASSWORD"   # Windows only
+# Group-account (organization) cross-account builds — assume a CAM role in
+# the target account using the local AK/SK:
+# assume_role_arn      = "qcs::cam::uin/1234567890:roleName/CrossAccountBuilder"
+# assume_role_session  = "ciscvm-build"   # optional, default "ciscvm"
+# assume_role_duration = 3600             # optional, default 7200, range 0-43200
 
 [meta]
 os_tag    = "tencentos-3"
@@ -183,15 +189,19 @@ benchmark = "CIS-v1.0.0"
 | | `security_group_id` | string | Must start with `sg-` |
 | | `associate_public_ip` | bool | Assign public IP |
 | `[image]` | `name_prefix` | string | Output image name prefix |
+| | `name` | string | Fixed image name (empty = auto `prefix-level-timestamp`) |
 | | `copy_regions` | []string | Regions to replicate (empty = skip) |
 | `[cis]` | `level` | int | `1` (Level 1) or `2` (Level 2) |
 | `[cloud]` | `secret_id_env` | string | Env var for Secret ID |
 | | `secret_key_env` | string | Env var for Secret Key |
 | | `winrm_password_env` | string | Windows admin password env var |
+| | `assume_role_arn` | string | Group-account CAM role ARN (empty = off). e.g. `qcs::cam::uin/12345:roleName/X` |
+| | `assume_role_session` | string | AssumeRole session name (default `ciscvm`) |
+| | `assume_role_duration` | int | Session seconds, 0-43200 (default 7200) |
 | `[meta]` | `os_tag` | string | Tag value for output image |
 | | `benchmark` | string | CIS benchmark version tag |
 | | `ssh_port` | int | SSH port (default `22`; TencentOS: `36000`) |
-| | `ssh_timeout` | string | Packer SSH timeout (default `"10m"`) |
+| | `ssh_timeout` | string | Packer SSH timeout (default `"15m"`) |
 | | `ssh_debug_password` | string | Root password for VNC debug (default empty) |
 
 ---
@@ -374,6 +384,37 @@ ciscvm build --log-file build.log
 ```
 
 Point downstream CVM / Auto Scaling / Terraform at the output `image_id`. Pin the build machine to a dedicated VPC and security group.
+
+---
+
+## Group accounts (organization)
+
+ciscvm supports the Tencent Cloud group-account (企业组织) pattern for
+**cross-account golden image builds** — build once from a central account,
+distribute everywhere:
+
+- **Build as a target account**: set `[cloud].assume_role_arn` to a CAM
+  role created in the target account. Packer assumes that role with the
+  local AK/SK (STS `AssumeRole`), so the instance and image are created
+  *in the target account* while credentials stay in the central account.
+
+  ```toml
+  [cloud]
+  assume_role_arn      = "qcs::cam::uin/1234567890:roleName/CrossAccountBuilder"
+  assume_role_session  = "ciscvm-build"   # optional
+  assume_role_duration = 3600             # optional, default 7200
+  ```
+
+  The role needs the same CAM permissions the builder requires
+  (`cvm:RunInstances`, `cvm:CreateImage`, `cvm:DescribeImages`) plus a
+  trust policy allowing the central account to assume it.
+
+- **Build then share**: keep `assume_role_arn` empty, build in the central
+  account, and share the resulting image to business accounts via the
+  Tencent Cloud console or the `image_share_accounts` Packer option.
+
+When `assume_role_arn` is empty (the default) builds behave exactly as
+before — no group-account setup required.
 
 ---
 
