@@ -24,6 +24,14 @@
 
 Zero pip dependencies. 14 OS profiles across Linux and Windows. Build-time gate with configurable score threshold. All roles ship inside the package — no Galaxy, no network drift.
 
+Beyond the build itself, ciscvm covers the full **build → test → distribute** governance loop:
+
+- **Instance-level smoke test** before the snapshot — a broken image never ships
+- **Image lineage** (`ciscvm images`) — source → image IDs, score, version history
+- **WeCom notifications** — pair with cron/systemd timer for scheduled rebuilds
+- **SLSA-style signed provenance** (`ciscvm verify`) — tamper-evident build records
+- **OIDC / STS credentials** — zero long-lived AK/SK in CI; `assume_role` for group accounts
+
 ---
 
 ## Quick Start
@@ -56,7 +64,7 @@ export WINRM_PASSWORD=xxxx   # Windows builds only
 
 ```
 ══════════════════════════════════════════════════════════
-  ciscvm 0.5.0 — tencentos3 (L1) → ap-guangzhou-4
+  ciscvm 0.14.1 — tencentos3 (L1) → ap-guangzhou-4
 ══════════════════════════════════════════════════════════
 [packer]  tencentcloud-cvm: Launching instance (S5.MEDIUM2)...
 [packer]  tencentcloud-cvm: Provisioning with ansible-local...
@@ -73,11 +81,18 @@ export WINRM_PASSWORD=xxxx   # Windows builds only
 [packer]      tencentcloud-cvm: Passed:    138
 [packer]      tencentcloud-cvm: Failed:    4
 [packer]      tencentcloud-cvm: Score:     97.2% ≥ 85%  ✓ PASS
+[packer]  ==> tencentcloud-cvm: smoke test: sshd config parses ... ok
+[packer]  ==> tencentcloud-cvm: smoke test: /dev/shm noexec ... ok
+[packer]  ==> tencentcloud-cvm: smoke test PASSED — image is buildable
 [packer]  ==> tencentcloud-cvm: Creating custom image...
 [packer]  ==> tencentcloud-cvm: Image created: img-abc123def456
 [packer]  ==> tencentcloud-cvm: Terminating build instance...
 
 ✔  Build complete — image-id: img-abc123def456
+✔  Output image ID(s): img-abc123def456
+✔  Re-audit score: 97.2%
+✔  Lineage recorded -> ~/.ciscvm/lineage.jsonl
+✔  Provenance signed with GPG key 0123ABCD -> ...provenance.json.sig
 ```
 
 > **Not installed?** Replace `ciscvm` with `python3 -m ciscvm` in any command.
@@ -117,6 +132,9 @@ ciscvm init                               # generate ciscvm.toml
 ciscvm preflight                          # validate config, credentials, prerequisites
 ciscvm validate                           # render templates + packer validate
 ciscvm build                              # render + packer build → custom image
+ciscvm images [--latest] [-n N]           # list recorded builds (lineage)
+ciscvm verify --provenance <file>         # verify a SLSA provenance signature
+ciscvm verify --image <img-id>            # ... or locate provenance by image ID
 ciscvm clean                              # remove .ciscvm-build/
 ```
 
@@ -169,6 +187,17 @@ secret_key_env = "TENCENTCLOUD_SECRET_KEY"
 # assume_role_arn      = "qcs::cam::uin/1234567890:roleName/CrossAccountBuilder"
 # assume_role_session  = "ciscvm-build"   # optional, default "ciscvm"
 # assume_role_duration = 3600             # optional, default 7200, range 0-43200
+# OIDC / STS temporary credentials (CI, no long-lived AK/SK):
+# security_token_env = "TENCENTCLOUD_SECURITY_TOKEN"   # Packer default
+
+# Build notifications (WeCom group-robot webhook). Empty webhook = off.
+# [notify]
+# webhook = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxx"
+# on      = "failure"        # always | success | failure
+
+# SLSA-style provenance signing (GPG). Empty = provenance unsigned.
+# [sign]
+# gpg_key = "ABCDEF0123456789"
 
 [meta]
 os_tag    = "tencentos-3"
@@ -518,11 +547,14 @@ distribute pipeline):
 
 ## Roadmap
 
-- [x] CI pipeline (GitHub Actions)
+- [x] CI pipeline (GitHub Actions + OIDC, zero long-lived AK/SK)
+- [x] Image governance loop: smoke test / lineage / notifications / SLSA signing
 - [ ] PyPI package (`pip install ciscvm`)
 - [ ] `ciscvm list` — enumerate available profiles with metadata
 - [ ] `ciscvm scan` — audit-only mode (no remediation, gate on findings)
 - [ ] Custom rule selection (`rules_include` / `rules_exclude` in `ciscvm.toml`)
+- [ ] SLSA L2: reproducible builds (pinned build environment)
+- [ ] Automatic image cleanup (retire old images by lineage age)
 
 ## Contributing
 
