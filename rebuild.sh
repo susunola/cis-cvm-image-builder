@@ -37,10 +37,10 @@ cd "$REPO"
 echo "     commit: $(git rev-parse --short HEAD)"
 
 echo "[4/6] 全新安装 ciscvm"
-pip install --no-cache-dir --force-reinstall .
+pip install --no-cache-dir --force-reinstall --root-user-action=ignore .
 
 echo "[5/6] 校验代码与二进制版本一致"
-CODE_VERSION=$(grep -m1 '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+CODE_VERSION=$(grep -m1 '^version = ' pyproject.toml | sed 's/^version = "//;s/"$//')
 BIN_VERSION=$(ciscvm --version | awk '{print $2}')
 echo "     代码版本: $CODE_VERSION | 二进制版本: $BIN_VERSION"
 if [ "$CODE_VERSION" != "$BIN_VERSION" ]; then
