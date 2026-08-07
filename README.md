@@ -217,28 +217,13 @@ benchmark = "CIS-v1.0.0"
 
 ### Linux pipeline
 
-```
-Build Machine                              Tencent Cloud
-┌─────────────┐                           ┌──────────────────┐
-│ ciscvm/     │── packer build ──────────▶│ Ephemeral CVM    │
-│             │                           │   (SSH port 22)  │
-│ ciscvm.toml │                           │                  │
-│             │                           │ 1. Install       │
-│ roles/      │── uploaded to CVM ───────▶│    ansible-core  │
-│   cis_*     │      (bundled roles)      │                  │
-│             │                           │ 2. CIS apply     │
-│             │                           │    (cis_engine)  │
-│             │                           │                  │
-│             │                           │ 3. Reboot        │
-│             │                           │    + re-audit    │
-│             │                           │    (pending      │
-│             │                           │     items)       │
-│             │                           │                  │
-│             │                           │ 4. Gate          │
-│             │                           │    score ≥ 85%   │
-│             │◀── image-id ──────────────│ 5. CreateImage   │
-└─────────────┘                           └──────────────────┘
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/ciscvm-pipeline-linux-dark.png">
+    <img src="docs/ciscvm-pipeline-linux-light.png" alt="ciscvm Linux pipeline — SSH + ansible-local" width="720">
+  </picture>
+</p>
+
 
 Four phases executed inside the ephemeral CVM via `ansible-local`:
 
@@ -311,23 +296,13 @@ the next admin does not have to guess.
 
 ### Windows pipeline
 
-```
-Build Machine                              Tencent Cloud
-┌─────────────┐                           ┌──────────────────┐
-│ ciscvm/     │── packer build ──────────▶│ Ephemeral CVM    │
-│             │                           │   (WinRM 5986)   │
-│ ciscvm.toml │                           │                  │
-│             │                           │                  │
-│ roles/      │── ansible provisioner ───▶│ CIS apply         │
-│   cis_win*  │   (controller-side,       │ (cis_engine.ps1)  │
-│             │    WinRM connection)      │                  │
-│             │                           │ Reboot +         │
-│             │                           │ re-audit         │
-│             │                           │                  │
-│             │                           │ Gate: score≥85%  │
-│             │◀── image-id ──────────────│ CreateImage      │
-└─────────────┘                           └──────────────────┘
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/ciscvm-pipeline-win-dark.png">
+    <img src="docs/ciscvm-pipeline-win-light.png" alt="ciscvm Windows pipeline — WinRM + controller-side ansible" width="720">
+  </picture>
+</p>
+
 
 Windows builds use the Packer `ansible` provisioner (controller-side) over WinRM. The bundled role includes `cis_engine.ps1` (PowerShell). The controller requires `ansible-core` locally.
 
