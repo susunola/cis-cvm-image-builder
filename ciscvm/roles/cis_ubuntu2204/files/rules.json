@@ -1028,7 +1028,7 @@
   "assessment": "Automated",
   "family": "manual",
   "params": {},
-  "risk": "none",
+  "risk": "safe",
   "page": 175
  },
  {
@@ -1045,7 +1045,7 @@
   "assessment": "Automated",
   "family": "manual",
   "params": {},
-  "risk": "none",
+  "risk": "safe",
   "page": 177
  },
  {
@@ -1079,7 +1079,7 @@
   "assessment": "Automated",
   "family": "manual",
   "params": {},
-  "risk": "none",
+  "risk": "safe",
   "page": 181
  },
  {

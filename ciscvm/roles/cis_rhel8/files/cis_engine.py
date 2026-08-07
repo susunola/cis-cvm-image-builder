@@ -2511,14 +2511,100 @@ def crypto_policy_now(ctx):
                       lambda: (out(["update-crypto-policies", "--show"], 30) or "").strip())
 
 
+# ── SSH-side crypto hardening (CIS 1.6.3-1.6.6) ──
+# Tightens sshd's MACs/Ciphers directly so the four rules can pass WITHOUT
+# touching the system-wide crypto policy (TencentOS ships LEGACY by design;
+# switching it to DEFAULT affects every service, not just SSH).
+SSH_CRYPTO_DROPIN = "/etc/ssh/sshd_config.d/60-cis-crypto.conf"
+
+# OpenSSH built-in defaults (server side) — the baseline every rule trims.
+_SSH_BASE_MACS = ["hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com",
+                  "hmac-sha1-etm@openssh.com", "umac-64-etm@openssh.com",
+                  "umac-128-etm@openssh.com", "hmac-sha2-256", "hmac-sha2-512",
+                  "hmac-sha1", "umac-64", "umac-128"]
+_SSH_BASE_CIPHERS = ["chacha20-poly1305@openssh.com", "aes128-ctr", "aes192-ctr",
+                     "aes256-ctr", "aes128-gcm@openssh.com",
+                     "aes256-gcm@openssh.com", "aes128-cbc", "aes192-cbc",
+                     "aes256-cbc"]
+
+
+def _sshd_algos(ctx, key):
+    """Effective MACs/Ciphers list from `sshd -T` (None when sshd unavailable)."""
+    d = sshd_effective(ctx)
+    if not d:
+        return None
+    v = d.get(key)
+    if not v:
+        return list(_SSH_BASE_MACS) if key == "macs" else list(_SSH_BASE_CIPHERS)
+    return [x.strip() for x in v[-1].split(",") if x.strip()]
+
+
+def _sshd_crypto_dropin_current():
+    """(macs, ciphers) already pinned in the drop-in, or None for unset."""
+    txt = read(SSH_CRYPTO_DROPIN) or ""
+    macs = ciphers = None
+    for ln in txt.splitlines():
+        m = re.match(r"^\s*MACs\s+(.+)$", ln, re.I)
+        if m:
+            macs = [x.strip() for x in m.group(1).split(",") if x.strip()]
+            continue
+        m = re.match(r"^\s*Ciphers\s+(.+)$", ln, re.I)
+        if m:
+            ciphers = [x.strip() for x in m.group(1).split(",") if x.strip()]
+    return macs, ciphers
+
+
+def _fix_sshd_crypto(ctx, kind):
+    """Trim the cumulative sshd MACs/Ciphers whitelist for one 1.6.x family.
+
+    Each family drops only its own weak algorithms from the shared drop-in,
+    so the four rules compose correctly regardless of apply order (the
+    per-path lock serialises the read-modify-write).
+    """
+    with ctx.file_lock(SSH_CRYPTO_DROPIN):
+        macs, ciphers = _sshd_crypto_dropin_current()
+        if macs is None:
+            macs = list(_SSH_BASE_MACS)
+        if ciphers is None:
+            ciphers = list(_SSH_BASE_CIPHERS)
+        if kind == "no_weak_mac":
+            macs = [m for m in macs
+                    if not (m.lower().startswith("hmac-md5")
+                            or m.lower().startswith("hmac-sha1")
+                            or m.lower().startswith("umac-64"))]
+        elif kind == "no_etm_ssh":
+            macs = [m for m in macs if "etm" not in m.lower()]
+        elif kind == "no_cbc_ssh":
+            ciphers = [c for c in ciphers if not c.lower().endswith("-cbc")]
+        elif kind == "no_chacha_ssh":
+            ciphers = [c for c in ciphers if "chacha20" not in c.lower()]
+        body = ("# CIS hardening: SSH crypto policy (1.6.x)\n"
+                "MACs %s\nCiphers %s\n" % (",".join(macs), ",".join(ciphers)))
+        write_file(ctx, SSH_CRYPTO_DROPIN, body, 0o600)
+    # OpenSSH honours the FIRST-obtained value for list params — make sure
+    # the drop-in loads before any sshd_config MACs/Ciphers directive, and
+    # neutralise ones already in the main file.
+    main = read("/etc/ssh/sshd_config") or ""
+    if not re.search(r"^\s*Include\s+/etc/ssh/sshd_config\.d/", main, re.M | re.I):
+        backup(ctx, "/etc/ssh/sshd_config")
+        write_file(ctx, "/etc/ssh/sshd_config",
+                   "Include /etc/ssh/sshd_config.d/*.conf\n" + main, 0o600)
+    comment_out(ctx, "/etc/ssh/sshd_config", r"^\s*MACs\s")
+    comment_out(ctx, "/etc/ssh/sshd_config", r"^\s*Ciphers\s")
+    ctx.defer_restart("sshd")
+    ctx.invalidate("sshd_T")
+    return True, "tightened sshd %s in %s" % (kind, SSH_CRYPTO_DROPIN)
+
+
 CRYPTO_BACKENDS = "/etc/crypto-policies/back-ends"
 
 
 @check("crypto_policy")
 def c_crypto_policy(ctx, p):
-    if not have("update-crypto-policies"):
-        return "notapplicable", "crypto-policies is not installed"
     kind = p["kind"]
+    if kind not in ("no_weak_mac", "no_etm_ssh", "no_cbc_ssh", "no_chacha_ssh"):
+        if not have("update-crypto-policies"):
+            return "notapplicable", "crypto-policies is not installed"
     cur = crypto_policy_now(ctx)
     if kind == "not_legacy":
         if cur.upper().startswith("LEGACY"):
@@ -2544,28 +2630,36 @@ def c_crypto_policy(ctx, p):
         if bad:
             return "fail", "SHA1 still permitted in: " + ", ".join(bad)
         return "pass", "SHA1 is not permitted by the active crypto policy (%s)" % cur
-    if kind == "no_weak_mac":
-        txt = backend("opensshserver.config") + backend("openssh.config")
-        weak = [m for m in ("hmac-md5", "hmac-sha1", "umac-64", "hmac-sha1-96",
-                            "hmac-md5-96") if m in txt.lower()]
-        if weak:
-            return "fail", "weak MACs permitted: " + ", ".join(weak)
-        return "pass", "no weak MACs in the active policy (%s)" % cur
-    if kind == "no_cbc_ssh":
-        txt = (backend("opensshserver.config") + backend("openssh.config")).lower()
-        if "cbc" in txt:
-            return "fail", "CBC ciphers are permitted for SSH"
-        return "pass", "no CBC ciphers for SSH (%s)" % cur
-    if kind == "no_chacha_ssh":
-        txt = (backend("opensshserver.config") + backend("openssh.config")).lower()
-        if "chacha20-poly1305" in txt:
+    if kind in ("no_weak_mac", "no_etm_ssh", "no_cbc_ssh", "no_chacha_ssh"):
+        # SSH-side hardening: judge the EFFECTIVE sshd config, not the
+        # system-wide crypto policy (which may be LEGACY by business
+        # decision).  These four rules compose into one sshd drop-in.
+        if not sshd_effective(ctx):
+            return "error", "unable to run 'sshd -T'"
+        if kind in ("no_weak_mac", "no_etm_ssh"):
+            macs = _sshd_algos(ctx, "macs")
+            if kind == "no_weak_mac":
+                weak = [m for m in macs
+                        if m.lower().startswith("hmac-md5")
+                        or m.lower().startswith("hmac-sha1")
+                        or m.lower().startswith("umac-64")]
+                if weak:
+                    return "fail", "weak MACs permitted: " + ", ".join(weak)
+                return "pass", "no weak MACs in the effective sshd MACs"
+            etm = [m for m in macs if "etm" in m.lower()]
+            if etm:
+                return "fail", "EtM MACs are permitted for SSH: " + ", ".join(etm)
+            return "pass", "no EtM MACs for SSH"
+        ciphers = _sshd_algos(ctx, "ciphers")
+        if kind == "no_cbc_ssh":
+            cbc = [c for c in ciphers if c.lower().endswith("-cbc")]
+            if cbc:
+                return "fail", "CBC ciphers are permitted for SSH: " + ", ".join(cbc)
+            return "pass", "no CBC ciphers for SSH"
+        chacha = [c for c in ciphers if "chacha20" in c.lower()]
+        if chacha:
             return "fail", "chacha20-poly1305 is permitted for SSH"
-        return "pass", "chacha20-poly1305 not permitted for SSH (%s)" % cur
-    if kind == "no_etm_ssh":
-        txt = (backend("opensshserver.config") + backend("openssh.config")).lower()
-        if "-etm@openssh.com" in txt:
-            return "fail", "EtM MACs are permitted for SSH"
-        return "pass", "no EtM MACs for SSH (%s)" % cur
+        return "pass", "chacha20-poly1305 not permitted for SSH"
     return "error", "unknown crypto policy kind %s" % kind
 
 
@@ -2583,6 +2677,9 @@ def f_crypto_policy(ctx, p):
     if not have("update-crypto-policies"):
         return False, "crypto-policies is not installed"
     kind = p["kind"]
+    if kind in ("no_weak_mac", "no_etm_ssh", "no_cbc_ssh", "no_chacha_ssh"):
+        # SSH-side only — no system-wide policy change, not disruptive.
+        return _fix_sshd_crypto(ctx, kind)
     if kind in ("not_legacy", "future_or_fips"):
         target = "DEFAULT" if kind == "not_legacy" else "FUTURE"
         rc, o, e = sh(["update-crypto-policies", "--set", target], 120)
