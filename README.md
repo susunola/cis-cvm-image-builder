@@ -215,8 +215,6 @@ benchmark = "CIS-v1.0.0"
   </picture>
 </p>
 
-Interactive diagram with theme toggle: [ciscvm-pipeline.html](docs/ciscvm-pipeline.html)
-
 ### Linux pipeline
 
 ```
