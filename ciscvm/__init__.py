@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.13.6"
+VERSION = "0.13.7"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -222,6 +222,7 @@ associate_public_ip = false               # set to true only if a public IP is r
 
 [image]
 name_prefix  = "tencentos3-cis"
+# name = "my-cis-image"                  # optional: fixed image name (empty = auto prefix-level-timestamp)
 copy_regions = []                         # add regions (e.g. ["ap-shanghai"]) to copy the image
 
 [cis]
@@ -273,6 +274,7 @@ class ResolvedConfig:
     winrm_username: str
     winrm_password_env: str
     image_name_prefix: str
+    image_name_override: str            # [image].name — fixed image name ("" = auto)
     image_copy_regions: list[str]
     cis_level_tag: str
     secret_id_env: str
@@ -429,6 +431,17 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         raise ConfigError(f"[meta].ssh_port must be 1-65535, got {ssh_port}")
     ssh_timeout = str(meta.get("ssh_timeout") or p.get("ssh_timeout") or "15m")
 
+    # [image].name — optional fixed image name; empty means auto-generate.
+    image_name_override = str(data.get("image", {}).get("name", "")).strip()
+    if image_name_override:
+        if len(image_name_override) < 1 or len(image_name_override) > 60:
+            raise ConfigError(
+                f"[image].name must be 1-60 characters, got {len(image_name_override)}")
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", image_name_override):
+            raise ConfigError(
+                f"[image].name contains invalid characters: {image_name_override!r}. "
+                "Use letters, digits, dot, dash, underscore only.")
+
     return ResolvedConfig(
         profile_name=profile_name,
         profile=p,
@@ -448,6 +461,7 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         winrm_username=str(p.get("winrm_username", "")),
         winrm_password_env=str(data.get("cloud", {}).get("winrm_password_env", "WINRM_PASSWORD")),
         image_name_prefix=str(data["image"]["name_prefix"]),
+        image_name_override=image_name_override,
         image_copy_regions=copy_regions,
         cis_level_tag=f"level{level}-server",
         secret_id_env=str(data["cloud"]["secret_id_env"]),
@@ -1477,12 +1491,15 @@ def _format_hcl_value(value: Any) -> str:
 def _image_name(r: ResolvedConfig) -> str:
     """Single source of truth for the image name.
 
-    Computed once in Python (24-hour UTC clock) and passed to Packer as a
+    [image].name, when set, is used verbatim; otherwise the name is
+    computed once in Python (24-hour UTC clock) and passed to Packer as a
     plain variable, so the name baked into the in-image banner/motd/report
     always matches the actual image name.  (Packer's own
     `formatdate("YYYYMMDD-hhmmss", timestamp())` used a 12-hour clock and
     evaluated at a different moment, so the two never agreed.)
     """
+    if r.image_name_override:
+        return r.image_name_override
     from datetime import datetime, timezone
     snap_ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     level_short = r.cis_level_tag.replace("-server", "")
