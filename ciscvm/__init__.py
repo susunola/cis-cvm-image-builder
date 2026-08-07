@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.13.10"
+VERSION = "0.13.11"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -236,6 +236,11 @@ secret_key_env = "TENCENTCLOUD_SECRET_KEY"
 # assume_role_arn      = "qcs::cam::uin/1234567890:roleName/CrossAccountBuilder"
 # assume_role_session  = "ciscvm-build"   # optional, default "ciscvm"
 # assume_role_duration = 3600             # optional, default 7200, range 0-43200
+# OIDC / STS temporary credentials (GitHub Actions OIDC etc.):
+# set security_token_env to the env var carrying the STS session token.
+# Packer reads TENCENTCLOUD_SECURITY_TOKEN natively; leave this unset to
+# rely on that default. Do NOT set it when using long-lived AK/SK only.
+# security_token_env = "TENCENTCLOUD_SECURITY_TOKEN"
 # Windows builds also require:
 # winrm_password_env = "WINRM_PASSWORD"
 
@@ -284,6 +289,7 @@ class ResolvedConfig:
     cis_level_tag: str
     secret_id_env: str
     secret_key_env: str
+    security_token_env: str         # [cloud].security_token_env — STS session token env (default "TENCENTCLOUD_SECURITY_TOKEN")
     assume_role_arn: str               # [cloud].assume_role_arn — group-account CAM role ("" = off)
     assume_role_session: str           # [cloud].assume_role_session (default "ciscvm")
     assume_role_duration: int          # [cloud].assume_role_duration (default 7200, 0-43200)
@@ -493,6 +499,7 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         cis_level_tag=f"level{level}-server",
         secret_id_env=str(data["cloud"]["secret_id_env"]),
         secret_key_env=str(data["cloud"]["secret_key_env"]),
+        security_token_env=str(data.get("cloud", {}).get("security_token_env", "TENCENTCLOUD_SECURITY_TOKEN")),
         assume_role_arn=assume_role_arn,
         assume_role_session=assume_role_session,
         assume_role_duration=assume_role_duration,
@@ -587,6 +594,12 @@ variable "secret_key" {
   sensitive = true
 }
 
+variable "security_token" {
+  type      = string
+  default   = env("__SECURITY_TOKEN_ENV__")
+  sensitive = true
+}
+
 variable "region"                      { type = string }
 variable "zone"                        { type = string }
 variable "instance_type"               { type = string }
@@ -617,6 +630,7 @@ locals {
 source "tencentcloud-cvm" "default" {
   secret_id                   = var.secret_id
   secret_key                  = var.secret_key
+  security_token              = var.security_token
 __ASSUME_ROLE_BLOCK__
   region                      = var.region
   zone                        = var.zone
@@ -887,6 +901,12 @@ variable "secret_key" {
   sensitive = true
 }
 
+variable "security_token" {
+  type      = string
+  default   = env("__SECURITY_TOKEN_ENV__")
+  sensitive = true
+}
+
 variable "region"                      { type = string }
 variable "zone"                        { type = string }
 variable "instance_type"               { type = string }
@@ -920,6 +940,7 @@ locals {
 source "tencentcloud-cvm" "default" {
   secret_id                   = var.secret_id
   secret_key                  = var.secret_key
+  security_token              = var.security_token
 __ASSUME_ROLE_BLOCK__
   region                      = var.region
   zone                        = var.zone
@@ -1664,6 +1685,7 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
     # validate before they land inside HCL env("...") calls.
     _validate_env_var_name(r.secret_id_env, "[cloud].secret_id_env")
     _validate_env_var_name(r.secret_key_env, "[cloud].secret_key_env")
+    _validate_env_var_name(r.security_token_env, "[cloud].security_token_env")
 
     # Values substituted into the finalize inline shell command must be
     # shell-safe (single-quoting happens in the template).
@@ -1696,6 +1718,7 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
                .replace("__WINRM_PASSWORD_ENV__", r.winrm_password_env)
                .replace("__SECRET_ID_ENV__", r.secret_id_env)
                .replace("__SECRET_KEY_ENV__", r.secret_key_env)
+               .replace("__SECURITY_TOKEN_ENV__", r.security_token_env)
                .replace("__ASSUME_ROLE_BLOCK__", assume_role_block))
     else:
         # Substitute the build's actual metadata into the finalize provisioner
@@ -1713,6 +1736,7 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
                .replace("__HOSTS_FIX_HCL__", HOSTS_FIX_SNIPPET.replace('"', '\\"'))
                .replace("__SECRET_ID_ENV__", r.secret_id_env)
                .replace("__SECRET_KEY_ENV__", r.secret_key_env)
+               .replace("__SECURITY_TOKEN_ENV__", r.security_token_env)
                .replace("__ASSUME_ROLE_BLOCK__", assume_role_block))
         user_data = ""
         if r.ssh_debug_password:
