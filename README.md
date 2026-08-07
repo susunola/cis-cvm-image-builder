@@ -198,6 +198,10 @@ benchmark = "CIS-v1.0.0"
 
 ## Architecture
 
+<p align="center">
+  <img src="docs/ciscvm-pipeline.svg" alt="ciscvm build pipeline — TOML config to hardened golden image" width="720">
+</p>
+
 ### Linux pipeline
 
 ```
