@@ -1,0 +1,43 @@
+name: build-golden-image
+
+# Builds the CIS-hardened golden image in CI using OIDC — no long-lived
+# AK/SK stored anywhere. Requires:
+#   1. A CAM OIDC provider for GitHub (token.actions.githubusercontent.com)
+#   2. A CAM role trusted for this repo (see README "Group accounts")
+#   3. Repository secret TC_OIDC_ROLE_ARN (e.g. qcs::cam::uin/12345:roleName/ci-builder)
+on:
+  workflow_dispatch:          # manual trigger
+  schedule:
+    - cron: "0 3 1 * *"       # monthly rebuild (edit or remove as needed)
+
+concurrency:
+  group: golden-image-build
+  cancel-in-progress: false
+
+permissions:
+  id-token: write             # required for OIDC
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ciscvm
+        run: pip install .
+
+      - name: Authenticate to Tencent Cloud via OIDC
+        uses: everpcpc/tencentcloud-oidc-auth@v1
+        with:
+          role-arn: ${{ secrets.TC_OIDC_ROLE_ARN }}
+          oidc-provider-id: github
+          region: ap-guangzhou
+
+      - name: Build golden image
+        run: ciscvm build --config ciscvm.toml -y
