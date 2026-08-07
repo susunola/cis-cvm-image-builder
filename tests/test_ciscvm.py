@@ -1451,3 +1451,84 @@ class TestVerify:
         with mock.patch("ciscvm._lineage_path", return_value=tmp_path / "lineage.jsonl"):
             rc = cmd_verify(mock.MagicMock(provenance=None, image="img-missing"))
         assert rc == 1
+
+
+class TestScanListRules:
+    """ciscvm scan / list / [cis].rules_include|exclude (roadmap v0.14.3)."""
+
+    def test_rules_filter_rendered(self, valid_toml, tmp_path):
+        valid_toml["cis"]["rules_include"] = ["1.5.6", "5.4.3.2"]
+        valid_toml["cis"]["rules_exclude"] = ["1.1.2.2.4"]
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        site = (wd / "ansible" / "site.yml").read_text()
+        assert "cis_include: [\"1.5.6\", \"5.4.3.2\"]" in site
+        assert "cis_exclude: [\"1.1.2.2.4\"]" in site
+        assert "cis_mode: apply" in site
+
+    def test_rules_default_empty(self, valid_toml, tmp_path):
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        site = (wd / "ansible" / "site.yml").read_text()
+        assert "cis_include: []" in site and "cis_exclude: []" in site
+
+    def test_rules_overlap_rejected(self, valid_toml):
+        valid_toml["cis"]["rules_include"] = ["1.5.6"]
+        valid_toml["cis"]["rules_exclude"] = ["1.5.6"]
+        with pytest.raises(ConfigError, match=r"overlap"):
+            resolve(valid_toml)
+
+    def test_scan_mode_rendered(self, valid_toml, tmp_path):
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r, scan=True)
+        site = (wd / "ansible" / "site.yml").read_text()
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        assert "cis_mode: scan" in site
+        assert "smoke test" not in hcl  # smoke skipped in audit-only mode
+
+    def test_cmd_list_output(self, capsys):
+        from ciscvm import cmd_list
+        rc = cmd_list(mock.MagicMock())
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "tencentos3" in out and "win2022" in out and "profile" in out
+
+    def test_cmd_scan_gate_fail(self, valid_toml, tmp_path):
+        from ciscvm import PackerResult, cmd_scan
+        r = resolve(valid_toml)
+        with (
+            mock.patch("ciscvm._load_resolve_preflight", return_value=(r, tmp_path / "b")),
+            mock.patch("ciscvm.render_all"),
+            mock.patch("ciscvm.run_packer",
+                       return_value=PackerResult(exit_code=0, stdout_lines=[
+                           "Tencentcloud images(ap-guangzhou: img-scan1) were created.",
+                           "Score: 80.0%"])),
+            mock.patch("ciscvm._record_lineage") as lin,
+        ):
+            rc = cmd_scan(mock.MagicMock(config="x", workdir="b", yes=True, quiet=True,
+                                         debug=False, min_score=85.0))
+        assert rc == 1  # gate failed: 80 < 85
+        lin.assert_called_once()
+        assert lin.call_args.kwargs["ok"] is False  # recorded as failed
+
+    def test_cmd_scan_gate_pass(self, valid_toml, tmp_path):
+        from ciscvm import PackerResult, cmd_scan
+        r = resolve(valid_toml)
+        with (
+            mock.patch("ciscvm._load_resolve_preflight", return_value=(r, tmp_path / "b")),
+            mock.patch("ciscvm.render_all"),
+            mock.patch("ciscvm.run_packer",
+                       return_value=PackerResult(exit_code=0, stdout_lines=[
+                           "Tencentcloud images(ap-guangzhou: img-scan2) were created.",
+                           "Score: 92.0%"])),
+            mock.patch("ciscvm._record_lineage") as lin,
+            mock.patch("ciscvm._write_provenance") as prov,
+        ):
+            rc = cmd_scan(mock.MagicMock(config="x", workdir="b", yes=True, quiet=True,
+                                         debug=False, min_score=85.0))
+        assert rc == 0
+        assert lin.call_args.kwargs["ok"] is True
+        prov.assert_called_once()
