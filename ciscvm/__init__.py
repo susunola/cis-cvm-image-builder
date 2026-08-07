@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.11.7"
+VERSION = "0.11.8"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -699,7 +699,7 @@ build {
   provisioner "shell" {
     pause_before = "10s"
     remote_path  = "/opt/ciscvm-ansible/reboot.sh"
-    inline       = ["sudo shutdown -r +1"]
+    inline       = ["sudo shutdown -r +1 || true"]
   }
 
   # 5. Wait for the reboot, then continue AS SOON AS SSH returns.
