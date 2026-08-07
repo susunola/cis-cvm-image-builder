@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.12.3"
+VERSION = "0.12.4"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -749,6 +749,10 @@ build {
     pause_before = "5s"
     remote_path  = "/opt/ciscvm-ansible/ciscvm-finalize.sh"
     inline = [
+      "# Fix hostname BEFORE sudo — 'sudo bash' hangs on DNS if /etc/hosts",
+      "# lacks the short hostname.  We write as root (Packer is root) so",
+      "# this is instant; the bash script below inherits the fix.",
+      "grep -q \"^127.0.0.1.*$(hostname)\" /etc/hosts 2>/dev/null || echo \"127.0.0.1 $(hostname)\" >> /etc/hosts",
       "sudo bash /opt/ciscvm-ansible/ciscvm-finalize.sh __SOURCE_IMAGE__ __IMAGE_NAME__ __IMAGE_OS__ __CIS_LEVEL__ __IMAGE_BENCHMARK__ __CISCVM_VERSION__"
     ]
   }
