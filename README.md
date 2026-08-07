@@ -133,6 +133,8 @@ ciscvm preflight                          # validate config, credentials, prereq
 ciscvm validate                           # render templates + packer validate
 ciscvm build                              # render + packer build → custom image
 ciscvm scan [--min-score 85]              # audit-only build (no remediation) + score gate
+ciscvm scan --sarif out.sarif             # ... plus a SARIF 2.1.0 failure report
+ciscvm test --idempotency                 # re-run apply, fail if 2nd pass changes anything
 ciscvm list                               # enumerate available profiles with metadata
 ciscvm images [--latest] [-n N]           # list recorded builds (lineage)
 ciscvm cleanup-images [--older-than 30]   # retire old images by lineage age
