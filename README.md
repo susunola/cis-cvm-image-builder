@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.11.6-blue?logo=pypi&logoColor=white" alt="Version 0.11.6">
+  <img src="https://img.shields.io/badge/version-0.11.7-blue?logo=pypi&logoColor=white" alt="Version 0.11.7">
   <img src="https://img.shields.io/badge/python-3.11_|_3.12_|_3.13-blue?logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/profiles-14-orange" alt="14 profiles">
   <img src="https://img.shields.io/badge/platform-Tencent%20Cloud-0052D9" alt="Tencent Cloud">
