@@ -229,6 +229,28 @@ class TestResolve:
         assert r.image_os_tag == "custom-os"
         assert r.image_benchmark == "custom-v3"
 
+    def test_image_name_override(self, valid_toml):
+        valid_toml["image"]["name"] = "my-cis-image"
+        r = resolve(valid_toml)
+        assert r.image_name_override == "my-cis-image"
+        assert ciscvm._image_name(r) == "my-cis-image"
+
+    def test_image_name_auto_when_empty(self, valid_toml):
+        assert resolve(valid_toml).image_name_override == ""
+        name = ciscvm._image_name(resolve(valid_toml))
+        assert name.startswith("tencentos3-cis-level1-")
+        assert re.fullmatch(r"[A-Za-z0-9._-]+", name)
+
+    def test_image_name_invalid_chars(self, valid_toml):
+        valid_toml["image"]["name"] = "bad/name;rm"
+        with pytest.raises(ConfigError, match=r"\[image\].name"):
+            resolve(valid_toml)
+
+    def test_image_name_too_long(self, valid_toml):
+        valid_toml["image"]["name"] = "x" * 61
+        with pytest.raises(ConfigError, match=r"\[image\].name"):
+            resolve(valid_toml)
+
     def test_windows_profile(self):
         data = _make_win_toml("win2022")
         r = resolve(data)
