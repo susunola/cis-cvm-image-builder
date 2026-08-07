@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.10.6"
+VERSION = "0.10.7"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -611,7 +611,7 @@ source "tencentcloud-cvm" "default" {
   ssh_timeout                 = var.ssh_timeout
   ssh_handshake_attempts      = 120
   ssh_read_write_timeout      = "15m"
-  ssh_keepalive_interval      = "30s"
+  ssh_keep_alive_interval     = "30s"
   image_name                  = local.image_name
   vpc_id                      = var.vpc_id
   subnet_id                   = var.subnet_id
