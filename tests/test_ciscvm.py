@@ -1624,3 +1624,87 @@ class TestCleanupImages:
         assert "SignedHeaders=content-type;host;x-tc-action" in captured["auth"]
         assert captured["action"] == "DescribeImages"
         assert captured["region"] == "ap-guangzhou"
+
+
+class TestIdempotencyAndSarif:
+    """ciscvm test --idempotency + scan --sarif."""
+
+    def test_idempotency_rendered(self, valid_toml, tmp_path):
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r, idempotency=True)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        assert "__IDEMPOTENCY_BLOCK__" not in hcl
+        assert hcl.count('playbook_file    = "ansible/site.yml"') == 2  # apply + re-apply
+        assert hcl.count("{") == hcl.count("}")
+
+    def test_idempotency_not_rendered_by_default(self, valid_toml, tmp_path):
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        assert hcl.count('playbook_file    = "ansible/site.yml"') == 1
+
+    def test_cmd_test_pass(self, valid_toml, tmp_path):
+        from ciscvm import PackerResult, cmd_test
+        r = resolve(valid_toml)
+        lines = ["==> building", "Applied:   0", "Pending:   0", "done"]
+        with (
+            mock.patch("ciscvm._load_resolve_preflight", return_value=(r, tmp_path / "b")),
+            mock.patch("ciscvm.render_all"),
+            mock.patch("ciscvm.run_packer",
+                       return_value=PackerResult(exit_code=0, stdout_lines=lines)),
+        ):
+            rc = cmd_test(mock.MagicMock(config="x", workdir="b", quiet=True,
+                                         debug=False, idempotency=True))
+        assert rc == 0
+
+    def test_cmd_test_fail_on_changes(self, valid_toml, tmp_path):
+        from ciscvm import PackerResult, cmd_test
+        r = resolve(valid_toml)
+        lines = ["Applied:   0", "Applied:   5", "Pending:   2"]  # second run changed
+        with (
+            mock.patch("ciscvm._load_resolve_preflight", return_value=(r, tmp_path / "b")),
+            mock.patch("ciscvm.render_all"),
+            mock.patch("ciscvm.run_packer",
+                       return_value=PackerResult(exit_code=0, stdout_lines=lines)),
+        ):
+            rc = cmd_test(mock.MagicMock(config="x", workdir="b", quiet=True,
+                                         debug=False, idempotency=True))
+        assert rc == 1
+
+    def test_sarif_build(self):
+        from ciscvm import _build_sarif
+        out = _build_sarif([
+            "==> something",
+            "✗ 1.5.6 | kernel.kptr_restrict",
+            "  runtime ok but not persisted",
+            "✗ 5.4.3.2 | TMOUT",
+        ])
+        d = json.loads(out)
+        assert d["version"] == "2.1.0"
+        run = d["runs"][0]
+        assert run["tool"]["driver"]["name"] == "ciscvm"
+        assert len(run["results"]) == 2
+        assert run["results"][0]["ruleId"] == "1.5.6"
+        assert "not persisted" in run["results"][0]["message"]["text"]
+
+    def test_scan_sarif_written(self, valid_toml, tmp_path):
+        from ciscvm import PackerResult, cmd_scan
+        r = resolve(valid_toml)
+        out = tmp_path / "scan.sarif"
+        with (
+            mock.patch("ciscvm._load_resolve_preflight", return_value=(r, tmp_path / "b")),
+            mock.patch("ciscvm.render_all"),
+            mock.patch("ciscvm.run_packer",
+                       return_value=PackerResult(exit_code=0, stdout_lines=[
+                           "Score: 92.0%", "✗ 1.1.1.9 | squashfs disabled"])),
+            mock.patch("ciscvm._record_lineage"),
+            mock.patch("ciscvm._write_provenance"),
+        ):
+            rc = cmd_scan(mock.MagicMock(config="x", workdir="b", quiet=True, debug=False,
+                                         min_score=85.0, sarif=str(out)))
+        assert rc == 0
+        assert out.exists()
+        d = json.loads(out.read_text())
+        assert d["runs"][0]["results"][0]["ruleId"] == "1.1.1.9"

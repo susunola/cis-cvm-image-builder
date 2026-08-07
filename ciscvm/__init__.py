@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.6"
+VERSION = "0.14.7"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -924,8 +924,27 @@ build {
       "fi"
     ]
   }
-__SMOKE_TEST_BLOCK__
+__IDEMPOTENCY_BLOCK____SMOKE_TEST_BLOCK__
 }
+"""
+
+# ── Idempotency verification (Linux) ──
+# ciscvm test --idempotency: re-run the apply playbook once more and assert
+# the second pass makes NO changes (Applied: 0, Pending: 0 in the role's
+# "Build summary" output).  A golden image builder must be idempotent — if a
+# re-apply changes rules, the image drifts on every rebuild.
+IDEMPOTENCY_LINUX_BLOCK = r"""  provisioner "ansible-local" {
+    command          = "/opt/ciscvm-ansible/bin/ansible-playbook"
+    playbook_dir     = "ansible"
+    playbook_file    = "ansible/site.yml"
+    staging_directory = "/opt/ciscvm-ansible/staging"
+    clean_staging_directory = false
+    extra_arguments  = [
+      "-v",
+      "-e", "ansible_python_interpreter=/opt/ciscvm-ansible/bin/python",
+      "-e", "cis_keep_remote_artifacts=true"
+    ]
+  }
 """
 
 # ── Instance-level smoke test (Linux) ──
@@ -1794,12 +1813,15 @@ def _validate_shell_arg(value: str, field_label: str) -> None:
             "Use plain letters, digits, dot, dash, underscore only.")
 
 
-def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False) -> None:
+def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
+               idempotency: bool = False) -> None:
     """Render the complete build directory.
 
     *scan* — audit-only mode: the engine runs with cis_mode=scan (no
     remediation) and the instance-level smoke test is skipped (the source
     image is not yet hardened, so hardening assertions would fail).
+    *idempotency* — Linux only: re-run the apply playbook once more and
+    fail the build if the second pass changes anything (Applied/Pending > 0).
     """
     p = r.profile
     family: str = r.family
@@ -1852,6 +1874,9 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False) -> None:
     else:
         smoke_block = ""
 
+    # Idempotency verification (Linux only): re-run apply, fail if it changes.
+    idempotency_block = IDEMPOTENCY_LINUX_BLOCK if (idempotency and family != "windows") else ""
+
     if family == "windows":
         if r.ssh_debug_password:
             warn("[meta].ssh_debug_password is ignored for Windows profiles "
@@ -1881,6 +1906,7 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False) -> None:
                .replace("__SECRET_ID_ENV__", r.secret_id_env)
                .replace("__SECRET_KEY_ENV__", r.secret_key_env)
                .replace("__SECURITY_TOKEN_ENV__", r.security_token_env)
+               .replace("__IDEMPOTENCY_BLOCK__", idempotency_block)
                .replace("__SMOKE_TEST_BLOCK__", smoke_block)
                .replace("__ASSUME_ROLE_BLOCK__", assume_role_block))
         user_data = ""
@@ -2573,6 +2599,100 @@ def cmd_cleanup_images(args: argparse.Namespace) -> int:
     return 0
 
 
+# ── Idempotency test + SARIF reporting ──────────────────────────────────────
+def _last_num(lines: list[str], pattern: str) -> int | None:
+    """Return the last integer matching *pattern* across *lines*."""
+    val: int | None = None
+    for line in lines:
+        if m := re.search(pattern, line):
+            val = int(m.group(1))
+    return val
+
+
+def cmd_test(args: argparse.Namespace) -> int:
+    """ciscvm test --idempotency: re-run apply and assert the second pass
+    makes no changes (Applied: 0 / Pending: 0 in the role summary)."""
+    prep = _load_resolve_preflight(args.config, args.workdir)
+    if prep is None:
+        return 1
+    r, workdir = prep
+
+    if args.idempotency and r.family == "windows":
+        warn("Idempotency check is Linux-only — nothing to do for Windows.")
+        return 0
+
+    render_all(workdir, r, idempotency=args.idempotency)
+    banner("test")
+    info(f"Idempotency — re-running apply must make 0 changes "
+         f"({r.profile_name} L{r.level}, region {r.region})")
+
+    result = run_packer(workdir, "build", quiet=args.quiet, capture=True, debug=args.debug)
+    if result.exit_code != 0:
+        fail("build failed during idempotency test")
+        return result.exit_code
+
+    applied = _last_num(result.stdout_lines, r"Applied:\s+(\d+)")
+    pending = _last_num(result.stdout_lines, r"Pending:\s+(\d+)")
+    if applied is None:
+        fail("Could not parse apply summary — idempotency test inconclusive")
+        return 1
+    total_changes = applied + (pending or 0)
+    if total_changes > 0:
+        fail(f"idempotency FAILED: second apply made {applied} change(s), "
+             f"{pending or 0} pending — the image drifts on rebuild")
+        return 1
+    ok(f"idempotency OK — second apply made 0 changes (no drift)")
+    return 0
+
+
+def _build_sarif(stdout_lines: list[str]) -> str:
+    """Build a SARIF 2.1.0 document from the engine's 'List failed rules' output."""
+    rules: list[dict] = []
+    results: list[dict] = []
+    seen: set[str] = set()
+    for i, line in enumerate(stdout_lines):
+        m = re.match(r"\s*✗\s+([0-9][0-9.]+)\s*\|\s*(.*?)\s*$", line)
+        if not m:
+            continue
+        rid, title = m.group(1), m.group(2).strip()
+        if rid in seen:
+            continue
+        seen.add(rid)
+        detail = stdout_lines[i + 1].strip() if i + 1 < len(stdout_lines) else ""
+        rules.append({"id": rid, "shortDescription": {"text": title}})
+        results.append({
+            "ruleId": rid,
+            "level": "error",
+            "message": {"text": detail or title},
+        })
+    sarif = {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": "ciscvm",
+                    "version": VERSION,
+                    "informationUri": "https://github.com/susunola/cis-cvm-image-builder",
+                    "rules": rules,
+                }
+            },
+            "results": results,
+        }],
+    }
+    return json.dumps(sarif, ensure_ascii=False, indent=1)
+
+
+def _write_sarif(args, stdout_lines: list[str]) -> None:
+    if not getattr(args, "sarif", None):
+        return
+    try:
+        Path(args.sarif).write_text(_build_sarif(stdout_lines), encoding="utf-8")
+        ok(f"SARIF report written -> {args.sarif}")
+    except OSError as exc:
+        warn(f"Could not write SARIF report: {exc}")
+
+
 # ── Build notifications (WeCom group robot) ─────────────────────────────────
 # [notify].webhook + [notify].on ("always"|"success"|"failure", default
 # "failure").  Combined with an external cron / systemd timer this turns
@@ -2717,6 +2837,10 @@ def cmd_scan(args: argparse.Namespace) -> int:
     image_ids = _extract_image_ids(result.stdout_lines)
     score = _extract_score(result.stdout_lines)
     image_name = _image_name(r)
+
+    # SARIF report (if requested) — written regardless of gate outcome so CI
+    # can archive failures.
+    _write_sarif(args, result.stdout_lines)
 
     if result.exit_code != 0:
         fail("packer build failed during scan")
@@ -2946,7 +3070,18 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Enable Packer debug logging (PACKER_LOG=1)")
     p_scn.add_argument("--min-score", type=float, default=85.0,
                        help="Gate threshold in percent (default 85)")
+    p_scn.add_argument("--sarif", default=None,
+                       help="Write a SARIF 2.1.0 report of failed rules to PATH")
     p_scn.set_defaults(func=cmd_scan)
+
+    p_tst = sub.add_parser("test", parents=[common], help="Test the build pipeline")
+    p_tst.add_argument("--quiet", action="store_true",
+                       help="Suppress packer output (show only the ciscvm summary)")
+    p_tst.add_argument("--debug", action="store_true",
+                       help="Enable Packer debug logging (PACKER_LOG=1)")
+    p_tst.add_argument("--idempotency", action="store_true",
+                       help="Re-run apply and fail if the second pass makes changes")
+    p_tst.set_defaults(func=cmd_test)
 
     p_clnimg = sub.add_parser(
         "cleanup-images",
