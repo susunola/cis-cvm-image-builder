@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.0"
+VERSION = "0.14.1"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -2440,6 +2440,82 @@ def _write_provenance(r: ResolvedConfig, image_ids: list[str], image_name: str,
         return None
 
 
+def _find_provenance(image_id: str) -> list[Path]:
+    """Locate provenance files whose subject references *image_id*."""
+    dirp = _lineage_path().parent / "provenance"
+    if not dirp.is_dir():
+        return []
+    hits: list[Path] = []
+    for p in sorted(dirp.glob("*.provenance.json")):
+        try:
+            prov = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        subjects = [s.get("name", "") for s in prov.get("subject", [])]
+        if image_id in subjects:
+            hits.append(p)
+    return hits
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    """Verify a signed provenance statement (SLSA signing verification)."""
+    paths: list[Path] = []
+    if args.provenance:
+        p = Path(args.provenance)
+        if not p.exists():
+            fail(f"Provenance file not found: {p}")
+            return 1
+        paths = [p]
+    elif args.image:
+        paths = _find_provenance(args.image)
+        if not paths:
+            fail(f"No provenance found for image {args.image} in "
+                 f"{_lineage_path().parent / 'provenance'}")
+            return 1
+    else:
+        fail("Specify --provenance <file> or --image <id>")
+        return 1
+
+    rc_all = 0
+    for prov_path in paths:
+        try:
+            prov = json.loads(prov_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            fail(f"Could not read provenance {prov_path}: {exc}")
+            rc_all = 1
+            continue
+        banner("verify")
+        ok(f"provenance : {prov_path}")
+        subjects = ", ".join(s.get("name", "?") for s in prov.get("subject", []))
+        info(f"subject    : {subjects}")
+        ext = prov.get("predicate", {}).get("buildDefinition", {}).get("externalParameters", {})
+        info(f"profile    : {ext.get('profile', '?')}  |  CIS level {ext.get('cis_level', '?')}  |  region {ext.get('region', '?')}")
+        info(f"source     : {ext.get('source_image_id', '?')}")
+        info(f"builder    : {prov.get('predicate', {}).get('runDetails', {}).get('builder', {}).get('id', '?')}")
+        score = prov.get("predicate", {}).get("runDetails", {}).get("metadata", {}).get("reAuditScore")
+        if score is not None:
+            info(f"re-audit   : {score:g}%")
+        # signature check
+        sig = prov_path.with_suffix(prov_path.suffix + ".sig")
+        if sig.exists():
+            try:
+                rc = subprocess.run(["gpg", "--verify", str(sig), str(prov_path)],
+                                    capture_output=True, text=True, timeout=30)
+                if rc.returncode == 0:
+                    ok(f"signature  : VALID ({prov_path.name}.sig)")
+                else:
+                    fail(f"signature  : INVALID — {(rc.stderr or rc.stdout).strip()[:200]}")
+                    rc_all = 1
+            except FileNotFoundError:
+                warn("gpg not found — cannot verify signature")
+            except subprocess.TimeoutExpired:
+                warn("gpg verify timed out")
+        else:
+            warn("signature  : NONE (provenance was not signed)")
+            rc_all = 1
+    return rc_all
+
+
 # Paths that must never be deleted by ciscvm clean.
 _FORBIDDEN_CLEAN_PREFIXES: tuple[Path, ...] = (
     Path("/"),
@@ -2548,6 +2624,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_img.add_argument("-n", "--limit", type=int, default=10,
                        help="Max records to show (default 10; 0 = all)")
     p_img.set_defaults(func=cmd_images)
+
+    p_vrf = sub.add_parser("verify", help="Verify a SLSA provenance signature")
+    p_vrf.add_argument("--provenance", default=None,
+                       help="Path to a .provenance.json file")
+    p_vrf.add_argument("--image", default=None,
+                       help="Image ID to look up its provenance (e.g. img-xxx)")
+    p_vrf.set_defaults(func=cmd_verify)
 
     return parser
 
