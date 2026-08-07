@@ -1288,3 +1288,100 @@ class TestAllProfilesRender:
         hcl = (wd / "packer" / "main.pkr.hcl").read_text()
         if r.family != "windows":
             assert "__CLEAN_CMD__" not in hcl, f"{profile_name}: unreplaced marker"
+
+
+class TestBuildGovernance:
+    """smoke test / lineage / notification / provenance (v0.14)."""
+
+    def test_smoke_rendered_linux_by_default(self, valid_toml, tmp_path):
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        assert "__SMOKE_TEST_BLOCK__" not in hcl
+        assert "smoke test: sshd config parses" in hcl
+        assert "smoke test: /dev/shm noexec" in hcl
+        assert "SMOKE FAIL" in hcl
+
+    def test_smoke_disabled(self, valid_toml, tmp_path):
+        valid_toml["meta"]["smoke_test"] = False
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        assert "smoke test" not in hcl
+
+    def test_smoke_rendered_windows(self, tmp_path):
+        data = _make_win_toml("win2022")
+        r = resolve(data)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        assert "smoke test PASSED - image is buildable" in hcl
+        assert "mpssvc" in hcl  # Windows firewall check
+
+    def test_lineage_record_and_images(self, valid_toml, tmp_path):
+        r = resolve(valid_toml)
+        lin = tmp_path / "lineage.jsonl"
+        with mock.patch("ciscvm._lineage_path", return_value=lin):
+            from ciscvm import _record_lineage, cmd_images
+            p = _record_lineage(r, ["img-aaa", "img-bbb"], "img-name", 91.5, ok=True)
+            assert p == lin and lin.exists()
+            _record_lineage(r, [], "img-name", None, ok=False)
+            args = mock.MagicMock(latest=False, limit=10)
+            assert cmd_images(args) == 0
+        recs = [json.loads(x) for x in lin.read_text().splitlines()]
+        assert recs[0]["status"] == "ok"
+        assert recs[0]["image_ids"] == ["img-aaa", "img-bbb"]
+        assert recs[0]["score"] == 91.5
+        assert recs[1]["status"] == "failed"
+
+    def test_notify_routing_failure_only(self, valid_toml, tmp_path):
+        valid_toml["notify"] = {"webhook": "https://example.invalid/hook", "on": "failure"}
+        r = resolve(valid_toml)
+        with mock.patch("ciscvm.urllib.request.urlopen") as urlopen:
+            from ciscvm import _send_notification
+            # success build + on=failure -> no POST
+            _send_notification(r, True, ["img-x"], 90.0, "n")
+            urlopen.assert_not_called()
+            # failed build -> POST
+            _send_notification(r, False, [], None, "n")
+            assert urlopen.call_count == 1
+
+    def test_notify_on_always(self, valid_toml, tmp_path):
+        valid_toml["notify"] = {"webhook": "https://example.invalid/hook", "on": "always"}
+        r = resolve(valid_toml)
+        with mock.patch("ciscvm.urllib.request.urlopen"):
+            from ciscvm import _send_notification
+            _send_notification(r, True, ["img-x"], 90.0, "n")  # must not raise
+
+    def test_provenance_written_and_signed(self, valid_toml, tmp_path):
+        from ciscvm import _write_provenance
+        valid_toml["sign"] = {"gpg_key": "TESTKEY"}
+        r = resolve(valid_toml)
+        with (
+            mock.patch("ciscvm._lineage_path", return_value=tmp_path / "lineage.jsonl"),
+            mock.patch("subprocess.run") as sub,
+        ):
+            sub.return_value = mock.Mock(returncode=0, stderr="", stdout="")
+            p = _write_provenance(r, ["img-xyz"], "img-name", 98.2)
+        assert p is not None and p.exists()
+        # gpg invoked with the configured key + sig output path
+        assert sub.call_count == 1
+        cmd = sub.call_args.args[0]
+        assert cmd[0] == "gpg" and "--local-user" in cmd
+        assert cmd[cmd.index("--local-user") + 1] == "TESTKEY"
+        sig = p.with_suffix(p.suffix + ".sig")
+        assert str(sig) in cmd
+        prov = json.loads(p.read_text())
+        assert prov["subject"][0]["name"] == "img-xyz"
+        assert prov["predicate"]["buildDefinition"]["externalParameters"]["profile"] == "tencentos3"
+        assert prov["predicate"]["runDetails"]["metadata"]["reAuditScore"] == 98.2
+
+    def test_provenance_unsigned_when_no_key(self, valid_toml, tmp_path):
+        from ciscvm import _write_provenance
+        r = resolve(valid_toml)
+        with mock.patch("ciscvm._lineage_path", return_value=tmp_path / "lineage.jsonl"):
+            p = _write_provenance(r, ["img-xyz"], "img-name", None)
+        assert p is not None
+        assert not p.with_suffix(p.suffix + ".sig").exists()
