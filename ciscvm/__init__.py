@@ -10,7 +10,7 @@ Supported OS: Ubuntu 20/22/24, RHEL 8/9/10, TencentOS 3/4, SLES 15/16,
               Windows Server 2016/2019/2022/2025
 
 Engine:  Bundled cis_engine.py (Linux) / cis_engine.ps1 (Windows).
-         In-role gate via cis_fail_on_findings — no external audit.
+         In-role gate via cis_min_score (post-reboot audit must score >= 85).
          Roles ship inside the package (ciscvm/roles/) — no network at build time.
 
 Dependencies: Python >= 3.11 (stdlib only), Packer >= 1.12, ansible-core >= 2.15.
@@ -33,12 +33,13 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.12.4"
+VERSION = "0.13.0"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -97,7 +98,7 @@ def banner(title: str) -> None:
 #   role_dir      Bundled role directory name under roles/
 #   ssh_username  Initial SSH user for Packer (ubuntu / root)
 #   ssh_port              SSH port (default 22)
-#   ssh_timeout           Packer SSH timeout (default "10m")
+#   ssh_timeout           Packer SSH timeout (default "15m")
 #   ssh_debug_password    (meta only) Set root password for VNC debug access
 #   os_tag        CVM source image OS tag
 #   benchmark     CIS benchmark version
@@ -118,8 +119,10 @@ def _ubuntu_profile(role_dir: str, os_tag: str, **kw) -> dict[str, Any]:
         "role_dir": role_dir, "ssh_username": "ubuntu", "os_tag": os_tag,
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo apt-get update -y",
-        "pkg_install": "sudo apt-get install -y python3-pip python3-venv git",
-        "cis_pkg_batch": "sudo apt-get install -y --no-install-recommends sudo libpam-modules authselect firewalld chrony rsyslog cron aide systemd-journal-remote || true",
+        "pkg_install": "sudo apt-get install -y python3-pip python3-venv",
+        # authselect is RHEL-only; harmless under `--no-install-recommends
+        # ... || true` but noisy — kept off the apt list.
+        "cis_pkg_batch": "sudo apt-get install -y --no-install-recommends sudo libpam-modules firewalld chrony rsyslog cron aide systemd-journal-remote || true",
         "clean_cmd": "sudo apt-get clean", **kw,
     }
 
@@ -128,7 +131,7 @@ def _rhel_profile(role_dir: str, os_tag: str, **kw) -> dict[str, Any]:
         "role_dir": role_dir, "ssh_username": "root", "os_tag": os_tag,
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo dnf makecache",
-        "pkg_install": "sudo dnf install -y python3-pip git",
+        "pkg_install": "sudo dnf install -y python3-pip",
         "cis_pkg_batch": "sudo dnf install -y --skip-broken sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote libselinux libselinux-utils || true",
         "clean_cmd": "sudo dnf clean all", **kw,
     }
@@ -139,7 +142,7 @@ def _tlinux_profile(role_dir: str, os_tag: str, **kw) -> dict[str, Any]:
         "os_tag": os_tag, "benchmark": "CIS-v1.0.0",
         "pip_index_url": "https://mirrors.cloud.tencent.com/pypi/simple/",
         "pkg_update": "sudo dnf makecache",
-        "pkg_install": "sudo dnf install -y python3-pip git",
+        "pkg_install": "sudo dnf install -y python3-pip",
         "cis_pkg_batch": "sudo dnf install -y --skip-broken sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote libselinux libselinux-utils || true",
         "clean_cmd": "sudo dnf clean all", **kw,
     }
@@ -149,7 +152,7 @@ def _sles_profile(role_dir: str, os_tag: str, **kw) -> dict[str, Any]:
         "role_dir": role_dir, "ssh_username": "root", "os_tag": os_tag,
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo zypper refresh",
-        "pkg_install": "sudo zypper install -y python3-pip python3-venv git",
+        "pkg_install": "sudo zypper install -y python3-pip python3-venv",
         "cis_pkg_batch": "sudo zypper --non-interactive install -y sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote || true",
         "clean_cmd": "sudo zypper clean --all", **kw,
     }
@@ -417,6 +420,15 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         _sanitize_region_zone(str(r), "[image].copy_regions") for r in copy_regions_raw
     ]
 
+    # Explicit None checks — `or` would silently discard a configured 0.
+    _ssh_port_raw = meta.get("ssh_port")
+    if _ssh_port_raw in (None, ""):
+        _ssh_port_raw = p.get("ssh_port", 22)
+    ssh_port = int(_ssh_port_raw)
+    if not (1 <= ssh_port <= 65535):
+        raise ConfigError(f"[meta].ssh_port must be 1-65535, got {ssh_port}")
+    ssh_timeout = str(meta.get("ssh_timeout") or p.get("ssh_timeout") or "15m")
+
     return ResolvedConfig(
         profile_name=profile_name,
         profile=p,
@@ -429,8 +441,8 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         subnet_id=str(data["build"]["subnet_id"]),
         security_group_id=str(data["build"]["security_group_id"]),
         associate_public_ip=bool(data["build"]["associate_public_ip"]),
-        ssh_port=int(meta.get("ssh_port") or p.get("ssh_port", 22)),
-        ssh_timeout=str(meta.get("ssh_timeout") or p.get("ssh_timeout", "15m")),
+        ssh_port=ssh_port,
+        ssh_timeout=ssh_timeout,
         ssh_username=str(p.get("ssh_username", "")),
         ssh_debug_password=str(meta.get("ssh_debug_password", "")),
         winrm_username=str(p.get("winrm_username", "")),
@@ -461,8 +473,9 @@ def _bundle_role(workdir: Path, role_dir: str) -> None:
     try:
         src.relative_to(roles_root)
     except ValueError:
-        warn(f"Role directory resolves outside of {roles_root}: {src}. Skipping.")
-        return
+        raise ConfigError(
+            f"Role directory resolves outside of {roles_root}: {src}. "
+            "Refusing to bundle — check the profile's role_dir.")
 
     if not src.is_dir():
         raise ConfigError(
@@ -490,6 +503,20 @@ def _check_bundled_role(role_dir: str) -> bool:
 # Packer template rendering
 # ---------------------------------------------------------------------------
 
+# ── Hostname DNS safeguard (shared snippet) ──
+# TencentOS cloud images ship /etc/hosts with only "127.0.0.1 localhost".
+# After CIS hardening modifies firewall / resolv.conf, internal DNS may
+# become unreachable.  Every sudo call then triggers a PAM gethostbyname
+# that falls through /etc/hosts (hostname not present) → DNS timeout
+# (5-30s per call).  Word-exact fixed-string match on the 127.0.0.1 line:
+# the naive grep "^127.0.0.1.*$(hostname)" treats hostname dots as regex
+# wildcards and can false-match a longer alias containing the hostname.
+# __HOSTS_FIX__ → bash scripts; __HOSTS_FIX_HCL__ → HCL inline ("-escaped).
+HOSTS_FIX_SNIPPET = (
+    'grep "^127.0.0.1" /etc/hosts 2>/dev/null | grep -qwF "$(hostname)" || '
+    'echo "127.0.0.1 $(hostname)" >> /etc/hosts'
+)
+
 # ── Linux HCL (SSH communicator × ansible-local provisioner) ──
 HCL_LINUX_TEMPLATE = r"""packer {
   required_plugins {
@@ -506,13 +533,13 @@ HCL_LINUX_TEMPLATE = r"""packer {
 
 variable "secret_id" {
   type      = string
-  default   = env("TENCENTCLOUD_SECRET_ID")
+  default   = env("__SECRET_ID_ENV__")
   sensitive = true
 }
 
 variable "secret_key" {
   type      = string
-  default   = env("TENCENTCLOUD_SECRET_KEY")
+  default   = env("__SECRET_KEY_ENV__")
   sensitive = true
 }
 
@@ -528,6 +555,9 @@ variable "subnet_id"                   { type = string }
 variable "security_group_id"           { type = string }
 variable "associate_public_ip_address" { type = bool }
 variable "image_name_prefix"           { type = string }
+# Computed once in Python (24h UTC) and passed in — the in-image
+# banner/report/motd must show the SAME name as the actual image.
+variable "image_name"                  { type = string }
 variable "image_copy_regions" {
   type    = list(string)
   default = []
@@ -538,7 +568,6 @@ variable "image_benchmark"             { type = string }
 
 locals {
   level_short = replace(var.cis_level, "-server", "")
-  image_name  = "${var.image_name_prefix}-${local.level_short}-${formatdate("YYYYMMDD-hhmmss", timestamp())}"
 }
 
 source "tencentcloud-cvm" "default" {
@@ -554,7 +583,7 @@ source "tencentcloud-cvm" "default" {
   ssh_handshake_attempts      = 120
   ssh_read_write_timeout      = "20m"
   ssh_keep_alive_interval     = "30s"
-  image_name                  = local.image_name
+  image_name                  = var.image_name
   vpc_id                      = var.vpc_id
   subnet_id                   = var.subnet_id
   security_group_id           = var.security_group_id
@@ -593,6 +622,9 @@ build {
     playbook_dir     = "ansible"
     playbook_file    = "ansible/site.yml"
     staging_directory = "/opt/ciscvm-ansible/staging"
+    # Keep the staging dir so cleanup.sh can preserve the bundled role
+    # (engine + rules.json) inside the image for later re-scans.
+    clean_staging_directory = false
     extra_arguments  = [
       "-v",
       "-e", "ansible_python_interpreter=/opt/ciscvm-ansible/bin/python"
@@ -616,7 +648,7 @@ build {
       "# CIS hardening may leave the hostname unresolvable by removing its",
       "# /etc/hosts entry.  Every subsequent sudo call (PAM → DNS) hangs",
       "# 5-30s.  We write directly — Packer runs as root, so no sudo needed.",
-      "grep -q \"^127.0.0.1.*$(hostname)\" /etc/hosts 2>/dev/null || echo \"127.0.0.1 $(hostname)\" >> /etc/hosts",
+      "__HOSTS_FIX_HCL__",
       "SSH_PORT=$(sudo sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')",
       "[ -z \"$SSH_PORT\" ] && SSH_PORT=$(sudo awk '/^[Pp]ort[ \\t]+[0-9]+/{print $2; exit}' /etc/ssh/sshd_config)",
       "[ -z \"$SSH_PORT\" ] && SSH_PORT=22",
@@ -638,10 +670,12 @@ build {
   # 4. Schedule reboot. shutdown -r +1 gives Packer ~60s to finish
   #    cleanup (rm reboot.sh) while SSH is still alive.
   #    Without expect_disconnect — SSH hasn't dropped yet at this point.
+  #    No `|| true`: a failed shutdown must fail loudly, otherwise the next
+  #    provisioner waits for a disconnect that never comes.
   provisioner "shell" {
     pause_before = "10s"
     remote_path  = "/opt/ciscvm-ansible/reboot.sh"
-    inline       = ["sudo shutdown -r +1 || true"]
+    inline       = ["sudo shutdown -r +1"]
   }
 
   # 5. Wait for the reboot, then continue AS SOON AS SSH returns.
@@ -673,7 +707,7 @@ build {
       "# Ensure hostname resolves BEFORE any sudo call.  CIS hardening may",
       "# leave /etc/hosts without the short hostname, which makes sudo PAM",
       "# hang on DNS (5-30s per call).  Packer runs as root: no sudo needed.",
-      "grep -q \"^127.0.0.1.*$(hostname)\" /etc/hosts 2>/dev/null || echo \"127.0.0.1 $(hostname)\" >> /etc/hosts",
+      "__HOSTS_FIX_HCL__",
       "sudo find /var/log/ -type f -perm /g+wx,o+rwx -exec chmod g-wx,o-rwx {} + 2>/dev/null",
       "# Reboot may revert ForwardToSyslog to yes (RPM / init-script overwrite).",
       "# 6.2.2.3 wants yes when rsyslog is present; but 6.2.2.1 already fails",
@@ -694,6 +728,9 @@ build {
     playbook_dir     = "ansible"
     playbook_file    = "ansible/site-audit.yml"
     staging_directory = "/opt/ciscvm-ansible/staging"
+    # Keep the staging dir so cleanup.sh can preserve the bundled role
+    # (engine + rules.json) inside the image for later re-scans.
+    clean_staging_directory = false
     extra_arguments  = [
       "-v",
       "-e", "ansible_python_interpreter=/opt/ciscvm-ansible/bin/python",
@@ -712,8 +749,14 @@ build {
     remote_path  = "/opt/ciscvm-ansible/cleanup.sh"
     inline = [
       "__CLEAN_CMD__",
+      "# Re-lock root login for the final image (CIS 5.1.22/5.2.10).  Do NOT",
+      "# reload sshd here: the running daemon keeps the current policy so",
+      "# Packer can still reconnect for the remaining provisioners; the new",
+      "# config takes effect on the first boot of any instance from the image.",
       "for f in /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf; do [ -f \"$f\" ] || continue; sudo sed -i 's/^[ \\t]*PermitRootLogin[ \\t].*/PermitRootLogin no/' \"$f\"; done",
-      "sudo systemctl reload sshd 2>/dev/null || true",
+      "# Keep the engine + rule catalog in the image so the report's re-scan",
+      "# instructions work; drop only the transient staging playbooks.",
+      "sudo mv /opt/ciscvm-ansible/staging/roles /opt/ciscvm-ansible/roles 2>/dev/null || true",
       "rm -rf /tmp/ansible /opt/ciscvm-ansible/staging /opt/ciscvm-ansible/reboot.sh /opt/ciscvm-ansible/ssh-guard.sh /opt/ciscvm-ansible/reconnected.sh /opt/ciscvm-ansible/fix-logperms.sh /opt/ciscvm-ansible/cleanup.sh ~/.ansible/roles 2>/dev/null || true"
     ]
   }
@@ -740,20 +783,34 @@ build {
     ]
   }
 
-  # 8. Generate the ciscvm banner + /opt report and wire the banner into
-  #    SSH (/etc/ssh/sshd_config.d/99-ciscvm-banner.conf) and /etc/motd.
-  #    This is the LAST user-visible step before Packer snapshots the image,
-  #    so the in-image channels (login banner, post-login motd, /opt report)
-  #    are written with the build's actual metadata and final audit results.
+  # 8. Upload the real ciscvm-finalize.sh (rendered by render_finalize with
+  #    build metadata substituted).  The shell provisioner below is just a
+  #    thin wrapper that fixes /etc/hosts first, then invokes this file.
+  provisioner "file" {
+    source      = "packer/scripts/ciscvm-finalize.sh"
+    destination = "/opt/ciscvm-ansible/ciscvm-finalize.sh"
+  }
+
+  # 9. Run the finalize script — writes banner, motd, /opt report, and
+  #    wires the SSH Banner directive.  This is the LAST user-visible step
+  #    before Packer snapshots the image.
   provisioner "shell" {
     pause_before = "5s"
-    remote_path  = "/opt/ciscvm-ansible/ciscvm-finalize.sh"
+    remote_path  = "/opt/ciscvm-ansible/run-finalize.sh"
     inline = [
       "# Fix hostname BEFORE sudo — 'sudo bash' hangs on DNS if /etc/hosts",
       "# lacks the short hostname.  We write as root (Packer is root) so",
       "# this is instant; the bash script below inherits the fix.",
-      "grep -q \"^127.0.0.1.*$(hostname)\" /etc/hosts 2>/dev/null || echo \"127.0.0.1 $(hostname)\" >> /etc/hosts",
-      "sudo bash /opt/ciscvm-ansible/ciscvm-finalize.sh __SOURCE_IMAGE__ __IMAGE_NAME__ __IMAGE_OS__ __CIS_LEVEL__ __IMAGE_BENCHMARK__ __CISCVM_VERSION__"
+      "__HOSTS_FIX_HCL__",
+      "sudo bash /opt/ciscvm-ansible/ciscvm-finalize.sh '__SOURCE_IMAGE__' '__IMAGE_NAME__' '__IMAGE_OS__' '__CIS_LEVEL__' '__IMAGE_BENCHMARK__' '__CISCVM_VERSION__'",
+      "# Re-scan AFTER finalize so /opt/ciscvm-AUDIT-RESULT.json describes the",
+      "# final image state (finalize rewrites banner/motd/issue, which flips",
+      "# CIS 1.7.x banner results).  Engine + catalog were kept under",
+      "# /opt/ciscvm-ansible/roles/ by the cleanup step.",
+      "ENG=$(ls -d /opt/ciscvm-ansible/roles/cis_*/files 2>/dev/null | head -1)",
+      "if [ -n \"$ENG\" ] && [ -f \"$ENG/cis_engine.py\" ]; then",
+      "  sudo /opt/ciscvm-ansible/bin/python \"$ENG/cis_engine.py\" --catalog \"$ENG/rules.json\" --mode scan --profile '__CIS_PROFILE_SHORT__' --out /tmp/cis-final-scan.json >/dev/null 2>&1 && sudo install -m 0600 -o root -g root /tmp/cis-final-scan.json /opt/ciscvm-AUDIT-RESULT.json && sudo rm -f /tmp/cis-final-scan.json && echo '[ciscvm] final-state audit refreshed' || echo '[ciscvm] WARNING: final-state re-scan failed; keeping pre-finalize audit'",
+      "fi"
     ]
   }
 }
@@ -775,13 +832,13 @@ HCL_WIN_TEMPLATE = r"""packer {
 
 variable "secret_id" {
   type      = string
-  default   = env("TENCENTCLOUD_SECRET_ID")
+  default   = env("__SECRET_ID_ENV__")
   sensitive = true
 }
 
 variable "secret_key" {
   type      = string
-  default   = env("TENCENTCLOUD_SECRET_KEY")
+  default   = env("__SECRET_KEY_ENV__")
   sensitive = true
 }
 
@@ -800,6 +857,9 @@ variable "subnet_id"                   { type = string }
 variable "security_group_id"           { type = string }
 variable "associate_public_ip_address" { type = bool }
 variable "image_name_prefix"           { type = string }
+# Computed once in Python (24h UTC) and passed in — the in-image
+# banner/report/motd must show the SAME name as the actual image.
+variable "image_name"                  { type = string }
 variable "image_copy_regions" {
   type    = list(string)
   default = []
@@ -810,7 +870,6 @@ variable "image_benchmark"             { type = string }
 
 locals {
   level_short = replace(var.cis_level, "-server", "")
-  image_name  = "${var.image_name_prefix}-${local.level_short}-${formatdate("YYYYMMDD-hhmmss", timestamp())}"
 }
 
 source "tencentcloud-cvm" "default" {
@@ -823,10 +882,14 @@ source "tencentcloud-cvm" "default" {
   communicator                = "winrm"
   winrm_username              = var.winrm_username
   winrm_password              = var.winrm_password
-  winrm_use_ssl               = true
-  winrm_insecure              = false
+  # Stock cloud Windows images expose only an HTTP/5985 listener (or a
+  # self-signed 5986 one).  Enforcing SSL with verification makes the
+  # ephemeral build VM unconnectable; the build runs on an isolated subnet
+  # and the VM is destroyed after snapshotting, so plain HTTP is acceptable.
+  winrm_use_ssl               = false
+  winrm_insecure              = true
   winrm_timeout               = "10m"
-  image_name                  = local.image_name
+  image_name                  = var.image_name
   vpc_id                      = var.vpc_id
   subnet_id                   = var.subnet_id
   security_group_id           = var.security_group_id
@@ -848,14 +911,15 @@ build {
   sources = ["source.tencentcloud-cvm.default"]
 
   # CIS apply via controller-side ansible (winrm — cis_engine.ps1)
+  # NOTE: no --tags filter — the bundled Windows roles don't tag tasks,
+  # so filtering by level would silently skip every task.
   provisioner "ansible" {
     playbook_file = "ansible/site.yml"
     user          = var.winrm_username
     use_proxy     = false
     extra_arguments = [
       "-e", "ansible_connection=winrm",
-      "-e", "ansible_winrm_transport=basic",
-      "--tags", var.cis_level
+      "-e", "ansible_winrm_transport=basic"
     ]
   }
 }
@@ -903,7 +967,8 @@ SITE_AUDIT_TEMPLATE = r"""---
 # ── Windows SITE_YML (controller-side ansible → winrm) ──
 SITE_YML_WIN_TEMPLATE = r"""---
 # CIS apply — bundled cis-os engine (PowerShell)
-# Gate inside role: cis_fail_on_findings: true
+# Gate via cis_min_score (findings-only gate stays off: some controls are
+# always manual/disruptive and would block every build).
 - name: "CIS __OS_NAME__ - apply (__CIS_LEVEL__)"
   hosts: all
   gather_facts: true
@@ -913,6 +978,7 @@ SITE_YML_WIN_TEMPLATE = r"""---
     cis_mode: apply
     cis_profile: __CIS_LEVEL__
     cis_platform: server
+    cis_allow_disruptive: false
     cis_fail_on_findings: false
     cis_min_score: 85
     cis_org_name: ""
@@ -936,8 +1002,7 @@ export DEBIAN_FRONTEND=noninteractive
 # (5-30s per call).  We fix this ONCE here, before any sudo or hardening,
 # so every downstream provisioner (ssh-guard, fix-logperms, finalize)
 # inherits the fix for free.
-grep -q "^127.0.0.1.*$(hostname)" /etc/hosts 2>/dev/null || \
-    echo "127.0.0.1 $(hostname)" >> /etc/hosts
+__HOSTS_FIX__
 
 # 1. System dependencies.
 #    Refreshing package indexes (apt-get update / dnf makecache / zypper
@@ -945,7 +1010,6 @@ grep -q "^127.0.0.1.*$(hostname)" /etc/hosts 2>/dev/null || \
 #    image already ships python3 venv + pip. Probe first, only touch the
 #    package manager when something is actually missing.
 need_pkgs=0
-command -v git >/dev/null 2>&1 || need_pkgs=1
 # venv module + ensurepip must both work to build the ansible venv offline
 python3 -c 'import venv, ensurepip' >/dev/null 2>&1 || need_pkgs=1
 if [ "$need_pkgs" = "1" ]; then
@@ -953,7 +1017,7 @@ if [ "$need_pkgs" = "1" ]; then
     __PKG_UPDATE__
     __PKG_INSTALL__
 else
-    echo "==> base deps (python3-venv, pip, git) already present — skipping pkg refresh"
+    echo "==> base deps (python3-venv, pip) already present — skipping pkg refresh"
 fi
 
 # 2. Pick a Python >=3.8 (ansible-core >=2.12 requires it; RHEL 8 / TencentOS 3 ship 3.6)
@@ -1053,6 +1117,23 @@ echo "ansible ready in $VENV (cis-os engine)"
 #   /etc/ssh/sshd_config.d/99-ciscvm-banner.conf    — wires the SSH Banner
 #   /opt/ciscvm-REPORT.md                           — full hardening report
 #   /usr/local/bin/ciscvm-info                      — helper to view the report
+#
+# Banner art with REAL escape characters (the template below is a raw
+# string, and the quoted heredoc performs no escape interpretation — a
+# literal "\x1b" in the template would land as garbage text in the file).
+_BANNER_ART = (
+    "\x1b[38;5;117m              .---..---.\x1b[0m\n"
+    "\x1b[38;5;117m          .-'          '-.           \x1b[1;37mSECX  SERIES\x1b[0m\n"
+    "\x1b[38;5;75m        .'                '.         \x1b[38;5;75m  ___ ___  ___  ___\x1b[0m\n"
+    "\x1b[1;38;5;75m      .'                    '.       \x1b[1;38;5;75m / __/ _ \\/ __|/ __|\x1b[0m\n"
+    "\x1b[1;38;5;75m     /         ()    ()       \\      \x1b[1;38;5;75m| (_| (_) \\__ \\ (__ \x1b[0m\n"
+    "\x1b[1;38;5;75m    |                        |      \x1b[1;38;5;75m \\___\\___/|___/\\___|\x1b[0m\n"
+    "\x1b[1;38;5;33m     \\                      /       \x1b[37m  CIS-HARDENED IMAGE BUILDER\x1b[0m\n"
+    "\x1b[1;38;5;33m      '.                  .'\n"
+    "\x1b[1;38;5;33m        '.              .'\n"
+    "\x1b[1;38;5;33m          '---.------.---'"
+)
+
 FINALIZE_SH_TEMPLATE = r"""#!/usr/bin/env bash
 # ciscv finalize — banner + /opt report.
 # Usage: ciscvm-finalize.sh <source_image_id> <image_name> <os_tag> <cis_level> <benchmark> <ciscvm_version>
@@ -1064,11 +1145,10 @@ REPORT="/opt/ciscvm-REPORT.md"
 BUILD_TS="$(date -u +%FT%TZ)"
 
 # ── Hostname DNS safeguard (belt-and-suspenders with fix-logperms) ──
-grep -q "^127.0.0.1.*$(hostname)" /etc/hosts 2>/dev/null || \
-    echo "127.0.0.1 $(hostname)" >> /etc/hosts
+__HOSTS_FIX__
 
-# ── Progress bar: 20 fine-grained steps with percentage ──
-_TOTAL=17; _N=0
+# ── Progress bar: fine-grained steps with percentage ──
+_TOTAL=16; _N=0
 _bar() {
     _N=$((_N + 1))
     local pct=$((_N * 100 / _TOTAL)) w=$((_N * 24 / _TOTAL)) i=0 bar=""
@@ -1082,16 +1162,7 @@ _bar "banner: /etc/ciscvm/banner"
 sudo install -d -m 0755 /etc/ciscvm
 
 sudo tee /etc/ciscvm/banner > /dev/null <<'BANNER_EOF'
-\x1b[38;5;117m              .---..---.\x1b[0m
-\x1b[38;5;117m          .-'          '-.           \x1b[1;37mSECX  SERIES\x1b[0m
-\x1b[38;5;75m        .'                '.         \x1b[38;5;75m  ___ ___  ___  ___\x1b[0m
-\x1b[1;38;5;75m      .'                    '.       \x1b[1;38;5;75m / __/ _ \/ __|/ __|\x1b[0m
-\x1b[1;38;5;75m     /         ()    ()       \      \x1b[1;38;5;75m| (_| (_) \__ \ (__ \x1b[0m
-\x1b[1;38;5;75m    |                        |      \x1b[1;38;5;75m \___\___/|___/\___|\x1b[0m
-\x1b[1;38;5;33m     \                      /       \x1b[37m  CIS-HARDENED IMAGE BUILDER\x1b[0m
-\x1b[1;38;5;33m      '.                  .'
-\x1b[1;38;5;33m        '.              .'
-\x1b[1;38;5;33m          '---.------.---'
+__BANNER_ART__
 BANNER_EOF
 _bar "banner perms"
 sudo chmod 0644 /etc/ciscvm/banner
@@ -1143,7 +1214,10 @@ for f in /var/log/cloud-init.log /var/log/cloud-init-output.log \
     [ -f "$f" ] && sudo chmod 0640 "$f" 2>/dev/null || true
 done
 
-# 4. Wire the banner into sshd (drop-in; survives sshd_config rewrites by CIS)
+# 4. Wire the banner into sshd (drop-in; survives sshd_config rewrites by CIS).
+#    We write the config now but do NOT reload sshd — a reload would kill the
+#    Packer SSH session, aborting the rest of the script.  The drop-in takes
+#    effect on the first boot of any instance launched from this image.
 _bar "sshd drop-in dir"
 sudo install -d -m 0755 /etc/ssh/sshd_config.d
 sudo tee /etc/ssh/sshd_config.d/99-ciscvm-banner.conf > /dev/null <<'SSHD_EOF'
@@ -1153,14 +1227,12 @@ Banner /etc/ciscvm/banner
 SSHD_EOF
 _bar "sshd drop-in perms"
 sudo chmod 0644 /etc/ssh/sshd_config.d/99-ciscvm-banner.conf
-_bar "sshd reload"
-sudo systemctl reload sshd 2>/dev/null || true
 
 # 5. /opt/ciscvm-REPORT.md — what was done to the base image
 _bar "generate REPORT.md"
 _bar "  running Python"
 sudo /opt/ciscvm-ansible/bin/python - "$SRC_IMG" "$IMG_NAME" "$OS_TAG" "$CIS_LEVEL" "$BENCH" "$VER" "$BUILD_TS" "$AUDIT" "$REPORT" <<'PY_EOF'
-import json, os, sys, tempfile
+import json, os, shutil, subprocess, sys, tempfile
 src, name, os_tag, level, bench, ver, ts, audit_p, report_p = sys.argv[1:10]
 try:
     with open(audit_p) as f:
@@ -1187,6 +1259,9 @@ disc  = [r for r in results if (r.get("apply_status") or "") == "skipped_disrupt
              and r.get("apply_status") == "not_applied")]
 
 lines = []
+# cis_level_tag is e.g. "level1-server"; the engine's --profile token is "L1".
+level_num = level.replace("level", "").replace("-server", "")
+level_short = "L" + level_num
 lines.append("# ciscv — CIS Hardening Report")
 lines.append("")
 lines.append("This image was hardened by **ciscv** (CIS-hardened image builder).")
@@ -1212,7 +1287,7 @@ lines.append("1. **Provisioned** a dedicated non-root build user `ciscvm`")
 lines.append("   (passwordless sudo via `/etc/sudoers.d/ciscvm-build`, root SSH login")
 lines.append("   is disabled per CIS 5.1.22 / 5.2.10).")
 lines.append("2. **Applied the CIS engine** (`cis_engine.py` + `rules.json` for `{}`)".format(os_tag))
-lines.append("   against every L{} rule, tagging destructive fixes as `disruptive`".format(level.replace("level", "")))
+lines.append("   against every {} rule, tagging destructive fixes as `disruptive`".format(level_short))
 lines.append("   so they are NOT auto-applied.")
 lines.append("3. **Rebooted** the instance to materialise kernel / audit / selinux settings.")
 lines.append("4. **Re-audited** (`{}` mode) and persisted the result here.".format(mode))
@@ -1224,7 +1299,7 @@ lines.append("## Hardening summary")
 lines.append("")
 lines.append("| Metric                  | Count |")
 lines.append("|-------------------------|-------|")
-lines.append("| Total L{} rules checked | {} |".format(level.replace("level", ""), total))
+lines.append("| Total {} rules checked | {} |".format(level_short, total))
 lines.append("| Auto-remediated         | {} |".format(applied))
 lines.append("| Pending reboot / verify | {} |".format(pending))
 lines.append("| Apply failed            | {} |".format(failed))
@@ -1256,8 +1331,7 @@ if disc:
     lines.append("## Skipped — disruptive (opt-in)")
     lines.append("")
     lines.append("These rules were skipped because they would break an active service or")
-    lines.append("require a manual decision. Re-run ciscv with `--allow-disruptive` to")
-    lines.append("apply them, or remediate them in your own control plane.")
+    lines.append("require a manual decision. Remediate them in your own control plane.")
     lines.append("")
     if disruptive:
         lines.append("_({} rule(s) total)_".format(disruptive))
@@ -1280,7 +1354,7 @@ lines.append("# 4. Re-run the scan on this machine")
 lines.append("sudo /opt/ciscvm-ansible/bin/python \\")
 lines.append("  /opt/ciscvm-ansible/roles/cis_*/files/cis_engine.py \\")
 lines.append("  --catalog /opt/ciscvm-ansible/roles/cis_*/files/rules.json \\")
-lines.append("  --mode scan --profile {} --out /tmp/cis-recheck.json".format(level))
+lines.append("  --mode scan --profile {} --out /tmp/cis-recheck.json".format(level_short))
 lines.append("```")
 lines.append("")
 lines.append("## Files left behind by ciscv")
@@ -1300,12 +1374,17 @@ content = "\n".join(lines) + "\n"
 with tempfile.NamedTemporaryFile("w", delete=False, suffix=".md") as fh:
     fh.write(content)
     tmp = fh.name
-os.system("sudo install -m 0644 -o root -g root {} {}".format(tmp, report_p))
-print("[ciscvm-finalize] _step wrote REPORT.md to /opt/")
+# This heredoc already runs as root (via sudo python); install copies
+# (never moves), so the temp file must be unlinked explicitly afterwards.
 try:
-    os.unlink(tmp)
-except FileNotFoundError:
-    pass  # install -m moves the file atomically; tmp may already be gone
+    subprocess.run(["install", "-m", "0644", "-o", "root", "-g", "root",
+                    tmp, report_p], check=True)
+except (subprocess.CalledProcessError, FileNotFoundError):
+    # Fallback for environments without a root group (local test runs).
+    shutil.copy2(tmp, report_p)
+    os.chmod(report_p, 0o644)
+print("[ciscvm-finalize] _step wrote REPORT.md to /opt/")
+os.unlink(tmp)
 PY_EOF
 _bar "install REPORT to /opt"
 sudo chmod 0644 /opt/ciscvm-REPORT.md
@@ -1336,19 +1415,19 @@ echo "[ciscvm] finalize complete: banner + motd + /opt/ciscvm-REPORT.md"
 """
 
 
-def render_finalize(r: ResolvedConfig, p: dict[str, Any]) -> str:
+def render_finalize(r: ResolvedConfig, p: dict[str, Any],
+                    image_name: str | None = None) -> str:
     """Generate ciscvm-finalize.sh for Linux profiles.
 
     Substitutes the build's actual metadata into the finalize script.
-    The image_name uses ciscv's convention (prefix + level + snapshot time);
-    we compute it deterministically here so the report and banner agree.
+    image_name comes from _image_name() — the same value Packer uses.
     """
-    from datetime import datetime, timezone
-    snap_ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    level_short = r.cis_level_tag.replace("-server", "")
-    image_name = f"{r.image_name_prefix}-{level_short}-{snap_ts}"
+    if image_name is None:
+        image_name = _image_name(r)
     return (
         FINALIZE_SH_TEMPLATE
+        .replace("__BANNER_ART__", _BANNER_ART)
+        .replace("__HOSTS_FIX__", HOSTS_FIX_SNIPPET)
         .replace("__SOURCE_IMAGE__", r.source_image_id)
         .replace("__IMAGE_NAME__", image_name)
         .replace("__IMAGE_OS__", r.image_os_tag)
@@ -1381,8 +1460,25 @@ def _format_hcl_value(value: Any) -> str:
     return f'"{escaped}"'
 
 
-def render_pkrvars(r: ResolvedConfig) -> str:
+def _image_name(r: ResolvedConfig) -> str:
+    """Single source of truth for the image name.
+
+    Computed once in Python (24-hour UTC clock) and passed to Packer as a
+    plain variable, so the name baked into the in-image banner/motd/report
+    always matches the actual image name.  (Packer's own
+    `formatdate("YYYYMMDD-hhmmss", timestamp())` used a 12-hour clock and
+    evaluated at a different moment, so the two never agreed.)
+    """
+    from datetime import datetime, timezone
+    snap_ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    level_short = r.cis_level_tag.replace("-server", "")
+    return f"{r.image_name_prefix}-{level_short}-{snap_ts}"
+
+
+def render_pkrvars(r: ResolvedConfig, image_name: str | None = None) -> str:
     """Generate auto.pkrvars.hcl content."""
+    if image_name is None:
+        image_name = _image_name(r)
     flat: dict[str, Any] = {
         "region": r.region,
         "zone": r.zone,
@@ -1393,6 +1489,7 @@ def render_pkrvars(r: ResolvedConfig) -> str:
         "security_group_id": r.security_group_id,
         "associate_public_ip_address": r.associate_public_ip,
         "image_name_prefix": r.image_name_prefix,
+        "image_name": image_name,
         "image_copy_regions": r.image_copy_regions,
         "cis_level": r.cis_level_tag,
         "image_os_tag": r.image_os_tag,
@@ -1415,6 +1512,7 @@ def render_install(p: dict[str, Any]) -> str:
     index_flag = f"-i {index_url}" if index_url else ""
     return (
         INSTALL_SH_TEMPLATE
+        .replace("__HOSTS_FIX__", HOSTS_FIX_SNIPPET)
         .replace("__PKG_UPDATE__", str(p.get("pkg_update", "")))
         .replace("__PKG_INSTALL__", str(p.get("pkg_install", "")))
         .replace("__ANSIBLE_CORE_SPEC__", str(p.get("ansible_core_spec", "ansible-core>=2.15")))
@@ -1465,6 +1563,25 @@ def _assert_no_markers(content: str, filename: str) -> None:
         )
 
 
+def _validate_env_var_name(name: str, field_label: str) -> None:
+    """Env var names land inside HCL env("...") — reject anything that
+    isn't a plain identifier so a malformed config can't break out of the
+    string literal."""
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+        raise ConfigError(
+            f"{field_label} must be a valid environment variable name, got {name!r}")
+
+
+def _validate_shell_arg(value: str, field_label: str) -> None:
+    """Values substituted into shell inline scripts must not contain shell
+    metacharacters (they are embedded unquoted by design — the inline runs
+    as root on the build VM)."""
+    if re.search(r"['\"`$\\;|&<>(){}!\n]", value):
+        raise ConfigError(
+            f"{field_label} contains shell metacharacters: {value!r}. "
+            "Use plain letters, digits, dot, dash, underscore only.")
+
+
 def render_all(workdir: Path, r: ResolvedConfig) -> None:
     """Render the complete build directory."""
     p = r.profile
@@ -1476,16 +1593,36 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
     # 1. Copy bundled role into workspace
     _bundle_role(workdir, r.role_dir)
 
+    # Computed once — pkrvars, HCL finalize args and the finalize script
+    # itself all share this exact image name.
+    image_name = _image_name(r)
+
+    # Credential env var names are user-configurable ([cloud].secret_id_env);
+    # validate before they land inside HCL env("...") calls.
+    _validate_env_var_name(r.secret_id_env, "[cloud].secret_id_env")
+    _validate_env_var_name(r.secret_key_env, "[cloud].secret_key_env")
+
+    # Values substituted into the finalize inline shell command must be
+    # shell-safe (single-quoting happens in the template).
+    _validate_shell_arg(r.source_image_id, "[build].source_image_id")
+    _validate_shell_arg(image_name, "image name")
+    _validate_shell_arg(r.image_os_tag, "[meta].os_tag")
+    _validate_shell_arg(r.cis_level_tag, "cis level")
+    _validate_shell_arg(r.image_benchmark, "[meta].benchmark")
+
     # 2. HCL (Linux or Windows template)
     if family == "windows":
-        hcl = HCL_WIN_TEMPLATE.replace("__WINRM_PASSWORD_ENV__", r.winrm_password_env)
+        if r.ssh_debug_password:
+            warn("[meta].ssh_debug_password is ignored for Windows profiles "
+                 "(it only applies to Linux user_data).")
+        _validate_env_var_name(r.winrm_password_env, "[cloud].winrm_password_env")
+        hcl = (HCL_WIN_TEMPLATE
+               .replace("__WINRM_PASSWORD_ENV__", r.winrm_password_env)
+               .replace("__SECRET_ID_ENV__", r.secret_id_env)
+               .replace("__SECRET_KEY_ENV__", r.secret_key_env))
     else:
         # Substitute the build's actual metadata into the finalize provisioner
         # so the in-image banner/report show the right source/level/OS.
-        from datetime import datetime, timezone
-        snap_ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-        level_short = r.cis_level_tag.replace("-server", "")
-        image_name = f"{r.image_name_prefix}-{level_short}-{snap_ts}"
         hcl = (HCL_LINUX_TEMPLATE
                .replace("__CLEAN_CMD__", str(p["clean_cmd"]))
                .replace("__VERSION__", VERSION)
@@ -1494,7 +1631,11 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
                .replace("__IMAGE_OS__", r.image_os_tag)
                .replace("__CIS_LEVEL__", r.cis_level_tag)
                .replace("__IMAGE_BENCHMARK__", r.image_benchmark)
-               .replace("__CISCVM_VERSION__", VERSION))
+               .replace("__CISCVM_VERSION__", VERSION)
+               .replace("__CIS_PROFILE_SHORT__", f"L{r.level}")
+               .replace("__HOSTS_FIX_HCL__", HOSTS_FIX_SNIPPET.replace('"', '\\"'))
+               .replace("__SECRET_ID_ENV__", r.secret_id_env)
+               .replace("__SECRET_KEY_ENV__", r.secret_key_env))
         user_data = ""
         if r.ssh_debug_password:
             quoted = shlex.quote(f"root:{r.ssh_debug_password}")
@@ -1506,10 +1647,15 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
             )
         hcl = hcl.replace("__USER_DATA_BLOCK__", user_data)
     _assert_no_markers(hcl, "main.pkr.hcl")
-    (workdir / "packer" / "main.pkr.hcl").write_text(hcl, encoding="utf-8")
+    hcl_path = workdir / "packer" / "main.pkr.hcl"
+    hcl_path.write_text(hcl, encoding="utf-8")
+    if r.ssh_debug_password:
+        # The debug password is embedded in the HCL — restrict permissions.
+        hcl_path.chmod(0o600)
 
     # 3. Vars
-    (workdir / "packer" / "auto.pkrvars.hcl").write_text(render_pkrvars(r), encoding="utf-8")
+    (workdir / "packer" / "auto.pkrvars.hcl").write_text(
+        render_pkrvars(r, image_name), encoding="utf-8")
 
     # 4. Ansible playbooks
     site = render_site(p, r.level)
@@ -1531,7 +1677,7 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
 
     # 6. Finalize script — writes banner + /opt report (Linux only)
     if family != "windows":
-        finalize = render_finalize(r, p)
+        finalize = render_finalize(r, p, image_name)
         _assert_no_markers(finalize, "ciscvm-finalize.sh")
         finalize_path = workdir / "packer" / "scripts" / "ciscvm-finalize.sh"
         finalize_path.write_text(finalize, encoding="utf-8")
@@ -1570,20 +1716,22 @@ def run_packer(
     varfile_path = "packer/auto.pkrvars.hcl"
 
     # 1. packer init
+    # Plugin downloads can be tens of MB on a slow/proxied link; 60s was
+    # too aggressive and produced a misleading "check network" error.
     try:
         init_res = subprocess.run(
             ["packer", "init", hcl_path],
             cwd=workdir,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=300,
             env=env,
         )
     except FileNotFoundError:
         fail("packer not found in PATH. Install from https://developer.hashicorp.com/packer/install")
         return PackerResult(exit_code=1)
     except subprocess.TimeoutExpired:
-        fail("packer init timed out (60s). Check network / plugin registry access.")
+        fail("packer init timed out (300s). Check network / plugin registry access.")
         return PackerResult(exit_code=1)
 
     if init_res.returncode != 0:
@@ -1601,30 +1749,49 @@ def run_packer(
     cmd = ["packer", subcmd, f"-var-file={varfile_path}", hcl_path]
     try:
         if capture or quiet or log_file:
-            # Capture output line-by-line with real-time streaming.
+            # Capture output line-by-line with real-time streaming.  The
+            # reader runs on a daemon thread: `for line in proc.stdout`
+            # blocks until EOF, so a timeout enforced only via wait()
+            # afterwards would never fire while the child keeps the pipe
+            # open.  On timeout we kill() explicitly — Popen.__exit__ would
+            # otherwise wait() with no timeout and hang forever.
             lines: list[str] = []
-            with subprocess.Popen(
+            proc = subprocess.Popen(
                 cmd, cwd=str(workdir),
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, env=env,
-            ) as proc:
+            )
+
+            def _reader() -> None:
                 assert proc.stdout is not None
-                if log_file:
-                    with open(log_file, "a", encoding="utf-8") as _log_fh:
-                        for line in proc.stdout:
-                            if not quiet:
-                                print(line, end="", file=sys.stderr)
-                            _log_fh.write(line)
-                            lines.append(line.rstrip("\n"))
-                else:
+                log_fh = open(log_file, "a", encoding="utf-8") if log_file else None
+                try:
                     for line in proc.stdout:
                         if not quiet:
                             print(line, end="", file=sys.stderr)
+                        if log_fh:
+                            log_fh.write(line)
                         lines.append(line.rstrip("\n"))
+                finally:
+                    if log_fh:
+                        log_fh.close()
+
+            reader = threading.Thread(target=_reader, daemon=True)
+            reader.start()
+            try:
                 proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                reader.join(timeout=10)
+                fail(f"packer {subcmd} timed out after {timeout // 60} minutes; "
+                     "process killed.")
+                return PackerResult(exit_code=1, stdout_lines=lines)
+            reader.join(timeout=30)
             return PackerResult(exit_code=proc.returncode, stdout_lines=lines)
         else:
             # Inherit stdout/stderr from parent (live output, no capture).
+            # subprocess.run kills the child itself on TimeoutExpired.
             cp = subprocess.run(cmd, cwd=workdir, timeout=timeout, env=env)
             return PackerResult(exit_code=cp.returncode)
     except subprocess.TimeoutExpired:
@@ -1801,7 +1968,6 @@ def cmd_build(args: argparse.Namespace) -> int:
 
     # Confirmation prompt (skip with -y or in non-interactive mode)
     if not args.yes:
-        banner("build")
         communicator = "winrm" if r.family == "windows" else "ssh"
         info(f"profile     = {r.profile_name}  |  CIS Level {r.level}  |  region {r.region}  |  {communicator}")
         info(f"source image = {r.source_image_id}")
