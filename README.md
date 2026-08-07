@@ -256,14 +256,6 @@ benchmark = "CIS-v1.0.0"
 
 ### Linux pipeline
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-pipeline-linux-dark.png">
-    <img src="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-pipeline-linux-light.png" alt="ciscvm Linux pipeline — SSH + ansible-local" width="720">
-  </picture>
-</p>
-
-
 Four phases executed inside the ephemeral CVM via `ansible-local`:
 
 1. **Install** — provisions `ansible-core` via the OS package manager + pip.
@@ -335,15 +327,15 @@ the next admin does not have to guess.
 
 ### Windows pipeline
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-pipeline-win-dark.png">
-    <img src="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-pipeline-win-light.png" alt="ciscvm Windows pipeline — WinRM + controller-side ansible" width="720">
-  </picture>
-</p>
-
-
 Windows builds use the Packer `ansible` provisioner (controller-side) over WinRM. The bundled role includes `cis_engine.ps1` (PowerShell). The controller requires `ansible-core` locally.
+
+| | Linux | Windows |
+|---|---|---|
+| Communicator | SSH | WinRM |
+| Packer provisioner | `ansible-local` (runs in the CVM) | `ansible` (controller-side) |
+| Engine | `cis_engine.py` | `cis_engine.ps1` |
+| Controller requirement | none — engine runs on the instance | `ansible-core` on the build machine |
+| Reboot safety net | `ciscvm` build user + SSH guard | WinRM direct (no reboot lockout risk) |
 
 ### Design
 
