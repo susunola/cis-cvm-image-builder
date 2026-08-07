@@ -253,10 +253,7 @@ benchmark = "CIS-v1.0.0"
 ## Architecture
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-pipeline-dark.png">
-    <img src="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-pipeline-light.png" alt="ciscvm build pipeline — TOML config to hardened golden image" width="720">
-  </picture>
+  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-architecture.png" alt="ciscvm build architecture — TOML config to hardened golden image" width="720">
 </p>
 
 ### Linux pipeline
