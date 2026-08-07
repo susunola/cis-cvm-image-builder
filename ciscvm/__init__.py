@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.10.5"
+VERSION = "0.10.6"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -121,6 +121,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo apt-get update -y",
         "pkg_install": "sudo apt-get install -y python3-pip python3-venv git",
+        "cis_pkg_batch": "sudo apt-get install -y --no-install-recommends sudo libpam-modules authselect firewalld chrony rsyslog cron aide systemd-journal-remote || true",
         "clean_cmd": "sudo apt-get clean",
     },
     "ubuntu2204": {
@@ -130,6 +131,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo apt-get update -y",
         "pkg_install": "sudo apt-get install -y python3-pip python3-venv git",
+        "cis_pkg_batch": "sudo apt-get install -y --no-install-recommends sudo libpam-modules authselect firewalld chrony rsyslog cron aide systemd-journal-remote || true",
         "clean_cmd": "sudo apt-get clean",
     },
     "ubuntu2404": {
@@ -139,6 +141,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo apt-get update -y",
         "pkg_install": "sudo apt-get install -y python3-pip python3-venv git",
+        "cis_pkg_batch": "sudo apt-get install -y --no-install-recommends sudo libpam-modules authselect firewalld chrony rsyslog cron aide systemd-journal-remote || true",
         "clean_cmd": "sudo apt-get clean",
     },
     # ── RHEL ──
@@ -150,6 +153,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "ansible_core_spec": "ansible-core>=2.11",
         "pkg_update": "sudo dnf makecache",
         "pkg_install": "sudo dnf install -y python3-pip git",
+        "cis_pkg_batch": "sudo dnf install -y --skip-broken sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote libselinux libselinux-utils || true",
         "clean_cmd": "sudo dnf clean all",
     },
     "rhel9": {
@@ -159,6 +163,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo dnf makecache",
         "pkg_install": "sudo dnf install -y python3-pip git",
+        "cis_pkg_batch": "sudo dnf install -y --skip-broken sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote libselinux libselinux-utils || true",
         "clean_cmd": "sudo dnf clean all",
     },
     "rhel10": {
@@ -168,6 +173,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo dnf makecache",
         "pkg_install": "sudo dnf install -y python3-pip git",
+        "cis_pkg_batch": "sudo dnf install -y --skip-broken sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote libselinux libselinux-utils || true",
         "clean_cmd": "sudo dnf clean all",
     },
     # ── TencentOS Server ──
@@ -181,6 +187,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "pip_index_url": "https://mirrors.cloud.tencent.com/pypi/simple/",
         "pkg_update": "sudo dnf makecache",
         "pkg_install": "sudo dnf install -y python3-pip git",
+        "cis_pkg_batch": "sudo dnf install -y --skip-broken sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote libselinux libselinux-utils || true",
         "clean_cmd": "sudo dnf clean all",
     },
     "tencentos4": {
@@ -192,6 +199,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "pip_index_url": "https://mirrors.cloud.tencent.com/pypi/simple/",
         "pkg_update": "sudo dnf makecache",
         "pkg_install": "sudo dnf install -y python3-pip git",
+        "cis_pkg_batch": "sudo dnf install -y --skip-broken sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote libselinux libselinux-utils || true",
         "clean_cmd": "sudo dnf clean all",
     },
     # ── SLES ──
@@ -202,6 +210,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo zypper refresh",
         "pkg_install": "sudo zypper install -y python3-pip python3-venv git",
+        "cis_pkg_batch": "sudo zypper --non-interactive install -y sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote || true",
         "clean_cmd": "sudo zypper clean --all",
     },
     "sles16": {
@@ -211,6 +220,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "benchmark": "CIS-v1.0.0",
         "pkg_update": "sudo zypper refresh",
         "pkg_install": "sudo zypper install -y python3-pip python3-venv git",
+        "cis_pkg_batch": "sudo zypper --non-interactive install -y sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote || true",
         "clean_cmd": "sudo zypper clean --all",
     },
     # ── Windows Server (winrm + controller-side ansible) ──
@@ -1060,6 +1070,13 @@ elif [ "$CUR_USER" = "root" ] && [ -f /root/.ssh/authorized_keys ]; then
 fi
 echo "build user '$BUILD_USER' ready (sudo + shared SSH key)"
 
+# 4.5 Pre-install common CIS dependency packages in a single batch.
+#     Without this the CIS engine installs each package via a separate
+#     dnf transaction (metadata sync + download + install = 10-30s each).
+#     Batching all into one call cuts many minutes from the apply phase.
+#     Use --skip-broken so unavailable packages don't block the build.
+__CIS_PKG_BATCH_INSTALL__
+
 echo "ansible ready in $VENV (cis-os engine)"
 """
 
@@ -1411,6 +1428,7 @@ def render_install(p: dict[str, Any]) -> str:
         .replace("__PKG_UPDATE__", str(p.get("pkg_update", "")))
         .replace("__PKG_INSTALL__", str(p.get("pkg_install", "")))
         .replace("__ANSIBLE_CORE_SPEC__", str(p.get("ansible_core_spec", "ansible-core>=2.15")))
+        .replace("__CIS_PKG_BATCH_INSTALL__", str(p.get("cis_pkg_batch", "echo '(no CIS packages to pre-install)'")))
         .replace("__PIP_INDEX_FLAG__", index_flag)
     )
 
