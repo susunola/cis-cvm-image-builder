@@ -421,7 +421,24 @@ def systemd_present():
 
 
 def pkg_installed(name):
-    return name in _installed_pkgs()
+    """True when `name` (or a known provider alias) is installed.
+
+    RHEL 9 / TencentOS 4 ship iptables as `iptables-nft` (a virtual
+    provides) — `dnf install iptables` installs iptables-nft, so an
+    exact rpm NAME match for "iptables" would always miss.  Track such
+    aliases here so pkg_installed/fix re-checks agree.
+    """
+    if name in _installed_pkgs():
+        return True
+    if name in _PKG_ALIASES:
+        return any(a in _installed_pkgs() for a in _PKG_ALIASES[name])
+    return False
+
+
+_PKG_ALIASES: dict[str, tuple[str, ...]] = {
+    # RHEL9/TencentOS4: iptables -> iptables-nft; RHEL8/TencentOS3 name is "iptables"
+    "iptables": ("iptables-nft",),
+}
 
 
 _PKG_CACHE = None
@@ -723,11 +740,12 @@ def c_sysctl(ctx, p):
         if not _sysctl_matches(cur, want):
             bad.append("%s = %s (expected %s)" % (k, cur, want))
             continue
-        # also require it to be persisted
-        files = ["/etc/sysctl.conf", "/etc/sysctl.d/*.conf",
-                 "/run/sysctl.d/*.conf", "/usr/lib/sysctl.d/*.conf"]
+        # also require it to be persisted in an ADMIN-writable location.
+        # /usr/lib + /run defaults are overridden by /etc — matching any
+        # /etc entry is what counts (fix writes /etc/sysctl.d/*.conf).
+        files = ["/etc/sysctl.conf", "/etc/sysctl.d/*.conf"]
         vals = conf_values(files, k, (r"\s*=\s*",))
-        if not vals or not _sysctl_matches(vals[-1][1], want):
+        if not any(_sysctl_matches(v, want) for _, v in vals):
             bad.append("%s runtime ok but not persisted" % k)
         else:
             good.append("%s=%s" % (k, want))
@@ -1610,13 +1628,24 @@ def c_rsyslog_filecreatemode(ctx, p):
     if not pkg_installed("rsyslog"):
         return "notapplicable", "rsyslog is not installed"
     want = int(p["mode"], 8)
-    vals = conf_values(RSYSLOG_FILES, "FileCreateMode", (r"\s+",))
-    if not vals:
+    # $FileCreateMode carries a leading '$' (rsyslog legacy directive) —
+    # conf_values' generic key regex cannot match it at line start, so scan
+    # the rsyslog files directly.
+    bad, seen = [], []
+    for spec in RSYSLOG_FILES:
+        paths = sorted(globmod.glob(spec)) if "*" in spec else [spec]
+        for path in paths:
+            for ln in readlines(path):
+                m = re.match(r"^\s*\$?FileCreateMode\s+(\S+)", ln)
+                if m:
+                    seen.append((path, m.group(1).strip()))
+                    if not mode_ok(int(m.group(1).strip(), 8), want):
+                        bad.append("%s: %s" % (path, m.group(1).strip()))
+    if not seen:
         return "fail", "$FileCreateMode is not configured"
-    bad = [(f, v) for f, v in vals if not mode_ok(int(v.strip(), 8), want)]
     if bad:
-        return "fail", "; ".join("%s: %s" % (f, v) for f, v in bad)
-    return "pass", "$FileCreateMode %s" % vals[-1][1]
+        return "fail", "; ".join(sorted(set(bad)))
+    return "pass", "$FileCreateMode %s" % seen[-1][1]
 
 
 @fix("rsyslog_filecreatemode")
@@ -2539,17 +2568,22 @@ def c_useradd_inactive(ctx, p):
     bad = []
     if cur is None or cur < 0 or cur > mx:
         bad.append("useradd default INACTIVE=%s (expected 0..%d)" % (cur, mx))
-    # Any non-empty, non-"*" password field counts — locked accounts
-    # (root on cloud images has "!!") are still login-capable via keys and
-    # must get an inactivity lock too.
-    users = out("awk -F: '$2 != \"\" && $2 != \"*\" {print $1}' /etc/shadow 2>/dev/null | "
-                "while read -r u; do i=$(chage --list \"$u\" 2>/dev/null | "
-                "awk -F: '/Password inactive/{print $2}' | tr -d ' '); "
-                "echo \"$u:$i\"; done", 120)
+    # Only accounts with a REAL login password count.  Locked system
+    # accounts (shadow password starts with '!', e.g. "!!") cannot log in
+    # with a password at all, so an inactivity lock is meaningless for them
+    # (CIS treats them as non-applicable).  The old filter included them,
+    # which made this rule fail forever on accounts like tss/dbus/systemd-*.
+    # We also read sp_inact (field 7) DIRECTLY from /etc/shadow: relying on
+    # `chage --list` is wrong because an account whose password never
+    # expires (sp_max=99999) prints "Password inactive: never" even after
+    # sp_inact is set — the derived display shows the lock never triggers.
+    users = out("awk -F: '$2 != \"\" && $2 != \"*\" && $2 !~ /^!/ {print $1 \":\" ($7==\"\"?\"none\":$7)}' "
+                "/etc/shadow 2>/dev/null", 30)
     off = []
     for ln in users.splitlines():
-        if ln.endswith(":never") or ln.endswith(":"):
-            off.append(ln.split(":")[0])
+        u, _, v = ln.partition(":")
+        if v in ("", "none") or as_int(v, 9999) > mx:
+            off.append(u)
     if off:
         bad.append("users without inactivity lock: " + ", ".join(off[:5]))
     if bad:
@@ -2561,8 +2595,18 @@ def c_useradd_inactive(ctx, p):
 def f_useradd_inactive(ctx, p):
     mx = p.get("max", 30)
     sh(["useradd", "-D", "-f", str(mx)], 30)
-    sh("awk -F: '$2 != \"\" && $2 != \"*\" {print $1}' /etc/shadow | "
-       "xargs -r -n1 chage --inactive %d" % mx, 180)
+    # Same real-password filter as the check; verify each chage actually
+    # took effect instead of assuming xargs succeeded.
+    users = out("awk -F: '$2 != \"\" && $2 != \"*\" && $2 !~ /^!/ {print $1}' "
+                "/etc/shadow 2>/dev/null", 30)
+    failed = []
+    for u in users.splitlines():
+        rc2, _, err2 = sh(["chage", "--inactive", str(mx), u], 60)
+        if rc2 != 0:
+            failed.append("%s (%s)" % (u, (err2 or "rc=%d" % rc2).strip()[:60]))
+    if failed:
+        return False, "set default inactivity to %d days; failed for: %s" % (
+            mx, ", ".join(failed))
     return True, "set default inactivity to %d days and updated existing users" % mx
 
 
@@ -4439,6 +4483,12 @@ def run_rule(ctx, rule):
         "apply_detail": "",
         "status_before": None,
         "duration_ms": 0,
+        # The rule's own params are carried into the result so the Phase-4
+        # post-restart re-check can re-run the check with the SAME params.
+        # Without this, `r.get("params") or {}` yields an empty dict and
+        # families like svc_enabled report "rule has no units/packages
+        # configured" (error) even though the fix succeeded.
+        "params": params,
     }
     t0 = time.time()
     fn = CHECKS.get(fam)
