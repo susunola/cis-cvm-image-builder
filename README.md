@@ -554,6 +554,9 @@ distribute pipeline):
 | `ansible-playbook` can't find python3 | Source image has no Python | Python 3.6+ must be pre-installed |
 | Windows build WinRM error | Password not set or TCP/5986 blocked | Export `WINRM_PASSWORD` + open inbound rule |
 | Build passes but score below 85% | Gate threshold too strict for this OS | Adjust `cis_min_score` in the role, or use Level 1 |
+| TencentOS 4 apply fails: `Module result deserialization failed` + missing `/tmp/ansible_...payload.zip` | ansible-core ≥ 2.16 (modular ansiballz) caches module payloads in `/tmp`, which TencentOS 4 sweeps / backs with tmpfs; the reused payload vanishes mid-run | Fixed in v0.14.4 — the venv wrapper exports `TMPDIR=/opt/ciscvm-ansible/tmp` so payloads live on stable root-disk storage |
+| TencentOS 4 reboot → Packer reconnect `i/o timeout` for 5+ min | ssh-guard runs *before* apply; CIS firewall rules (3.4.x) reload firewalld / switch the active zone, and the new zone has no SSH allow rule → port 22 is DROPped after reboot | Fixed in v0.14.8 — ssh-guard is re-run right before the reboot provisioner, and rules are persisted (`nft list ruleset > /etc/sysconfig/nftables.conf`, `iptables-save > /etc/sysconfig/iptables`) |
+| `packer build` fails at prepare: `Unsupported argument "ansible_env_vars"` | `ansible_env_vars` only exists on the `ansible` (non-local) provisioner, not `ansible-local` | Fixed in v0.14.4 — TMPDIR is injected via the ansible-playbook venv wrapper instead of an HCL argument |
 
 ---
 
