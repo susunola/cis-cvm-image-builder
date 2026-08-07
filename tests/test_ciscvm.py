@@ -523,6 +523,22 @@ class TestRenderAll:
         assert "5.2.7" in body
         assert "3.4.2.1" in body
 
+    def test_pre_audit_logfix_provisioner_present(self, valid_toml, tmp_path):
+        """v0.10.1: a fix-logperms provisioner runs between reconnect and re-audit
+        to repair boot-loosened log-file perms before the gate check."""
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        assert "fix-logperms.sh" in hcl
+        assert "chmod g-wx,o-rwx" in hcl
+        # Must appear after reconnect but before re-audit
+        reconnect_idx = hcl.find("reconnected.sh")
+        logfix_idx = hcl.find("fix-logperms.sh")
+        reaudit_idx = hcl.find("site-audit.yml")
+        assert reconnect_idx < logfix_idx < reaudit_idx, \
+            f"expected reconnect({reconnect_idx}) < fix-logperms({logfix_idx}) < re-audit({reaudit_idx})"
+
     def test_windows_renders_correctly(self, tmp_path):
         r = resolve(_make_win_toml("win2022"))
         wd = tmp_path / "build"

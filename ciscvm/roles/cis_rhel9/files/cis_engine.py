@@ -703,6 +703,10 @@ def _fs_scan(ctx):
             key = {"F": "world_files", "D": "world_dirs", "U": "unowned",
                    "G": "ungrouped", "P": "privileged"}.get(tag)
             if key:
+                # Exclude paths that are transient cloud-agent artifacts
+                # recreated on every boot (not real security findings).
+                if path.startswith("/dev/shm/tmp_agent/"):
+                    continue
                 res[key].append(path)
         return res
     return ctx.cached("fs_scan", load)
@@ -878,7 +882,7 @@ def c_svc_disabled(ctx, p):
         seen.append(u)
         en, ac = _unit_state(u)
         if en in ("enabled", "enabled-runtime", "static", "indirect", "alias"):
-            if en != "static":
+            if en not in ("static", "indirect"):
                 bad.append("%s is %s" % (u, en))
         if ac == "active":
             bad.append("%s is active" % u)
@@ -1034,9 +1038,11 @@ def _dconf_sources(ctx):
 
 @check("gdm_dconf")
 def c_gdm_dconf(ctx, p):
-    if not (pkg_installed("gdm") or exists("/etc/gdm/custom.conf")
-            or exists("/etc/dconf/db")):
-        return "notapplicable", "GDM / dconf not installed"
+    # Only applicable when GDM is actually present, not when a
+    # stray /etc/dconf/db directory exists (dconf may be installed
+    # as a dependency of other packages on a server image).
+    if not (pkg_installed("gdm") or exists("/etc/gdm/custom.conf")):
+        return "notapplicable", "GDM is not installed"
     wanted = [(p["dpath"], p["key"], str(p["value"]))]
     for ex in p.get("extra") or []:
         wanted.append((p["dpath"], ex["key"], str(ex["value"])))
@@ -1064,8 +1070,8 @@ def c_gdm_dconf(ctx, p):
 
 @fix("gdm_dconf")
 def f_gdm_dconf(ctx, p):
-    if not (pkg_installed("gdm") or exists("/etc/dconf/db")):
-        return False, "GDM / dconf not installed"
+    if not (pkg_installed("gdm") or exists("/etc/gdm/custom.conf")):
+        return False, "GDM is not installed"
     db = "gdm" if "login-screen" in p["dpath"] else "local"
     path = "/etc/dconf/db/%s.d/00-cis-hardening" % db
     body = ["[%s]" % p["dpath"].strip("/"),
@@ -1485,6 +1491,21 @@ def f_kv_conf(ctx, p):
         return True, "TMOUT=%s enforced via %s" % (want, os.path.basename(target))
 
     target = (p.get("files") or ["/etc/cis-hardening.conf"])[0]
+    # For systemd config files that ship globs (e.g. journald.conf +
+    # journald.conf.d/*.conf), write to a high-priority drop-in instead
+    # of the main file.  The main file can be overwritten by a package
+    # update; drop-ins under /etc/…d/ are reserved for local admin.
+    if (p.get("globs") and target.endswith(".conf")
+            and "/systemd/" in target):
+        dropin = target[:-5] + ".d/99-cis.conf"
+        if not exists(dropin):
+            os.makedirs(os.path.dirname(dropin), exist_ok=True)
+            # Derive the section header from the config file name.
+            sec = os.path.splitext(os.path.basename(target))[0].upper()
+            write_file(ctx, dropin,
+                       "# CIS hardening drop-in — do not edit\n"
+                       "[%s]\n" % sec)
+        target = dropin
     if op == "bool_present":
         val = ""
         sepc = ""
