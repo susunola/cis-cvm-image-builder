@@ -921,7 +921,7 @@
   "assessment": "Automated",
   "family": "svc_disabled",
   "params": {},
-  "risk": "disruptive",
+  "risk": "safe",
   "page": 161
  },
  {
@@ -1176,7 +1176,7 @@
   "assessment": "Automated",
   "family": "manual",
   "params": {},
-  "risk": "none",
+  "risk": "safe",
   "page": 217
  },
  {
@@ -1193,7 +1193,7 @@
   "assessment": "Automated",
   "family": "manual",
   "params": {},
-  "risk": "none",
+  "risk": "safe",
   "page": 219
  },
  {
@@ -1210,7 +1210,7 @@
   "assessment": "Automated",
   "family": "manual",
   "params": {},
-  "risk": "none",
+  "risk": "safe",
   "page": 222
  },
  {
@@ -1227,7 +1227,7 @@
   "assessment": "Automated",
   "family": "manual",
   "params": {},
-  "risk": "none",
+  "risk": "safe",
   "page": 225
  },
  {
