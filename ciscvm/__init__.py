@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.1"
+VERSION = "0.14.2"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -717,6 +717,12 @@ build {
     # Keep the staging dir so cleanup.sh can preserve the bundled role
     # (engine + rules.json) inside the image for later re-scans.
     clean_staging_directory = false
+    # TMPDIR off /tmp: ansible-core >=2.16 (modular ansiballz) caches module
+    # payloads under tempfile.gettempdir() (/tmp) and reuses them across
+    # tasks.  TencentOS 4's /tmp can be tmpfs-backed or swept, which makes
+    # the reused payload vanish mid-run (zipimport FileNotFoundError → "No
+    # start of json char found").  Point it at stable root-disk storage.
+    ansible_env_vars = ["TMPDIR=/opt/ciscvm-ansible/tmp"]
     extra_arguments  = [
       "-v",
       "-e", "ansible_python_interpreter=/opt/ciscvm-ansible/bin/python"
@@ -823,6 +829,9 @@ build {
     # Keep the staging dir so cleanup.sh can preserve the bundled role
     # (engine + rules.json) inside the image for later re-scans.
     clean_staging_directory = false
+    # Same TMPDIR relocation as the apply provisioner — modular ansiballz
+    # payload cache must not live on /tmp (TencentOS 4).
+    ansible_env_vars = ["TMPDIR=/opt/ciscvm-ansible/tmp"]
     extra_arguments  = [
       "-v",
       "-e", "ansible_python_interpreter=/opt/ciscvm-ansible/bin/python",
@@ -1203,6 +1212,10 @@ echo "==> Using $($PY --version) for ansible venv"
 #    version check keeps this to one network install pass.
 VENV=/opt/ciscvm-ansible
 sudo "$PY" -m venv "$VENV"
+# Non-/tmp scratch space for ansible (modular ansiballz payload cache via
+# TMPDIR).  /tmp on TencentOS 4 can be tmpfs/swept and payload reuse then
+# fails mid-run — keep it on stable root-disk storage instead.
+sudo mkdir -p "$VENV/tmp"
 sudo "$VENV/bin/python" -m pip install --disable-pip-version-check \
     __PIP_INDEX_FLAG__ '__ANSIBLE_CORE_SPEC__' pexpect passlib
 
