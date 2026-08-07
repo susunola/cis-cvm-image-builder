@@ -4208,4 +4208,22 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as _exc:
+        import traceback as _tb, json as _json, sys as _sys
+        _sys.stderr.write("cis-engine: FATAL — %s: %s\n"
+                         % (type(_exc).__name__, _exc))
+        _tb.print_exc(file=_sys.stderr)
+        _sys.stdout.write(_json.dumps({
+            "schema": 1, "engine_version": "1.0.0",
+            "mode": "error", "error": str(_exc),
+            "results": [{"id": "_fatal_", "title": "engine crash",
+                         "status": "error", "detail": str(_exc),
+                         "level": 1, "levels": [1], "family": "none",
+                         "section": "", "risk": "none",
+                         "apply_status": "failed",
+                         "apply_detail": "engine crashed before completion",
+                         "duration_ms": 0}]
+        }, indent=1))
+        _sys.exit(1)
