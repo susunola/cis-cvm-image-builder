@@ -4,7 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ciscvm"
-version = "0.12.4"
+# Single source of truth: ciscvm/__init__.py VERSION (read via AST, no import).
+dynamic = ["version"]
 description = "CIS-hardened golden image builder for Tencent Cloud — config-driven CLI, 14 OS profiles, bundled cis-os engine"
 license = {text = "MIT"}
 readme = "README.md"
@@ -47,6 +48,9 @@ dev = [
 [tool.setuptools]
 packages = ["ciscvm"]
 include-package-data = true
+
+[tool.setuptools.dynamic]
+version = {attr = "ciscvm.VERSION"}
 
 [tool.setuptools.package-data]
 ciscvm = ["py.typed", "roles/**/*"]
