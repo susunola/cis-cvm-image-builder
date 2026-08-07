@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.13.7"
+VERSION = "0.13.8"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -231,6 +231,11 @@ level = 1                                 # 1 or 2
 [cloud]
 secret_id_env  = "TENCENTCLOUD_SECRET_ID"
 secret_key_env = "TENCENTCLOUD_SECRET_KEY"
+# Group-account (organization) cross-account builds: assume a CAM role in
+# the target account using the local AK/SK.
+# assume_role_arn      = "qcs::cam::uin/1234567890:roleName/CrossAccountBuilder"
+# assume_role_session  = "ciscvm-build"   # optional, default "ciscvm"
+# assume_role_duration = 3600             # optional, default 7200, range 0-43200
 # Windows builds also require:
 # winrm_password_env = "WINRM_PASSWORD"
 
@@ -279,6 +284,9 @@ class ResolvedConfig:
     cis_level_tag: str
     secret_id_env: str
     secret_key_env: str
+    assume_role_arn: str               # [cloud].assume_role_arn — group-account CAM role ("" = off)
+    assume_role_session: str           # [cloud].assume_role_session (default "ciscvm")
+    assume_role_duration: int          # [cloud].assume_role_duration (default 7200, 0-43200)
     image_os_tag: str
     image_benchmark: str
     level: int
@@ -442,6 +450,25 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
                 f"[image].name contains invalid characters: {image_name_override!r}. "
                 "Use letters, digits, dot, dash, underscore only.")
 
+    # [cloud].assume_role_* — group-account (organization) cross-account builds.
+    # When set, Packer assumes the target account's CAM role with the local
+    # AK/SK before launching the build instance.
+    assume_role_arn = str(data.get("cloud", {}).get("assume_role_arn", "")).strip()
+    if assume_role_arn:
+        if not re.fullmatch(r"[A-Za-z0-9:_/-]+", assume_role_arn):
+            raise ConfigError(
+                f"[cloud].assume_role_arn contains invalid characters: "
+                f"{assume_role_arn!r}. Expected a CAM role ARN like "
+                "qcs::cam::uin/12345:roleName/CrossAccountBuilder")
+    assume_role_session = str(data.get("cloud", {}).get("assume_role_session", "ciscvm")).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_=,.@-]+", assume_role_session):
+        raise ConfigError(
+            f"[cloud].assume_role_session contains invalid characters: {assume_role_session!r}")
+    assume_role_duration = int(data.get("cloud", {}).get("assume_role_duration", 7200))
+    if not (0 <= assume_role_duration <= 43200):
+        raise ConfigError(
+            f"[cloud].assume_role_duration must be 0-43200, got {assume_role_duration}")
+
     return ResolvedConfig(
         profile_name=profile_name,
         profile=p,
@@ -466,6 +493,9 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         cis_level_tag=f"level{level}-server",
         secret_id_env=str(data["cloud"]["secret_id_env"]),
         secret_key_env=str(data["cloud"]["secret_key_env"]),
+        assume_role_arn=assume_role_arn,
+        assume_role_session=assume_role_session,
+        assume_role_duration=assume_role_duration,
         image_os_tag=str(meta.get("os_tag", p.get("os_tag", ""))),
         image_benchmark=str(meta.get("benchmark", p.get("benchmark", ""))),
         level=level,
@@ -587,6 +617,7 @@ locals {
 source "tencentcloud-cvm" "default" {
   secret_id                   = var.secret_id
   secret_key                  = var.secret_key
+__ASSUME_ROLE_BLOCK__
   region                      = var.region
   zone                        = var.zone
   instance_type               = var.instance_type
@@ -889,6 +920,7 @@ locals {
 source "tencentcloud-cvm" "default" {
   secret_id                   = var.secret_id
   secret_key                  = var.secret_key
+__ASSUME_ROLE_BLOCK__
   region                      = var.region
   zone                        = var.zone
   instance_type               = var.instance_type
@@ -1642,6 +1674,19 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
     _validate_shell_arg(r.image_benchmark, "[meta].benchmark")
 
     # 2. HCL (Linux or Windows template)
+    # [cloud].assume_role_arn — group-account CAM role assumption.  Renders a
+    # HCL assume_role block when set; empty string renders nothing at all.
+    if r.assume_role_arn:
+        assume_role_block = (
+            '  assume_role {\n'
+            f'    role_arn         = "{r.assume_role_arn}"\n'
+            f'    session_name     = "{r.assume_role_session}"\n'
+            f'    session_duration = {r.assume_role_duration}\n'
+            '  }\n'
+        )
+    else:
+        assume_role_block = ""
+
     if family == "windows":
         if r.ssh_debug_password:
             warn("[meta].ssh_debug_password is ignored for Windows profiles "
@@ -1650,7 +1695,8 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
         hcl = (HCL_WIN_TEMPLATE
                .replace("__WINRM_PASSWORD_ENV__", r.winrm_password_env)
                .replace("__SECRET_ID_ENV__", r.secret_id_env)
-               .replace("__SECRET_KEY_ENV__", r.secret_key_env))
+               .replace("__SECRET_KEY_ENV__", r.secret_key_env)
+               .replace("__ASSUME_ROLE_BLOCK__", assume_role_block))
     else:
         # Substitute the build's actual metadata into the finalize provisioner
         # so the in-image banner/report show the right source/level/OS.
@@ -1666,7 +1712,8 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
                .replace("__CIS_PROFILE_SHORT__", f"L{r.level}")
                .replace("__HOSTS_FIX_HCL__", HOSTS_FIX_SNIPPET.replace('"', '\\"'))
                .replace("__SECRET_ID_ENV__", r.secret_id_env)
-               .replace("__SECRET_KEY_ENV__", r.secret_key_env))
+               .replace("__SECRET_KEY_ENV__", r.secret_key_env)
+               .replace("__ASSUME_ROLE_BLOCK__", assume_role_block))
         user_data = ""
         if r.ssh_debug_password:
             quoted = shlex.quote(f"root:{r.ssh_debug_password}")
@@ -2038,16 +2085,12 @@ def cmd_build(args: argparse.Namespace) -> int:
 
     # Output is already streamed live by run_packer; only scan the captured
     # lines to extract the resulting image ID (do not re-print them).
-    image_id: str | None = None
-    for line in result.stdout_lines:
-        if m := re.search(r"Created image ID:\s*(\S+)", line):
-            image_id = m.group(1)
-            break
+    image_ids = _extract_image_ids(result.stdout_lines)
 
     if result.exit_code == 0:
         ok("packer build succeeded")
-        if image_id:
-            ok(f"Output image ID: {image_id}")
+        if image_ids:
+            ok(f"Output image ID(s): {', '.join(image_ids)}")
         else:
             info("Could not parse image ID from output — check the Tencent Cloud console.")
     else:
@@ -2057,6 +2100,28 @@ def cmd_build(args: argparse.Namespace) -> int:
         logger.removeHandler(_fh)
         _fh.close()
     return result.exit_code
+
+
+def _extract_image_ids(stdout_lines: list[str]) -> list[str]:
+    """Extract created image IDs from captured packer build output.
+
+    Packer's artifact line looks like:
+      Tencentcloud images(ap-guangzhou: img-abc123
+      ap-hongkong: img-def456) were created.
+    (older builds printed "Created image ID: img-..." — keep that too).
+    """
+    image_ids: list[str] = []
+    collecting = False
+    for line in stdout_lines:
+        if m := re.search(r"Created image ID:\s*(\S+)", line):
+            return [m.group(1)]
+        if "Tencentcloud images(" in line:
+            collecting = True
+        if collecting:
+            image_ids += re.findall(r"img-[A-Za-z0-9]+", line)
+            if ") were created" in line:
+                break
+    return list(dict.fromkeys(image_ids))
 
 
 # Paths that must never be deleted by ciscvm clean.
