@@ -2661,10 +2661,14 @@ def crypto_policy_now(ctx):
 SSH_CRYPTO_DROPIN = "/etc/ssh/sshd_config.d/60-cis-crypto.conf"
 
 # OpenSSH built-in defaults (server side) — the baseline every rule trims.
+# NOTE: UMAC must use the @openssh.com form — the bare "umac-128" name is
+# rejected by sshd ("Bad SSH2 mac spec"), which prevents sshd from starting
+# on the next reboot (seen live: drop-in with umac-128 killed the build's
+# SSH after reboot).
 _SSH_BASE_MACS = ["hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com",
                   "hmac-sha1-etm@openssh.com", "umac-64-etm@openssh.com",
                   "umac-128-etm@openssh.com", "hmac-sha2-256", "hmac-sha2-512",
-                  "hmac-sha1", "umac-64", "umac-128"]
+                  "hmac-sha1", "umac-64", "umac-128@openssh.com"]
 _SSH_BASE_CIPHERS = ["chacha20-poly1305@openssh.com", "aes128-ctr", "aes192-ctr",
                      "aes256-ctr", "aes128-gcm@openssh.com",
                      "aes256-gcm@openssh.com", "aes128-cbc", "aes192-cbc",
@@ -2734,6 +2738,18 @@ def _fix_sshd_crypto(ctx, kind):
                    "Include /etc/ssh/sshd_config.d/*.conf\n" + main, 0o600)
     comment_out(ctx, "/etc/ssh/sshd_config", r"^\s*MACs\s")
     comment_out(ctx, "/etc/ssh/sshd_config", r"^\s*Ciphers\s")
+    # Validate BEFORE deferring a restart: a drop-in sshd rejects would
+    # kill the daemon on the next restart (and on reboot).  Roll the file
+    # back so SSH can never be bricked by a bad algorithm name.
+    rc, _, err = sh(["sshd", "-t"], 30)
+    if rc != 0:
+        try:
+            os.unlink(SSH_CRYPTO_DROPIN)
+        except OSError:
+            pass
+        ctx.add_note("sshd -t rejected %s: %s" % (SSH_CRYPTO_DROPIN, (err or "")[:200]))
+        return False, ("sshd -t rejected the crypto drop-in (%s); rolled back "
+                       "to keep sshd startable" % (err or "")[:200])
     ctx.defer_restart("sshd")
     ctx.invalidate("sshd_T")
     return True, "tightened sshd %s in %s" % (kind, SSH_CRYPTO_DROPIN)
