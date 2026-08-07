@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.11.5"
+VERSION = "0.11.6"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -671,6 +671,10 @@ build {
     remote_path  = "/opt/ciscvm-ansible/ssh-guard.sh"
     inline = [
       "set +e",
+      "# CIS hardening may leave the hostname unresolvable by removing its",
+      "# /etc/hosts entry.  Every subsequent sudo call (PAM → DNS) hangs",
+      "# 5-30s.  We write directly — Packer runs as root, so no sudo needed.",
+      "grep -q \"^127.0.0.1.*$(hostname)\" /etc/hosts 2>/dev/null || echo \"127.0.0.1 $(hostname)\" >> /etc/hosts",
       "SSH_PORT=$(sudo sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')",
       "[ -z \"$SSH_PORT\" ] && SSH_PORT=$(sudo awk '/^[Pp]ort[ \\t]+[0-9]+/{print $2; exit}' /etc/ssh/sshd_config)",
       "[ -z \"$SSH_PORT\" ] && SSH_PORT=22",
@@ -724,11 +728,10 @@ build {
     remote_path  = "/opt/ciscvm-ansible/fix-logperms.sh"
     inline = [
       "set +e",
-      "# Ensure hostname resolves; CIS hardening can leave /etc/hosts without",
-      "# a hostname entry, which makes every sudo call hang on DNS (5-30s each).",
-      "# The downstream ciscvm-finalize.sh calls sudo ~15 times — without this",
-      "# fix it can stall for 5+ minutes before Packer times out.",
-      "echo \"127.0.0.1 $(hostname)\" | sudo tee -a /etc/hosts > /dev/null 2>&1 || true",
+      "# Ensure hostname resolves BEFORE any sudo call.  CIS hardening may",
+      "# leave /etc/hosts without the short hostname, which makes sudo PAM",
+      "# hang on DNS (5-30s per call).  Packer runs as root: no sudo needed.",
+      "grep -q \"^127.0.0.1.*$(hostname)\" /etc/hosts 2>/dev/null || echo \"127.0.0.1 $(hostname)\" >> /etc/hosts",
       "sudo find /var/log/ -type f -perm /g+wx,o+rwx -exec chmod g-wx,o-rwx {} + 2>/dev/null",
       "# Reboot may revert ForwardToSyslog to yes (RPM / init-script overwrite).",
       "# 6.2.2.3 wants yes when rsyslog is present; but 6.2.2.1 already fails",
