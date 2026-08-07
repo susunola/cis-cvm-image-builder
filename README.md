@@ -482,12 +482,24 @@ distribute pipeline):
   not OCI images, so cosign container signing does not apply — instead the
   provenance file is GPG-detached-signed (`[sign].gpg_key`), giving an
   auditable, tamper-evident record (SLSA L1 + signed provenance). Verified
-  end-to-end with a real GPG key (`gpg --verify` → Good signature).
+  end-to-end with a real GPG key — tampering with the provenance makes
+  verification fail (`gpg: BAD signature`).
 
   ```toml
   [sign]
   gpg_key = "ABCDEF0123456789"   # your GPG key id/fingerprint
   ```
+
+  Verify any signed provenance (audit / compliance):
+
+  ```bash
+  ciscvm verify --provenance ~/.ciscvm/provenance/xxx.provenance.json
+  ciscvm verify --image img-ekny61ig        # auto-locate by image ID
+  ```
+
+  Output shows subject (image IDs), profile/level/region/source, builder
+  version, re-audit score, and the GPG signature status (VALID / INVALID /
+  NONE). Exit code is non-zero when the signature is missing or invalid.
 
 ---
 

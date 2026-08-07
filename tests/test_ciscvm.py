@@ -1385,3 +1385,69 @@ class TestBuildGovernance:
             p = _write_provenance(r, ["img-xyz"], "img-name", None)
         assert p is not None
         assert not p.with_suffix(p.suffix + ".sig").exists()
+
+
+class TestVerify:
+    """ciscvm verify — SLSA provenance signature verification."""
+
+    def _make_prov(self, tmp_path, image_id="img-abc", signed=True, key="TESTKEY"):
+        import ciscvm
+        from ciscvm import SAMPLE_CONFIG, _write_provenance
+        ciscvm._lineage_path = lambda: tmp_path / "lineage.jsonl"
+        data = tomllib.loads(SAMPLE_CONFIG)
+        data["sign"] = {"gpg_key": key}
+        r = resolve(data)
+        with mock.patch("subprocess.run") as sub:
+            sub.return_value = mock.Mock(returncode=0, stderr="", stdout="")
+            p = _write_provenance(r, [image_id], "img-name", 96.0)
+        sig = p.with_suffix(p.suffix + ".sig")
+        if signed:
+            # simulate what real gpg would have produced
+            sig.write_text("-----BEGIN PGP SIGNATURE-----\nmock\n-----END PGP SIGNATURE-----\n")
+        else:
+            sig.unlink(missing_ok=True)
+        return p
+
+    def test_verify_valid_signature(self, valid_toml, tmp_path):
+        from ciscvm import cmd_verify
+        p = self._make_prov(tmp_path)
+        with mock.patch("subprocess.run") as sub:
+            sub.return_value = mock.Mock(returncode=0, stderr="", stdout="")
+            rc = cmd_verify(mock.MagicMock(provenance=str(p), image=None))
+        assert rc == 0
+        cmd = sub.call_args.args[0]
+        assert cmd[0] == "gpg" and "--verify" in cmd
+
+    def test_verify_invalid_signature(self, valid_toml, tmp_path):
+        from ciscvm import cmd_verify
+        p = self._make_prov(tmp_path)
+        with mock.patch("subprocess.run") as sub:
+            sub.return_value = mock.Mock(returncode=1, stderr="BAD signature", stdout="")
+            rc = cmd_verify(mock.MagicMock(provenance=str(p), image=None))
+        assert rc == 1
+
+    def test_verify_unsigned_warns_fails(self, valid_toml, tmp_path):
+        from ciscvm import cmd_verify
+        p = self._make_prov(tmp_path, signed=False)
+        rc = cmd_verify(mock.MagicMock(provenance=str(p), image=None))
+        assert rc == 1  # unsigned provenance does not verify
+
+    def test_verify_by_image_id(self, valid_toml, tmp_path):
+        import ciscvm
+        from ciscvm import cmd_verify
+        self._make_prov(tmp_path, image_id="img-target-1")
+        with (
+            mock.patch("ciscvm._lineage_path", return_value=tmp_path / "lineage.jsonl"),
+            mock.patch("subprocess.run") as sub,
+        ):
+            sub.return_value = mock.Mock(returncode=0, stderr="", stdout="")
+            rc = cmd_verify(mock.MagicMock(provenance=None, image="img-target-1"))
+        assert rc == 0
+
+    def test_verify_image_not_found(self, valid_toml, tmp_path):
+        import ciscvm
+        from ciscvm import cmd_verify
+        self._make_prov(tmp_path, image_id="img-other")
+        with mock.patch("ciscvm._lineage_path", return_value=tmp_path / "lineage.jsonl"):
+            rc = cmd_verify(mock.MagicMock(provenance=None, image="img-missing"))
+        assert rc == 1
