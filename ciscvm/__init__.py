@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.11.4"
+VERSION = "0.11.5"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -1102,6 +1102,14 @@ SRC_IMG="$1"; IMG_NAME="$2"; OS_TAG="$3"; CIS_LEVEL="$4"; BENCH="$5"; VER="$6"
 AUDIT="/opt/ciscvm-AUDIT-RESULT.json"
 REPORT="/opt/ciscvm-REPORT.md"
 BUILD_TS="$(date -u +%FT%TZ)"
+
+# Ensure hostname resolves BEFORE any sudo call. Packer runs this as root,
+# so we write /etc/hosts directly.  Without this, sudo hangs 5-30s per
+# call on hardened images where CIS may have removed the short hostname
+# from /etc/hosts — 20+ sudo calls ≈ 5+ minutes of silent DNS timeouts
+# which exceed Packer's ssh_read_write_timeout.
+grep -q "^127.0.0.1.*$(hostname)" /etc/hosts 2>/dev/null || \
+    echo "127.0.0.1 $(hostname)" >> /etc/hosts
 
 # 1. /etc/ciscvm/banner — colored, shown by SSH Banner directive
 echo "[ciscvm-finalize] step 1/6: banner + motd + issue"
