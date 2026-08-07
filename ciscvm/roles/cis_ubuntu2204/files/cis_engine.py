@@ -112,14 +112,23 @@ class Ctx(object):
             self._svc_queue.add(svc_name)
 
     def flush_restarts(self):
-        """Restart every queued service (deduplicated, daemon-reload first)."""
+        """Restart every queued service in parallel (deduplicated, daemon-reload first)."""
         with self._svc_lock:
             if not self._svc_queue:
                 return
             sh(["systemctl", "daemon-reload"], 30)
-            for svc in sorted(self._svc_queue):
-                sh(["systemctl", "restart", svc], 120)
+            svc_list = sorted(self._svc_queue)
             self._svc_queue.clear()
+        # Restart services in parallel — each is independent and has its
+        # own 120s timeout inside sh().  Parallel cuts ~6s of serial
+        # systemctl wait time when 3-4 services are queued.
+        try:
+            from concurrent.futures import ThreadPoolExecutor as _TPE
+            with _TPE(max_workers=len(svc_list)) as _pool:
+                list(_pool.map(lambda s: sh(["systemctl", "restart", s], 120), svc_list))
+        except Exception:                     # pragma: no cover
+            for svc in svc_list:
+                sh(["systemctl", "restart", svc], 120)
 
 
 # --------------------------------------------------------------------------
@@ -4130,17 +4139,26 @@ def main():
         return [fn(r) for r in items]
 
     if opts.mode == "apply":
-        # ── Phase 0: Pre-scan (parallel, read-only scan mode) ──
-        # Run every rule's check (no fixes) to discover which packages are
-        # missing.  We use a scan-mode context so run_rule() never triggers
-        # the fix path — this is purely diagnostic.
+        # ── Phase 0: Pre-scan (parallel, package-discovery only) ──
+        # Only run rules whose family can reveal a missing package.
+        # Heavy rules (user_audit/world_writable/file_perm/crypto_policy
+        # etc.) can never contribute to Phase 1 batch install — their
+        # _fs_scan / authselect / modprobe calls waste 20+ seconds for
+        # zero value.  Skipping them cuts Phase 0 from ~30s to ~5s.
+        _PKG_FAMILIES = frozenset([
+            "pkg_present", "pkg_absent", "pkg_any_present",
+            "pkg_not_present", "pkg_not_installed", "pkg_installed",
+            "pkg_removed", "pkg_audit", "pkg_firewall", "pkg_password",
+            "svc_enabled", "svc_disabled", "svc_masked",
+        ])
+        pre_rules = [r for r in ordered if r.get("family", "") in _PKG_FAMILIES]
         sys.stderr.write("cis-engine: phase 0 pre-scan (%d rules, %d workers)\n"
-                         % (len(ordered), workers))
+                         % (len(pre_rules), workers))
         from argparse import Namespace as _NS
         scan_opts = _NS(**{k: v for k, v in vars(opts).items()})
         scan_opts.mode = "scan"
         ctx_scan = Ctx(scan_opts)
-        pre_results = _in_pool(lambda r: run_rule(ctx_scan, r), ordered)
+        pre_results = _in_pool(lambda r: run_rule(ctx_scan, r), pre_rules)
 
         # ── Phase 1: Batch-install missing packages ──
         missing_pkgs = set()
