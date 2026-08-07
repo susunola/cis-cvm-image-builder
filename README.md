@@ -132,6 +132,8 @@ ciscvm init                               # generate ciscvm.toml
 ciscvm preflight                          # validate config, credentials, prerequisites
 ciscvm validate                           # render templates + packer validate
 ciscvm build                              # render + packer build → custom image
+ciscvm scan [--min-score 85]              # audit-only build (no remediation) + score gate
+ciscvm list                               # enumerate available profiles with metadata
 ciscvm images [--latest] [-n N]           # list recorded builds (lineage)
 ciscvm verify --provenance <file>         # verify a SLSA provenance signature
 ciscvm verify --image <img-id>            # ... or locate provenance by image ID
@@ -142,10 +144,11 @@ ciscvm clean                              # remove .ciscvm-build/
 |---|---|---|
 | `--config <path>` | all | Config file path (default `./ciscvm.toml`) |
 | `--workdir <dir>` | all | Build output directory (default `./.ciscvm-build`) |
-| `--quiet` | validate, build | Suppress packer output |
-| `--debug` | validate, build | Enable `PACKER_LOG=1` |
+| `--quiet` | validate, build, scan | Suppress packer output |
+| `--debug` | validate, build, scan | Enable `PACKER_LOG=1` |
 | `-y` / `--yes` | build | Skip confirmation prompt |
 | `--log-file <path>` | build | Write full build log to file |
+| `--min-score <pct>` | scan | Gate threshold (default `85`; below it → exit 1) |
 
 ---
 
@@ -221,6 +224,8 @@ benchmark = "CIS-v1.0.0"
 | | `name` | string | Fixed image name (empty = auto `prefix-level-timestamp`) |
 | | `copy_regions` | []string | Regions to replicate (empty = skip) |
 | `[cis]` | `level` | int | `1` (Level 1) or `2` (Level 2) |
+| | `rules_include` | []string | Rule-ID filter — when set, ONLY these rules run (empty = all) |
+| | `rules_exclude` | []string | Rule-ID filter — always wins over `rules_include` |
 | `[cloud]` | `secret_id_env` | string | Env var for Secret ID |
 | | `secret_key_env` | string | Env var for Secret Key |
 | | `security_token_env` | string | STS session-token env var (default `TENCENTCLOUD_SECURITY_TOKEN`; used with OIDC/STS credentials) |
@@ -549,10 +554,10 @@ distribute pipeline):
 
 - [x] CI pipeline (GitHub Actions + OIDC, zero long-lived AK/SK)
 - [x] Image governance loop: smoke test / lineage / notifications / SLSA signing
+- [x] `ciscvm list` — enumerate available profiles with metadata
+- [x] `ciscvm scan` — audit-only mode (no remediation, gate on findings)
+- [x] Custom rule selection (`rules_include` / `rules_exclude` in `ciscvm.toml`)
 - [ ] PyPI package (`pip install ciscvm`)
-- [ ] `ciscvm list` — enumerate available profiles with metadata
-- [ ] `ciscvm scan` — audit-only mode (no remediation, gate on findings)
-- [ ] Custom rule selection (`rules_include` / `rules_exclude` in `ciscvm.toml`)
 - [ ] SLSA L2: reproducible builds (pinned build environment)
 - [ ] Automatic image cleanup (retire old images by lineage age)
 

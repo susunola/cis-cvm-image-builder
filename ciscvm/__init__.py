@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.2"
+VERSION = "0.14.3"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -228,6 +228,9 @@ copy_regions = []                         # add regions (e.g. ["ap-shanghai"]) t
 
 [cis]
 level = 1                                 # 1 or 2
+# Rule selection (optional) — rule IDs to run / skip. Empty = all rules.
+# rules_include = ["1.5.6", "5.4.3.2"]    # when set, ONLY these run
+# rules_exclude = ["1.1.2.2.4"]           # always wins over rules_include
 
 [cloud]
 secret_id_env  = "TENCENTCLOUD_SECRET_ID"
@@ -310,6 +313,8 @@ class ResolvedConfig:
     level: int
     role_dir: str
     smoke_test: bool                    # [meta].smoke_test — run instance-level smoke checks before snapshot (default true)
+    rules_include: list[str]            # [cis].rules_include — rule-id filter (empty = all)
+    rules_exclude: list[str]            # [cis].rules_exclude — rule-id filter (wins over include)
     notify_webhook: str                 # [notify].webhook — WeCom group-robot webhook URL ("" = off)
     notify_on: str                      # [notify].on — "always" | "success" | "failure" (default "failure")
     sign_key: str                       # [sign].gpg_key — GPG key id/fingerprint for SLSA provenance signing ("" = off)
@@ -504,6 +509,15 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
     # [sign] — GPG key for SLSA-style provenance signing ("" = off).
     sign_key = str(data.get("sign", {}).get("gpg_key", "")).strip()
 
+    # [cis].rules_include / rules_exclude — optional rule-id filters.
+    rules_include = [str(x).strip() for x in data.get("cis", {}).get("rules_include", []) if str(x).strip()]
+    rules_exclude = [str(x).strip() for x in data.get("cis", {}).get("rules_exclude", []) if str(x).strip()]
+    if rules_include and rules_exclude:
+        overlap = sorted(set(rules_include) & set(rules_exclude))
+        if overlap:
+            raise ConfigError(
+                f"[cis] rules_include and rules_exclude overlap: {overlap}")
+
     return ResolvedConfig(
         profile_name=profile_name,
         profile=p,
@@ -537,6 +551,8 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         level=level,
         role_dir=str(p["role_dir"]),
         smoke_test=smoke_test,
+        rules_include=rules_include,
+        rules_exclude=rules_exclude,
         notify_webhook=notify_webhook,
         notify_on=notify_on,
         sign_key=sign_key,
@@ -1082,12 +1098,14 @@ SITE_YML_TEMPLATE = r"""---
   connection: local
   become: true
   vars:
-    cis_mode: apply
+    cis_mode: __CIS_MODE__
     cis_profile: __CIS_LEVEL__
     cis_platform: server
     cis_allow_disruptive: false
     cis_fail_on_findings: false
     cis_min_score: 0
+    cis_include: __CIS_INCLUDE__
+    cis_exclude: __CIS_EXCLUDE__
     cis_org_name: ""
   roles:
     - role: __ROLE_DIR__
@@ -1691,8 +1709,15 @@ def render_install(p: dict[str, Any]) -> str:
     )
 
 
-def render_site(p: dict[str, Any], level: int) -> str:
-    """Generate ansible/site.yml."""
+def render_site(p: dict[str, Any], level: int, mode: str = "apply",
+                rules_include: list[str] | None = None,
+                rules_exclude: list[str] | None = None) -> str:
+    """Generate ansible/site.yml.
+
+    *mode* — "apply" (remediate) or "scan" (audit-only, no changes).
+    *rules_include/rules_exclude* — optional rule-id filters forwarded to
+    the engine's --include/--exclude (empty list = run all rules).
+    """
     cis_level = f"L{level}"
     family = str(p.get("family", ""))
 
@@ -1704,12 +1729,24 @@ def render_site(p: dict[str, Any], level: int) -> str:
             .replace("__ROLE_DIR__", str(p["role_dir"]))
         )
     else:
+        inc = rules_include or []
+        exc = rules_exclude or []
         return (
             SITE_YML_TEMPLATE
             .replace("__OS_NAME__", str(p["os_tag"]))
             .replace("__CIS_LEVEL__", cis_level)
             .replace("__ROLE_DIR__", str(p["role_dir"]))
+            .replace("__CIS_MODE__", mode)
+            .replace("__CIS_INCLUDE__", _yaml_list(inc))
+            .replace("__CIS_EXCLUDE__", _yaml_list(exc))
         )
+
+
+def _yaml_list(items: list[str]) -> str:
+    """Render a Python list as an inline YAML list."""
+    if not items:
+        return "[]"
+    return "[" + ", ".join(json.dumps(x, ensure_ascii=False) for x in items) + "]"
 
 
 def render_site_audit(p: dict[str, Any], level: int) -> str:
@@ -1752,8 +1789,13 @@ def _validate_shell_arg(value: str, field_label: str) -> None:
             "Use plain letters, digits, dot, dash, underscore only.")
 
 
-def render_all(workdir: Path, r: ResolvedConfig) -> None:
-    """Render the complete build directory."""
+def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False) -> None:
+    """Render the complete build directory.
+
+    *scan* — audit-only mode: the engine runs with cis_mode=scan (no
+    remediation) and the instance-level smoke test is skipped (the source
+    image is not yet hardened, so hardening assertions would fail).
+    """
     p = r.profile
     family: str = r.family
 
@@ -1798,7 +1840,9 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
     # Instance-level smoke test (build → test → distribute): any failure
     # aborts the build before Packer snapshots the image.
     # Linux profiles carry family == "" (only Windows sets "windows").
-    if r.smoke_test:
+    # In scan (audit-only) mode the smoke test is skipped — the source image
+    # is not yet hardened, so hardening assertions would falsely fail.
+    if r.smoke_test and not scan:
         smoke_block = SMOKE_LINUX_BLOCK if family != "windows" else SMOKE_WIN_BLOCK
     else:
         smoke_block = ""
@@ -1856,7 +1900,8 @@ def render_all(workdir: Path, r: ResolvedConfig) -> None:
         render_pkrvars(r, image_name), encoding="utf-8")
 
     # 4. Ansible playbooks
-    site = render_site(p, r.level)
+    site = render_site(p, r.level, mode="scan" if scan else "apply",
+                       rules_include=r.rules_include, rules_exclude=r.rules_exclude)
     _assert_no_markers(site, "site.yml")
     (workdir / "ansible" / "site.yml").write_text(site, encoding="utf-8")
 
@@ -2453,6 +2498,66 @@ def _write_provenance(r: ResolvedConfig, image_ids: list[str], image_name: str,
         return None
 
 
+def cmd_list(args: argparse.Namespace) -> int:
+    """Enumerate available profiles with metadata."""
+    print(f"{'profile':<12} {'family':<8} {'os':<12} {'comm':<6} user")
+    for name, meta in sorted(PROFILES.items()):
+        family = "windows" if meta.get("family") == "windows" else "linux"
+        comm = "winrm" if family == "windows" else "ssh"
+        user = meta.get("ssh_username", "") or meta.get("winrm_username", "") or "-"
+        print(f"{name:<12} {family:<8} {str(meta.get('os_tag', '')):<12} {comm:<6} {user}")
+    return 0
+
+
+def cmd_scan(args: argparse.Namespace) -> int:
+    """Audit-only build: engine runs in scan mode (no remediation), gate on score.
+
+    Runs the full ephemeral-CVM pipeline but the bundled engine only
+    *evaluates* the rules — nothing is modified.  The final re-audit score
+    is gated against --min-score (default 85%); below it the command fails
+    (non-zero exit) so CI can block on compliance.
+    """
+    prep = _load_resolve_preflight(args.config, args.workdir)
+    if prep is None:
+        return 1
+    r, workdir = prep
+
+    render_all(workdir, r, scan=True)
+    banner("scan")
+    info(f"Audit-only (no remediation) — {r.profile_name} L{r.level}, region {r.region}")
+    info(f"Gate: score >= {args.min_score:g}%")
+
+    result = run_packer(workdir, "build", quiet=args.quiet, capture=True, debug=args.debug)
+    image_ids = _extract_image_ids(result.stdout_lines)
+    score = _extract_score(result.stdout_lines)
+    image_name = _image_name(r)
+
+    if result.exit_code != 0:
+        fail("packer build failed during scan")
+        _record_lineage(r, image_ids, image_name, score, ok=False)
+        _send_notification(r, False, image_ids, score, image_name)
+        return result.exit_code
+
+    ok("scan build succeeded")
+    if score is not None:
+        ok(f"Scan score: {score:g}%")
+
+    gate_ok = score is not None and score >= args.min_score
+    if not gate_ok:
+        shown = f"{score:g}%" if score is not None else "unknown"
+        fail(f"scan gate FAILED: score {shown} < {args.min_score:g}%")
+        _record_lineage(r, image_ids, image_name, score, ok=False)
+        _send_notification(r, False, image_ids, score, image_name)
+        return 1
+
+    if image_ids:
+        ok(f"Output image ID(s): {', '.join(image_ids)}")
+    _record_lineage(r, image_ids, image_name, score, ok=True)
+    _write_provenance(r, image_ids, image_name, score)
+    _send_notification(r, True, image_ids, score, image_name)
+    return 0
+
+
 def _find_provenance(image_id: str) -> list[Path]:
     """Locate provenance files whose subject references *image_id*."""
     dirp = _lineage_path().parent / "provenance"
@@ -2644,6 +2749,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_vrf.add_argument("--image", default=None,
                        help="Image ID to look up its provenance (e.g. img-xxx)")
     p_vrf.set_defaults(func=cmd_verify)
+
+    p_lst = sub.add_parser("list", help="Enumerate available profiles with metadata")
+    p_lst.set_defaults(func=cmd_list)
+
+    p_scn = sub.add_parser("scan", parents=[common], help="Audit-only build (no remediation) with score gate")
+    p_scn.add_argument("--quiet", action="store_true",
+                       help="Suppress packer output (show only the ciscvm summary)")
+    p_scn.add_argument("--debug", action="store_true",
+                       help="Enable Packer debug logging (PACKER_LOG=1)")
+    p_scn.add_argument("--min-score", type=float, default=85.0,
+                       help="Gate threshold in percent (default 85)")
+    p_scn.set_defaults(func=cmd_scan)
 
     return parser
 
