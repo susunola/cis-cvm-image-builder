@@ -71,6 +71,9 @@ class Ctx(object):
         self.backup_dir = opts.backup_dir
         self._cache = {}
         self._cache_lock = threading.Lock()
+        self._cache_events = {}          # per-key in-flight producer events
+        self._file_locks = {}            # per-path RLocks for file mutation
+        self._file_locks_lock = threading.Lock()
         self.changed_files = []
         self._changed_files_lock = threading.Lock()
         self.notes = []
@@ -81,14 +84,56 @@ class Ctx(object):
 
     # -- caching helper ---------------------------------------------------
     def cached(self, key, producer):
+        # Fast path: value already computed.
         with self._cache_lock:
-            if key not in self._cache:
-                try:
-                    self._cache[key] = producer()
-                except Exception as exc:            # pragma: no cover
-                    self._cache[key] = None
-                    self.notes.append("cache %s: %s" % (key, exc))
-            return self._cache[key]
+            if key in self._cache:
+                return self._cache[key]
+            ev = self._cache_events.get(key)
+            if ev is None:
+                ev = threading.Event()
+                self._cache_events[key] = ev
+                owner = True
+            else:
+                owner = False
+        if not owner:
+            # Another thread is producing this key; wait for it instead of
+            # duplicating the work (e.g. two kmod rules needing lsmod).
+            ev.wait()
+            with self._cache_lock:
+                return self._cache.get(key)
+        # Owner: compute WITHOUT the global lock so unrelated cache keys
+        # never block behind a slow producer (fs_scan can take minutes).
+        try:
+            try:
+                val = producer()
+            except Exception as exc:            # pragma: no cover
+                val = None
+                self.add_note("cache %s: %s" % (key, exc))
+            with self._cache_lock:
+                self._cache[key] = val
+            return val
+        finally:
+            with self._cache_lock:
+                done_ev = self._cache_events.pop(key, None)
+            if done_ev is not None:
+                done_ev.set()
+
+    def file_lock(self, path):
+        """Per-path reentrant lock for read-modify-write file mutations.
+
+        Parallel apply workers routinely rewrite the same shared file
+        (/etc/fstab, /etc/login.defs, sshd drop-in, audit rules, ...).
+        Family-level serialization cannot cover every combination, so all
+        file mutations serialize on the target path instead.  Reentrant
+        because helpers nest (e.g. _sshd_write -> set_kv_in_file).
+        Pseudo-paths like "__cmd__:augenrules" serialize whole commands.
+        """
+        with self._file_locks_lock:
+            lk = self._file_locks.get(path)
+            if lk is None:
+                lk = threading.RLock()
+                self._file_locks[path] = lk
+            return lk
 
     def invalidate(self, *keys):
         with self._cache_lock:
@@ -236,61 +281,64 @@ def atomic_write(path, content, mode=None, preserve_owner=True):
 
 
 def write_file(ctx, path, content, mode=0o644):
-    backup(ctx, path)
-    d = os.path.dirname(path)
-    if d:
-        os.makedirs(d, exist_ok=True)
-    atomic_write(path, content, mode=mode)
-    ctx.add_changed_file(path)
+    with ctx.file_lock(path):
+        backup(ctx, path)
+        d = os.path.dirname(path)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        atomic_write(path, content, mode=mode)
+        ctx.add_changed_file(path)
 
 
 def set_kv_in_file(ctx, path, key, value, sep=" ", comment_re=None,
                    mode=0o644, prepend_header=True):
     """Idempotently set `key<sep>value` in a simple line-oriented conf file."""
-    backup(ctx, path)
-    lines = readlines(path) if exists(path) else []
-    pat = re.compile(r"^\s*#?\s*" + re.escape(key) + r"\b")
-    newline = "%s%s%s" % (key, sep, value)
-    done = False
-    res = []
-    for ln in lines:
-        if pat.match(ln):
-            if not done:
-                res.append(newline)
-                done = True
-            # drop duplicates / commented variants
-            continue
-        res.append(ln)
-    if not done:
-        if prepend_header and not lines:
-            res.append("# Managed by CIS Ansible hardening")
-        res.append(newline)
-    d = os.path.dirname(path)
-    if d:
-        os.makedirs(d, exist_ok=True)
-    content = "\n".join(res).rstrip("\n") + "\n"
-    atomic_write(path, content, mode=mode)
-    ctx.add_changed_file(path)
+    with ctx.file_lock(path):
+        backup(ctx, path)
+        lines = readlines(path) if exists(path) else []
+        pat = re.compile(r"^\s*#?\s*" + re.escape(key) + r"\b")
+        newline = "%s%s%s" % (key, sep, value)
+        done = False
+        res = []
+        for ln in lines:
+            if pat.match(ln):
+                if not done:
+                    res.append(newline)
+                    done = True
+                # drop duplicates / commented variants
+                continue
+            res.append(ln)
+        if not done:
+            if prepend_header and not lines:
+                res.append("# Managed by CIS Ansible hardening")
+            res.append(newline)
+        d = os.path.dirname(path)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        content = "\n".join(res).rstrip("\n") + "\n"
+        atomic_write(path, content, mode=mode)
+        ctx.add_changed_file(path)
 
 
 def comment_out(ctx, path, pattern):
     """Comment out every line matching `pattern` in path. Returns count."""
     if not exists(path):
         return 0
-    backup(ctx, path)
-    pat = re.compile(pattern)
-    n = 0
-    res = []
-    for ln in readlines(path):
-        if pat.search(ln) and not ln.lstrip().startswith("#"):
-            res.append("# " + ln)
-            n += 1
-        else:
-            res.append(ln)
-    if n:
-        atomic_write(path, "\n".join(res).rstrip("\n") + "\n", mode=None)
-        ctx.add_changed_file(path)
-    return n
+    with ctx.file_lock(path):
+        backup(ctx, path)
+        pat = re.compile(pattern)
+        n = 0
+        res = []
+        for ln in readlines(path):
+            if pat.search(ln) and not ln.lstrip().startswith("#"):
+                res.append("# " + ln)
+                n += 1
+            else:
+                res.append(ln)
+        if n:
+            atomic_write(path, "\n".join(res).rstrip("\n") + "\n", mode=None)
+            ctx.add_changed_file(path)
+        return n
 
 
 # --------------------------------------------------------------------------
@@ -497,25 +545,26 @@ def f_mount_opt(ctx, p):
     # 1. persist in /etc/fstab
     changed = False
     if exists("/etc/fstab"):
-        backup(ctx, "/etc/fstab")
-        res = []
-        for ln in readlines("/etc/fstab"):
-            f = ln.split()
-            if len(f) >= 4 and not ln.lstrip().startswith("#") and f[1] == mp:
-                opts = [o for o in f[3].split(",") if o]
-                if opt not in opts:
-                    if "defaults" in opts and len(opts) == 1:
-                        opts = ["defaults", opt]
-                    else:
-                        opts.append(opt)
-                    f[3] = ",".join(opts)
-                    ln = "\t".join(f)
-                    changed = True
-            res.append(ln)
-        if changed:
-            with open("/etc/fstab", "w", encoding="utf-8") as fh:
-                fh.write("\n".join(res).rstrip("\n") + "\n")
-            ctx.add_changed_file("/etc/fstab")
+        with ctx.file_lock("/etc/fstab"):
+            backup(ctx, "/etc/fstab")
+            res = []
+            for ln in readlines("/etc/fstab"):
+                f = ln.split()
+                if len(f) >= 4 and not ln.lstrip().startswith("#") and f[1] == mp:
+                    opts = [o for o in f[3].split(",") if o]
+                    if opt not in opts:
+                        if "defaults" in opts and len(opts) == 1:
+                            opts = ["defaults", opt]
+                        else:
+                            opts.append(opt)
+                        f[3] = ",".join(opts)
+                        ln = "\t".join(f)
+                        changed = True
+                res.append(ln)
+            if changed:
+                atomic_write("/etc/fstab",
+                             "\n".join(res).rstrip("\n") + "\n", mode=0o644)
+                ctx.add_changed_file("/etc/fstab")
     # 2. apply live
     rc, _, err = sh(["mount", "-o", "remount," + opt, mp])
     ctx.invalidate("mounts")
@@ -908,6 +957,7 @@ def f_pkg_present(ctx, p):
     if rc != 0:
         return False, "dnf install failed: %s" % (e or o)[:200]
     _pkg_cache_invalidate()
+    _unit_db_invalidate()
     return True, "installed " + ", ".join(missing)
 
 
@@ -928,6 +978,7 @@ def f_pkg_any_present(ctx, p):
     if rc != 0:
         return False, "dnf install %s failed: %s" % (tgt, (e or o)[:200])
     _pkg_cache_invalidate()
+    _unit_db_invalidate()
     return True, "installed " + tgt
 
 
@@ -1010,6 +1061,7 @@ def f_svc_enabled(ctx, p):
         if rc != 0:
             return False, "cannot install %s: %s" % (", ".join(missing), (e or o)[:160])
         _pkg_cache_invalidate()
+        _unit_db_invalidate()  # freshly installed packages may ship new units
     acts = []
     for u in p.get("units") or []:
         if u == "aidecheck.timer" and not unit_exists("aidecheck.timer"):
@@ -1146,28 +1198,31 @@ def f_gdm_dconf(ctx, p):
     for ex in p.get("extra") or []:
         body.append("%s=%s" % (ex["key"], ex["value"]))
     # merge with any existing CIS-managed content
-    old = read(path) or ""
-    sec = "\n".join(body)
-    if sec not in old:
-        old = (old.rstrip("\n") + "\n\n" + sec + "\n").lstrip("\n")
-    write_file(ctx, path, old)
+    with ctx.file_lock(path):
+        old = read(path) or ""
+        sec = "\n".join(body)
+        if sec not in old:
+            old = (old.rstrip("\n") + "\n\n" + sec + "\n").lstrip("\n")
+        write_file(ctx, path, old)
     # lock the keys
     lockdir = "/etc/dconf/db/%s.d/locks" % db
     lock = os.path.join(lockdir, "00-cis-hardening")
     keys = ["/%s/%s" % (p["dpath"].strip("/"), p["key"])]
     for ex in p.get("extra") or []:
         keys.append("/%s/%s" % (p["dpath"].strip("/"), ex["key"]))
-    oldlock = read(lock) or ""
-    for k in keys:
-        if k not in oldlock:
-            oldlock = oldlock.rstrip("\n") + "\n" + k + "\n"
-    write_file(ctx, lock, oldlock.lstrip("\n"))
+    with ctx.file_lock(lock):
+        oldlock = read(lock) or ""
+        for k in keys:
+            if k not in oldlock:
+                oldlock = oldlock.rstrip("\n") + "\n" + k + "\n"
+        write_file(ctx, lock, oldlock.lstrip("\n"))
     # ensure profile exists for gdm db
     if db == "gdm" and not exists("/etc/dconf/profile/gdm"):
         write_file(ctx, "/etc/dconf/profile/gdm",
                    "user-db:user\nsystem-db:gdm\n"
                    "file-db:/usr/share/gdm/greeter-dconf-defaults\n")
-    sh(["dconf", "update"], 120)
+    with ctx.file_lock("__cmd__:dconf"):
+        sh(["dconf", "update"], 120)
     ctx.invalidate("dconf_files")
     return True, "wrote %s and ran dconf update" % path
 
@@ -1666,54 +1721,70 @@ SSHD_DROPIN = "/etc/ssh/sshd_config.d/60-cis-hardening.conf"
 
 def _sshd_write(ctx, pairs):
     """Write directives into a drop-in (TOS4/RHEL9) or the main file (TOS3)."""
-    supports_dropin = os.path.isdir("/etc/ssh/sshd_config.d") or \
-        bool(re.search(r"^\s*Include\s+/etc/ssh/sshd_config\.d/",
-                       read("/etc/ssh/sshd_config") or "", re.M | re.I))
-    if supports_dropin:
-        os.makedirs("/etc/ssh/sshd_config.d", exist_ok=True)
-        body = ["# Managed by CIS Ansible hardening"]
-        old = {}
-        for ln in readlines(SSHD_DROPIN):
-            m = re.match(r"^\s*(\w+)\s+(.*)$", ln)
-            if m:
-                old[m.group(1).lower()] = (m.group(1), m.group(2))
-        for k, v in pairs:
-            old[k.lower()] = (k, v)
-        for k, v in old.values():
-            body.append("%s %s" % (k, v))
-        write_file(ctx, SSHD_DROPIN, "\n".join(body) + "\n", 0o600)
-        # ensure Include directive exists; comment out conflicting directives
-        # so the drop-in (60-cis-hardening.conf) always takes precedence
-        main_lines = readlines("/etc/ssh/sshd_config")
-        has_include = any(
-            re.search(r"^\s*Include\s+/etc/ssh/sshd_config\.d/", ln, re.I)
-            for ln in main_lines)
-        if not has_include:
-            main_lines.insert(0, "Include /etc/ssh/sshd_config.d/*.conf")
-        keys_lower = {k.lower() for k, v in pairs}
-        commented = False
-        for i, ln in enumerate(main_lines):
-            m = re.match(r"^\s*(\w+)\s+", ln)
-            if m and m.group(1).lower() in keys_lower \
-               and not ln.lstrip().startswith("#"):
-                main_lines[i] = "# " + ln
-                commented = True
-        if not has_include or commented:
-            backup(ctx, "/etc/ssh/sshd_config")
-            write_file(ctx, "/etc/ssh/sshd_config",
-                       "\n".join(main_lines).rstrip("\n") + "\n", 0o600)
-        tgt = SSHD_DROPIN
-    else:
-        for k, v in pairs:
-            comment_out(ctx, "/etc/ssh/sshd_config", r"^\s*" + re.escape(k) + r"\s")
-            set_kv_in_file(ctx, "/etc/ssh/sshd_config", k, v, sep=" ", mode=0o600)
-        tgt = "/etc/ssh/sshd_config"
-    rc, _, err = sh(["sshd", "-t"], 30)
-    if rc != 0:
-        return tgt, err
-    ctx.defer_restart("sshd")
-    ctx.invalidate("sshd_T")
-    return tgt, None
+    # Snapshot both targets so a failed `sshd -t` can be rolled back — an
+    # image whose sshd config is invalid boots with NO remote access (P0).
+    snap_dropin = read(SSHD_DROPIN)
+    snap_main = read("/etc/ssh/sshd_config")
+    with ctx.file_lock(SSHD_DROPIN):
+        supports_dropin = os.path.isdir("/etc/ssh/sshd_config.d") or \
+            bool(re.search(r"^\s*Include\s+/etc/ssh/sshd_config\.d/",
+                           read("/etc/ssh/sshd_config") or "", re.M | re.I))
+        if supports_dropin:
+            os.makedirs("/etc/ssh/sshd_config.d", exist_ok=True)
+            body = ["# Managed by CIS Ansible hardening"]
+            old = {}
+            for ln in readlines(SSHD_DROPIN):
+                m = re.match(r"^\s*(\w+)\s+(.*)$", ln)
+                if m:
+                    old[m.group(1).lower()] = (m.group(1), m.group(2))
+            for k, v in pairs:
+                old[k.lower()] = (k, v)
+            for k, v in old.values():
+                body.append("%s %s" % (k, v))
+            write_file(ctx, SSHD_DROPIN, "\n".join(body) + "\n", 0o600)
+            # ensure Include directive exists; comment out conflicting directives
+            # so the drop-in (60-cis-hardening.conf) always takes precedence
+            main_lines = readlines("/etc/ssh/sshd_config")
+            has_include = any(
+                re.search(r"^\s*Include\s+/etc/ssh/sshd_config\.d/", ln, re.I)
+                for ln in main_lines)
+            if not has_include:
+                main_lines.insert(0, "Include /etc/ssh/sshd_config.d/*.conf")
+            keys_lower = {k.lower() for k, v in pairs}
+            commented = False
+            for i, ln in enumerate(main_lines):
+                m = re.match(r"^\s*(\w+)\s+", ln)
+                if m and m.group(1).lower() in keys_lower \
+                   and not ln.lstrip().startswith("#"):
+                    main_lines[i] = "# " + ln
+                    commented = True
+            if not has_include or commented:
+                backup(ctx, "/etc/ssh/sshd_config")
+                write_file(ctx, "/etc/ssh/sshd_config",
+                           "\n".join(main_lines).rstrip("\n") + "\n", 0o600)
+            tgt = SSHD_DROPIN
+        else:
+            for k, v in pairs:
+                comment_out(ctx, "/etc/ssh/sshd_config", r"^\s*" + re.escape(k) + r"\s")
+                set_kv_in_file(ctx, "/etc/ssh/sshd_config", k, v, sep=" ", mode=0o600)
+            tgt = "/etc/ssh/sshd_config"
+        rc, _, err = sh(["sshd", "-t"], 30)
+        if rc != 0:
+            # Roll back both files to their pre-write state so the image
+            # never ships a config that prevents sshd from starting.
+            if snap_dropin is None:
+                try:
+                    os.unlink(SSHD_DROPIN)
+                except OSError:
+                    pass
+            else:
+                atomic_write(SSHD_DROPIN, snap_dropin, mode=0o600)
+            if snap_main is not None:
+                atomic_write("/etc/ssh/sshd_config", snap_main, mode=0o600)
+            return tgt, err
+        ctx.defer_restart("sshd")
+        ctx.invalidate("sshd_T")
+        return tgt, None
 
 
 @fix("sshd_param")
@@ -1733,6 +1804,15 @@ def f_sshd_param(ctx, p):
                 pairs.append((it["key"], ""))
         else:
             pairs.append((it["key"], str(it["value"])))
+    # Writing an empty value (`Key ""`) makes `sshd -t` fail and would
+    # brick SSH on the image; omit the key and fail honestly instead.
+    skipped = [k for k, v in pairs if v == ""]
+    pairs = [(k, v) for k, v in pairs if v != ""]
+    if skipped:
+        ctx.add_note("sshd_param: omitted empty-value keys %s" % ", ".join(skipped))
+    if not pairs:
+        return False, ("deny_list would empty every value for %s; "
+                       "refusing to write an invalid sshd config" % ", ".join(skipped))
     tgt, err = _sshd_write(ctx, pairs)
     if err:
         return False, "sshd config test failed: %s" % err[:200]
@@ -2012,41 +2092,42 @@ SUDO_DROPIN = "/etc/sudoers.d/60-cis-hardening"
 
 
 def _sudo_append(ctx, line):
-    old = read(SUDO_DROPIN) or "# Managed by CIS Ansible hardening\n"
-    key = line.split("=")[0].strip()
-    keep = [l for l in old.splitlines()
-            if not l.strip().startswith(key.split()[0] + " " + key.split()[-1])
-            and l.strip() != line]
-    keep = [l for l in keep if key not in l or l.startswith("#")]
-    keep.append(line)
-    content = "\n".join(keep).rstrip("\n") + "\n"
-    directory = os.path.dirname(SUDO_DROPIN) or "/etc"
-    fd, tmp = tempfile.mkstemp(
-        dir=directory,
-        prefix=".sudoers-cis-tmp-",
-        suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(content)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.chmod(tmp, 0o440)
-        rc, o, e = sh(["visudo", "-cqf", tmp], 30)
-        if rc != 0:
-            os.unlink(tmp)
-            return False, "visudo validation failed: %s" % (e or o)[:200]
-        backup(ctx, SUDO_DROPIN)
-        os.replace(tmp, SUDO_DROPIN)
-        os.chmod(SUDO_DROPIN, 0o440)
-        ctx.add_changed_file(SUDO_DROPIN)
-        ctx.invalidate("sudoers")
-        return True, "added %r to %s" % (line, SUDO_DROPIN)
-    except Exception as exc:
+    with ctx.file_lock(SUDO_DROPIN):
+        old = read(SUDO_DROPIN) or "# Managed by CIS Ansible hardening\n"
+        key = line.split("=")[0].strip()
+        keep = [l for l in old.splitlines()
+                if not l.strip().startswith(key.split()[0] + " " + key.split()[-1])
+                and l.strip() != line]
+        keep = [l for l in keep if key not in l or l.startswith("#")]
+        keep.append(line)
+        content = "\n".join(keep).rstrip("\n") + "\n"
+        directory = os.path.dirname(SUDO_DROPIN) or "/etc"
+        fd, tmp = tempfile.mkstemp(
+            dir=directory,
+            prefix=".sudoers-cis-tmp-",
+            suffix=".tmp")
         try:
-            os.unlink(tmp)
-        except Exception:
-            pass
-        return False, "_sudo_append failed: %s" % exc
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(content)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.chmod(tmp, 0o440)
+            rc, o, e = sh(["visudo", "-cqf", tmp], 30)
+            if rc != 0:
+                os.unlink(tmp)
+                return False, "visudo validation failed: %s" % (e or o)[:200]
+            backup(ctx, SUDO_DROPIN)
+            os.replace(tmp, SUDO_DROPIN)
+            os.chmod(SUDO_DROPIN, 0o440)
+            ctx.add_changed_file(SUDO_DROPIN)
+            ctx.invalidate("sudoers")
+            return True, "added %r to %s" % (line, SUDO_DROPIN)
+        except Exception as exc:
+            try:
+                os.unlink(tmp)
+            except Exception:
+                pass
+            return False, "_sudo_append failed: %s" % exc
 
 
 @fix("sudo_defaults")
@@ -2348,13 +2429,15 @@ def f_selinux(ctx, p):
     kind = p["kind"]
     if kind == "bootloader":
         if exists("/etc/default/grub"):
-            backup(ctx, "/etc/default/grub")
-            txt = read("/etc/default/grub") or ""
-            new = re.sub(r"\s*\b(selinux|enforcing)=0\b", "", txt)
-            if new != txt:
-                write_file(ctx, "/etc/default/grub", new)
-        sh("grub2-mkconfig -o \"$(dirname \"$(find /boot -name grub.cfg "
-           "-print -quit 2>/dev/null)\")/grub.cfg\" >/dev/null 2>&1", 300)
+            with ctx.file_lock("/etc/default/grub"):
+                backup(ctx, "/etc/default/grub")
+                txt = read("/etc/default/grub") or ""
+                new = re.sub(r"\s*\b(selinux|enforcing)=0\b", "", txt)
+                if new != txt:
+                    write_file(ctx, "/etc/default/grub", new)
+        with ctx.file_lock("__cmd__:grub2-mkconfig"):
+            sh("grub2-mkconfig -o \"$(dirname \"$(find /boot -name grub.cfg "
+               "-print -quit 2>/dev/null)\")/grub.cfg\" >/dev/null 2>&1", 300)
         return True, "removed selinux=0/enforcing=0 and regenerated grub.cfg (reboot required)"
     if kind == "policy":
         set_kv_in_file(ctx, "/etc/selinux/config", "SELINUXTYPE",
@@ -2643,7 +2726,8 @@ def f_audit_rule(ctx, p):
             added.append(rr)
     if added:
         write_file(ctx, AUDIT_CIS_RULES, "\n".join(existing).rstrip("\n") + "\n", 0o640)
-    rc, o, e = sh(["augenrules", "--load"], 120)
+    with ctx.file_lock("__cmd__:augenrules"):
+        rc, o, e = sh(["augenrules", "--load"], 120)
     ctx.invalidate("auditctl_l", "rulesd")
     note = ""
     if rc != 0:
@@ -2689,7 +2773,8 @@ def f_audit_privileged(ctx, p):
                      "-F auid!=unset -k privileged" % (b, umin))
     write_file(ctx, "/etc/audit/rules.d/61-cis-privileged.rules",
                "\n".join(lines) + "\n", 0o640)
-    sh(["augenrules", "--load"], 120)
+    with ctx.file_lock("__cmd__:augenrules"):
+        sh(["augenrules", "--load"], 120)
     ctx.invalidate("auditctl_l", "rulesd")
     return True, "wrote audit rules for %d privileged binaries" % len(binaries)
 
@@ -2715,10 +2800,19 @@ def c_audit_immutable(ctx, p):
 def f_audit_immutable(ctx, p):
     if not pkg_installed("audit"):
         return False, "the audit package is not installed"
-    # 99- prefix guarantees it is merged last by augenrules
-    write_file(ctx, "/etc/audit/rules.d/99-finalize.rules",
-               "# CIS hardening: make the audit configuration immutable\n-e 2\n", 0o640)
-    sh(["augenrules", "--load"], 120)
+    path = "/etc/audit/rules.d/99-finalize.rules"
+    with ctx.file_lock(path):
+        body = read(path) or "# CIS hardening\n"
+        # Merge instead of overwrite: strip any existing -e lines, keep
+        # everything else (notably a "-f N" from audit_failure_mode, which
+        # must precede -e), then re-append -e 2 as the final rule.
+        if not re.search(r"^-e\s+2\s*$", body, re.M):
+            lines = [l for l in body.splitlines()
+                     if not re.match(r"^-e\s+\d", l)]
+            lines.append("-e 2")
+            write_file(ctx, path, "\n".join(lines) + "\n", 0o640)
+    with ctx.file_lock("__cmd__:augenrules"):
+        sh(["augenrules", "--load"], 120)
     ctx.invalidate("auditctl_l", "rulesd")
     return True, ("wrote /etc/audit/rules.d/99-finalize.rules with '-e 2'; "
                   "a reboot is required for it to take effect")
@@ -2745,16 +2839,18 @@ def f_audit_failure_mode(ctx, p):
     if not pkg_installed("audit"):
         return False, "the audit package is not installed"
     path = "/etc/audit/rules.d/99-finalize.rules"
-    body = read(path) or "# CIS hardening\n"
-    if not re.search(r"^-f\s+\d", body, re.M):
-        # -f must come before -e 2
-        lines = [l for l in body.splitlines() if not re.match(r"^-e\s+\d", l)]
-        lines.append("-f 1")
-        if re.search(r"^-e\s+\d", body, re.M):
-            lines.append("-e 2")
-        body = "\n".join(lines) + "\n"
-        write_file(ctx, path, body, 0o640)
-    sh(["augenrules", "--load"], 120)
+    with ctx.file_lock(path):
+        body = read(path) or "# CIS hardening\n"
+        if not re.search(r"^-f\s+\d", body, re.M):
+            # -f must come before -e 2
+            lines = [l for l in body.splitlines() if not re.match(r"^-e\s+\d", l)]
+            lines.append("-f 1")
+            if re.search(r"^-e\s+\d", body, re.M):
+                lines.append("-e 2")
+            body = "\n".join(lines) + "\n"
+            write_file(ctx, path, body, 0o640)
+    with ctx.file_lock("__cmd__:augenrules"):
+        sh(["augenrules", "--load"], 120)
     ctx.invalidate("auditctl_l", "rulesd")
     return True, "set audit failure mode to 1 in %s" % path
 
@@ -2779,7 +2875,8 @@ def c_audit_running_sync(ctx, p):
 def f_audit_running_sync(ctx, p):
     if not pkg_installed("audit"):
         return False, "the audit package is not installed"
-    rc, o, e = sh(["augenrules", "--load"], 120)
+    with ctx.file_lock("__cmd__:augenrules"):
+        rc, o, e = sh(["augenrules", "--load"], 120)
     ctx.invalidate("auditctl_l", "rulesd")
     if rc != 0:
         return False, "augenrules --load failed: %s" % (e or o)[:200]
@@ -2909,19 +3006,21 @@ def f_grub_flag(ctx, p):
     path = "/etc/default/grub"
     if not exists(path):
         return False, "%s does not exist" % path
-    backup(ctx, path)
-    txt = read(path) or ""
-    m = re.search(r'^(GRUB_CMDLINE_LINUX)=(["\'])(.*?)\2\s*$', txt, re.M | re.S)
-    if m:
-        cur = re.sub(r"\s*\b%s=\S+" % re.escape(key), "", m.group(3)).strip()
-        newval = (cur + " " + flag).strip()
-        txt = txt[:m.start()] + '%s="%s"' % (m.group(1), newval) + txt[m.end():]
-    else:
-        txt = txt.rstrip("\n") + '\nGRUB_CMDLINE_LINUX="%s"\n' % flag
-    write_file(ctx, path, txt)
+    with ctx.file_lock(path):
+        backup(ctx, path)
+        txt = read(path) or ""
+        m = re.search(r'^(GRUB_CMDLINE_LINUX)=(["\'])(.*?)\2\s*$', txt, re.M | re.S)
+        if m:
+            cur = re.sub(r"\s*\b%s=\S+" % re.escape(key), "", m.group(3)).strip()
+            newval = (cur + " " + flag).strip()
+            txt = txt[:m.start()] + '%s="%s"' % (m.group(1), newval) + txt[m.end():]
+        else:
+            txt = txt.rstrip("\n") + '\nGRUB_CMDLINE_LINUX="%s"\n' % flag
+        write_file(ctx, path, txt)
     cfg = _grub_cfg()
     if cfg:
-        sh(["grub2-mkconfig", "-o", cfg], 300)
+        with ctx.file_lock("__cmd__:grub2-mkconfig"):
+            sh(["grub2-mkconfig", "-o", cfg], 300)
     return True, "added %s to GRUB_CMDLINE_LINUX and regenerated %s (reboot required)" % (
         flag, cfg or "grub.cfg")
 
@@ -4167,8 +4266,15 @@ def main():
                 d = r.get("detail", "")
                 m = re.search(r"missing:\s*(.+)$", d)
                 if m:
-                    missing_pkgs.add(m.group(1).strip())
-                elif "not installed" in d or "required package" in d.lower():
+                    # detail is "missing: aide, chrony" — split into
+                    # individual names; passing the whole string to dnf as
+                    # ONE argv element silently matches nothing.
+                    for name in m.group(1).split(","):
+                        name = name.strip()
+                        if name:
+                            missing_pkgs.add(name)
+                elif ("not installed" in d or "none of" in d
+                      or "required package" in d.lower()):
                     # Try to extract package names from comma-separated list
                     for seg in re.findall(r"([\w.-]+)", d):
                         if len(seg) > 2 and seg not in ("not", "installed",
@@ -4184,6 +4290,7 @@ def main():
             if rc != 0:
                 sys.stderr.write("batch install warning: %s\n" % ((e or o)[:200]))
             _pkg_cache_invalidate()
+            _unit_db_invalidate()  # new packages may ship new systemd units
 
         # ── Phase 2: Parallel apply ──
         # Rules that touch the package manager are serialised via ctx._pkg_lock;
@@ -4194,16 +4301,14 @@ def main():
 
         def _apply_one(ctx, rule):
             fam = rule.get("family", "")
-            # Families that MUST be serialised because every rule in the
-            # family writes to a single shared file (via atomic_write which
-            # is not concurrency-safe across threads):
-            #   sysctl     → all 33 rules → /etc/sysctl.d/60-cis-hardening.conf
-            #   sshd_param → all 18 rules → /etc/ssh/sshd_config.d/99-cis-sshd.conf
-            #   pkg_*      → all rules   → dnf (single RPM database)
+            # Only pkg_* families are serialised now (single RPM database /
+            # dnf lock).  Shared-file writes (sysctl.conf drop-in, sshd
+            # drop-in, fstab, audit rules, ...) are protected by per-path
+            # ctx.file_lock() inside the write helpers, so they can run in
+            # parallel safely — last-writer-wins races are gone.
             if fam in ("pkg_present", "pkg_not_present", "pkg_any_present",
                        "pkg_not_installed", "pkg_installed", "pkg_removed",
-                       "pkg_audit", "pkg_firewall", "pkg_password",
-                       "sysctl", "sshd_param"):
+                       "pkg_audit", "pkg_firewall", "pkg_password"):
                 with ctx._pkg_lock:
                     return run_rule(ctx, rule)
             return run_rule(ctx, rule)

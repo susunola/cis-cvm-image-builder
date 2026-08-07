@@ -371,7 +371,10 @@ class TestRenderAll:
         assert "ciscvm-AUDIT-RESULT.json" in hcl
         assert "collect-audit.sh" in hcl
         assert "ciscvm-finalize.sh" in hcl
-        assert "remote_path  = \"/opt/ciscvm-ansible/ciscvm-finalize.sh\"" in hcl
+        assert 'source      = "packer/scripts/ciscvm-finalize.sh"' in hcl
+        assert 'destination = "/opt/ciscvm-ansible/ciscvm-finalize.sh"' in hcl
+        assert 'remote_path  = "/opt/ciscvm-ansible/run-finalize.sh"' in hcl
+        assert "run-finalize.sh" in hcl
         # Finalize script: all the in-image channels are written.
         assert "/etc/ciscvm/banner" in finalize
         assert "/etc/motd" in finalize
