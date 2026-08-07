@@ -1094,16 +1094,94 @@ def c_svc_enabled(ctx, p):
     return "pass", "%s enabled and running" % ", ".join(seen)
 
 
+def _install_pkgs(ctx, pkgs, timeout=900):
+    """Platform-aware package install (dnf / apt-get / zypper)."""
+    if have("dnf"):
+        cmd = ["dnf", "-y", "install"] + pkgs
+    elif have("apt-get"):
+        cmd = ["apt-get", "-y", "install"] + pkgs
+    elif have("zypper"):
+        cmd = ["zypper", "--non-interactive", "install"] + pkgs
+    else:
+        return False, "no supported package manager found"
+    rc, o, e = sh(cmd, timeout)
+    if rc != 0:
+        return False, (e or o)[:200]
+    _pkg_cache_invalidate()
+    _unit_db_invalidate()
+    return True, None
+
+
+def _bootstrap_journal_upload(ctx):
+    """CIS 6.2.1.2.3 — journal-upload cannot stay active without an HTTP
+    endpoint, so run systemd-journal-remote as a LOOPBACK receiver on
+    127.0.0.1:19532 and point journal-upload at it (self -> self).
+
+    This avoids needing an external log server while making the service
+    genuinely active, and leaves a local archived copy of the journal in
+    /var/log/journal/remote/.  Pitfalls handled:
+      1. journal-upload.conf syntax differs by systemd version:
+         URL= (>= 245 / RHEL9) vs UploadServer= (< 245 / RHEL8).
+      2. the remote archive grows unbounded — a logrotate rule caps it.
+      3. no upload loop: remote stores into /var/log/journal/remote,
+         which journal-upload never reads.
+    """
+    missing = [p for p in ("systemd-journal-remote",) if not pkg_installed(p)]
+    if missing:
+        ok, err = _install_pkgs(ctx, missing)
+        if not ok:
+            ctx.add_note("journal-upload: cannot install %s: %s"
+                         % (", ".join(missing), err))
+            return False, "cannot install systemd-journal-remote: %s" % err
+    # 1. Loopback receiver — drop-in overrides on the stock units.
+    write_file(ctx,
+               "/etc/systemd/system/systemd-journal-remote.socket.d/ciscvm.conf",
+               "[Socket]\nListenStream=\nListenStream=127.0.0.1:19532\n", 0o644)
+    rem = out("command -v systemd-journal-remote 2>/dev/null || "
+              "echo /usr/lib/systemd/systemd-journal-remote", 20).strip()
+    write_file(ctx,
+               "/etc/systemd/system/systemd-journal-remote.service.d/ciscvm.conf",
+               "[Service]\nExecStart=\nExecStart=%s --listen-http=127.0.0.1:19532 "
+               "--output=/var/log/journal/remote/ --split-mode=host\n" % rem, 0o644)
+    sh(["systemctl", "daemon-reload"], 30)
+    sh(["systemctl", "enable", "--now", "systemd-journal-remote.socket"], 120)
+    sh(["systemctl", "enable", "--now", "systemd-journal-remote.service"], 120)
+    # 2. journal-upload target — version-aware syntax.
+    ver = as_int((out("systemd --version 2>/dev/null | head -1 | "
+                      "awk '{print $2}'", 20) or "").strip()) or 0
+    if ver >= 245:
+        upload_cfg = "[Upload]\nURL=http://127.0.0.1:19532\n"
+    else:
+        upload_cfg = "[Upload]\nUploadServer=127.0.0.1:19532\n"
+    write_file(ctx, "/etc/systemd/journal-upload.conf", upload_cfg, 0o600)
+    # 3. Cap the archived-copy growth (journald does NOT rotate
+    #    /var/log/journal/remote — this is on us).
+    write_file(ctx, "/etc/logrotate.d/ciscvm-journal-remote",
+               "/var/log/journal/remote/*.journal {\n"
+               "    daily\n    rotate 7\n    maxsize 100M\n    compress\n"
+               "    missingok\n    notifempty\n"
+               "    postrotate\n"
+               "        systemctl restart systemd-journal-remote.service "
+               "2>/dev/null || true\n"
+               "    endscript\n}\n", 0o644)
+    ctx.defer_restart("systemd-journal-upload")
+    return True, None
+
+
 @fix("svc_enabled")
 def f_svc_enabled(ctx, p):
     pkgs = p.get("packages") or []
     missing = [x for x in pkgs if not pkg_installed(x)]
     if missing:
-        rc, o, e = sh(["dnf", "-y", "install"] + missing, 900)
-        if rc != 0:
-            return False, "cannot install %s: %s" % (", ".join(missing), (e or o)[:160])
-        _pkg_cache_invalidate()
-        _unit_db_invalidate()  # freshly installed packages may ship new units
+        ok, err = _install_pkgs(ctx, missing)
+        if not ok:
+            return False, "cannot install %s: %s" % (", ".join(missing), err)
+    # CIS 6.2.1.2.3 special case: journal-upload needs a receiver to be
+    # active — bootstrap the loopback self-upload first.
+    if any("systemd-journal-upload.service" == u for u in (p.get("units") or [])):
+        ok, err = _bootstrap_journal_upload(ctx)
+        if not ok:
+            return False, "journal-upload bootstrap failed: %s" % err
     acts = []
     for u in p.get("units") or []:
         if u == "aidecheck.timer" and not unit_exists("aidecheck.timer"):
