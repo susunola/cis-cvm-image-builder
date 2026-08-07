@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 340">
+  <style><![CDATA[
+    .bg  { fill: #ffffff; }
+    .sep { stroke: #e8ecf0; stroke-width: 1; }
+    .box { fill: #ffffff; stroke-width: 1.2; rx: 3; }
+    .c-cfg  { stroke: #5b6e8a; }
+    .c-cli  { stroke: #2563eb; }
+    .c-pkr  { stroke: #16a34a; }
+    .c-eng  { stroke: #7c3aed; }
+    .c-img  { stroke: #d97706; }
+    .c-file { stroke: #94a3b8; }
+    .c-gate { stroke: #dc2626; }
+
+    .t-mb  { fill: #111827; font-family: 'SF Mono','Menlo','Consolas',monospace; font-weight: 700; }
+    .t-m   { fill: #475569; font-family: 'SF Mono','Menlo','Consolas',monospace; }
+    .t-d   { fill: #64748b; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
+    .t-h   { fill: #0f172a; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-weight: 600; }
+    .t-sec { fill: #94a3b8; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; }
+
+    .badge { font-size: 8px; font-weight: 600; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
+    .arr   { fill: none; stroke: #94a3b8; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+    .arr-l { fill: #94a3b8; font-size: 7px; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
+  ]]></style>
+
+  <defs>
+    <marker id="a" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0, 7 2.5, 0 5" fill="#94a3b8"/></marker>
+  </defs>
+
+  <rect width="960" height="340" class="bg"/>
+
+  <!-- Column separators (subtle) -->
+  <line x1="205" y1="22" x2="205" y2="238" class="sep"/>
+  <line x1="405" y1="22" x2="405" y2="238" class="sep"/>
+  <line x1="605" y1="22" x2="605" y2="238" class="sep"/>
+  <line x1="780" y1="22" x2="780" y2="238" class="sep"/>
+
+  <!-- Section headers -->
+  <text x="58" y="16" text-anchor="middle" class="t-sec">CONFIG</text>
+  <text x="300" y="16" text-anchor="middle" class="t-sec">CLI</text>
+  <text x="500" y="16" text-anchor="middle" class="t-sec">BUILD</text>
+  <text x="690" y="16" text-anchor="middle" class="t-sec">CIS ENGINE</text>
+  <text x="870" y="16" text-anchor="middle" class="t-sec">OUTPUT</text>
+
+  <!-- ═══════════ COL 1: CONFIG ═══════════ -->
+  <rect x="24" y="32" width="162" height="48" class="box c-cfg"/>
+  <text x="36" y="52" class="t-mb" font-size="11">ciscvm.toml</text>
+  <text x="36" y="68" class="t-m" font-size="9">profile · region · vpc</text>
+
+  <rect x="24" y="92" width="162" height="48" class="box c-cfg"/>
+  <text x="36" y="112" class="t-mb" font-size="11">env · secrets</text>
+  <text x="36" y="128" class="t-m" font-size="9">AK/SK or OIDC · assume_role</text>
+
+  <text x="105" y="85" text-anchor="middle" class="t-d" font-size="9">+</text>
+
+  <!-- CONFIG → CLI -->
+  <path d="M 186 56 L 215 56" class="arr" marker-end="url(#a)"/>
+  <path d="M 186 116 L 215 116" class="arr" marker-end="url(#a)"/>
+
+  <!-- ═══════════ COL 2: CLI ═══════════ -->
+  <rect x="215" y="32" width="180" height="108" class="box c-cli"/>
+  <rect x="221" y="27" width="52" height="14" rx="2" fill="#dbeafe" stroke="#bfdbfe" stroke-width="0.7"/>
+  <text x="247" y="38" text-anchor="middle" class="badge" fill="#2563eb">Python</text>
+
+  <text x="227" y="58" class="t-mb" font-size="11">ciscvm CLI</text>
+  <text x="227" y="74" class="t-d" font-size="9">Config-driven · zero deps</text>
+  <text x="227" y="90" class="t-m" font-size="8">build · scan · images</text>
+  <text x="227" y="104" class="t-m" font-size="8">verify · cleanup-images</text>
+  <text x="227" y="120" class="t-d" font-size="8">bundled roles · 14 OS</text>
+
+  <!-- CLI → BUILD -->
+  <path d="M 395 56 L 415 56" class="arr" marker-end="url(#a)"/>
+  <path d="M 395 116 L 415 116" class="arr" marker-end="url(#a)"/>
+  <text x="405" y="48" text-anchor="middle" class="arr-l">render</text>
+
+  <!-- ═══════════ COL 3: BUILD ═══════════ -->
+  <rect x="415" y="32" width="180" height="108" class="box c-pkr"/>
+  <rect x="421" y="27" width="44" height="14" rx="2" fill="#dcfce7" stroke="#bbf7d0" stroke-width="0.7"/>
+  <text x="443" y="38" text-anchor="middle" class="badge" fill="#16a34a">Packer</text>
+
+  <text x="427" y="58" class="t-mb" font-size="11">packer build</text>
+  <text x="427" y="74" class="t-d" font-size="9">tencentcloud-cvm plugin</text>
+  <text x="427" y="90" class="t-m" font-size="8">ephemeral CVM · VPC</text>
+  <text x="427" y="104" class="t-m" font-size="8">ssh / winrm</text>
+  <text x="427" y="120" class="t-d" font-size="8">install ansible-core</text>
+
+  <!-- BUILD → CIS ENGINE -->
+  <path d="M 595 56 L 615 56" class="arr" marker-end="url(#a)"/>
+  <path d="M 595 116 L 615 116" class="arr" marker-end="url(#a)"/>
+  <text x="605" y="48" text-anchor="middle" class="arr-l">ansible</text>
+
+  <!-- ═══════════ COL 4: CIS ENGINE ═══════════ -->
+  <rect x="615" y="32" width="154" height="108" class="box c-eng"/>
+  <rect x="621" y="27" width="40" height="14" rx="2" fill="#ede9fe" stroke="#ddd6fe" stroke-width="0.7"/>
+  <text x="641" y="38" text-anchor="middle" class="badge" fill="#7c3aed">L1/L2</text>
+
+  <text x="627" y="58" class="t-mb" font-size="11">cis_engine.py</text>
+  <text x="627" y="74" class="t-d" font-size="9">apply · scan · gate</text>
+  <text x="627" y="90" class="t-m" font-size="8">--profile L1 | L2</text>
+  <text x="627" y="104" class="t-m" font-size="8">--include | --exclude</text>
+  <text x="627" y="120" class="t-d" font-size="8">score ≥ 85% or no image</text>
+
+  <!-- CIS ENGINE → OUTPUT -->
+  <path d="M 769 56 L 795 56" class="arr" marker-end="url(#a)"/>
+  <path d="M 769 116 L 795 116" class="arr" marker-end="url(#a)"/>
+  <text x="782" y="48" text-anchor="middle" class="arr-l">snapshot</text>
+
+  <!-- ═══════════ COL 5: OUTPUT ═══════════ -->
+  <rect x="795" y="32" width="142" height="48" class="box c-img"/>
+  <rect x="801" y="27" width="58" height="14" rx="2" fill="#fef3c7" stroke="#fde68a" stroke-width="0.7"/>
+  <text x="830" y="38" text-anchor="middle" class="badge" fill="#d97706">Golden Image</text>
+
+  <text x="807" y="56" class="t-mb" font-size="11">img-xxxxx</text>
+  <text x="807" y="70" class="t-m" font-size="9">CIS-hardened</text>
+
+  <rect x="795" y="92" width="142" height="48" class="box c-file"/>
+  <text x="807" y="112" class="t-mb" font-size="10">lineage</text>
+  <text x="807" y="128" class="t-m" font-size="9">provenance .sig</text>
+
+  <!-- ═══════════ BOTTOM: notes ═══════════ -->
+  <line x1="20" y1="248" x2="940" y2="248" stroke="#f1f5f9" stroke-width="1"/>
+
+  <rect x="20" y="264" width="220" height="56" class="box c-file"/>
+  <text x="32" y="282" class="t-h" font-size="11">14 OS profiles</text>
+  <text x="32" y="298" class="t-m" font-size="9">TencentOS · RHEL · SLES · Ubuntu</text>
+  <text x="32" y="310" class="t-m" font-size="9">Windows Server 2016-2025</text>
+
+  <rect x="260" y="264" width="240" height="56" class="box c-file"/>
+  <text x="272" y="282" class="t-h" font-size="11">Build → Test → Distribute</text>
+  <text x="272" y="298" class="t-m" font-size="9">smoke test before snapshot</text>
+  <text x="272" y="310" class="t-m" font-size="9">notify · lineage · verify</text>
+
+  <rect x="520" y="264" width="210" height="56" class="box c-gate"/>
+  <text x="532" y="282" class="t-h" font-size="11">Gate</text>
+  <text x="532" y="298" class="t-m" font-size="9">score ≥ 85% required</text>
+  <text x="532" y="310" class="t-m" font-size="9">below → no image</text>
+
+  <rect x="750" y="264" width="190" height="56" class="box c-file"/>
+  <text x="762" y="282" class="t-h" font-size="11">CI / Cron ready</text>
+  <text x="762" y="298" class="t-m" font-size="9">GitHub Actions + OIDC</text>
+  <text x="762" y="310" class="t-m" font-size="9">auto image cleanup</text>
+
+  <!-- rules.json → engine -->
+  <path d="M 692 264 L 692 146" class="arr" marker-end="url(#a)"/>
+  <text x="668" y="210" text-anchor="end" class="arr-l">rules.json</text>
+
+</svg>
