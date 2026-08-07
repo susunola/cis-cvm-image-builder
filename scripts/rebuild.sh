@@ -32,7 +32,8 @@ echo "[4/6] 全新安装 ciscvm"
 pip install --no-cache-dir --force-reinstall .
 
 echo "[5/6] 校验代码与二进制版本一致"
-CODE_VERSION=$(grep -m1 '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+# 版本号单一来源: ciscvm/__init__.py 的 VERSION（pyproject 动态读取它）
+CODE_VERSION=$(grep -m1 '^VERSION = ' ciscvm/__init__.py | sed 's/^VERSION = "//;s/"$//')
 BIN_VERSION=$(ciscvm --version | awk '{print $2}')
 echo "     代码版本: $CODE_VERSION | 二进制版本: $BIN_VERSION"
 if [ "$CODE_VERSION" != "$BIN_VERSION" ]; then

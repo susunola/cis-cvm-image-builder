@@ -37,3 +37,7 @@ dist/
 .coverage
 htmlcov/
 .venv/
+
+# Build logs (local artifacts, never commit)
+logs/
+run.log
