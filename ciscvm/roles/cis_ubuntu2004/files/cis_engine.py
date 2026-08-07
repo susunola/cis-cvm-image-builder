@@ -560,7 +560,8 @@ def c_mount_opt(ctx, p):
 @fix("mount_opt")
 def f_mount_opt(ctx, p):
     mp, opt = p["mount"], p["option"]
-    if mp not in _mounts(ctx):
+    mounts = _mounts(ctx)
+    if mp not in mounts:
         return False, "%s is not a separate mount point; cannot remediate" % mp
     # 1. persist in /etc/fstab
     changed = False
@@ -568,9 +569,11 @@ def f_mount_opt(ctx, p):
         with ctx.file_lock("/etc/fstab"):
             backup(ctx, "/etc/fstab")
             res = []
+            found = False
             for ln in readlines("/etc/fstab"):
                 f = ln.split()
                 if len(f) >= 4 and not ln.lstrip().startswith("#") and f[1] == mp:
+                    found = True
                     opts = [o for o in f[3].split(",") if o]
                     if opt not in opts:
                         if "defaults" in opts and len(opts) == 1:
@@ -581,12 +584,25 @@ def f_mount_opt(ctx, p):
                         ln = "\t".join(f)
                         changed = True
                 res.append(ln)
+            # tmpfs mounts (/dev/shm, /run, ...) often have no fstab entry —
+            # systemd derives them from /proc/mounts.  Persist a line so the
+            # option survives reboot (otherwise only the live remount applies).
+            if not found and mounts[mp]["fstype"] == "tmpfs":
+                cur_opts = sorted(mounts[mp]["opts"])
+                opts = ",".join(sorted(set(cur_opts) | {opt}))
+                line = "%s\t%s\t%s\t%s\t0 0" % (
+                    mounts[mp]["src"], mp, mounts[mp]["fstype"], opts)
+                res.append(line)
+                changed = True
             if changed:
                 atomic_write("/etc/fstab",
                              "\n".join(res).rstrip("\n") + "\n", mode=0o644)
                 ctx.add_changed_file("/etc/fstab")
-    # 2. apply live
-    rc, _, err = sh(["mount", "-o", "remount," + opt, mp])
+    # 2. apply live — carry the CURRENT options, or a remount with only the
+    #    new option would silently drop everything else (nodev/nosuid/
+    #    seclabel) and could break SELinux labelling on /dev/shm.
+    cur_opts = ",".join(sorted(mounts[mp]["opts"]))
+    rc, _, err = sh(["mount", "-o", "remount,%s,%s" % (cur_opts, opt), mp])
     ctx.invalidate("mounts")
     if rc != 0:
         return False, "fstab updated but live remount failed: %s" % err
