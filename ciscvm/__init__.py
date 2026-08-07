@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.10.1"
+VERSION = "0.10.2"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -713,6 +713,11 @@ build {
     inline = [
       "set +e",
       "sudo find /var/log/ -type f -perm /g+wx,o+rwx -exec chmod g-wx,o-rwx {} + 2>/dev/null",
+      "# Ensure ForwardToSyslog=no survives RPM overwrites during reboot.",
+      "# Drop-ins under journald.conf.d/ have a glob-expansion race with",
+      "# the post-fix re-check, so we target the main journald.conf directly.",
+      "sudo sed -i 's/^#*\\?ForwardToSyslog.*/ForwardToSyslog=no/' /etc/systemd/journald.conf",
+      "grep -q '^ForwardToSyslog' /etc/systemd/journald.conf || echo 'ForwardToSyslog=no' | sudo tee -a /etc/systemd/journald.conf > /dev/null",
       "echo fix-logperms done"
     ]
   }
