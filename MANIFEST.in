@@ -1,5 +1,3 @@
-graft ciscvm/roles
+# sdist: include the bundled CIS roles (engine, rules.json, etc.)
+recursive-include ciscvm/roles *
 include ciscvm/py.typed
-global-exclude .git*
-global-exclude *.pyc
-global-exclude __pycache__
