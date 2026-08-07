@@ -354,7 +354,7 @@
    "mount": "/dev/shm",
    "option": "noexec"
   },
-  "risk": "disruptive",
+  "risk": "safe",
   "page": 83
  },
  {
