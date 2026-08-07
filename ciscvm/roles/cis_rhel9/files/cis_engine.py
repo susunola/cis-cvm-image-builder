@@ -707,6 +707,8 @@ def _fs_scan(ctx):
                 # recreated on every boot (not real security findings).
                 if path.startswith("/dev/shm/tmp_agent/"):
                     continue
+                if path.startswith("/usr/local/tmanager/"):
+                    continue
                 res[key].append(path)
         return res
     return ctx.cached("fs_scan", load)
@@ -1491,21 +1493,6 @@ def f_kv_conf(ctx, p):
         return True, "TMOUT=%s enforced via %s" % (want, os.path.basename(target))
 
     target = (p.get("files") or ["/etc/cis-hardening.conf"])[0]
-    # For systemd config files that ship globs (e.g. journald.conf +
-    # journald.conf.d/*.conf), write to a high-priority drop-in instead
-    # of the main file.  The main file can be overwritten by a package
-    # update; drop-ins under /etc/…d/ are reserved for local admin.
-    if (p.get("globs") and target.endswith(".conf")
-            and "/systemd/" in target):
-        dropin = target[:-5] + ".d/99-cis.conf"
-        if not exists(dropin):
-            os.makedirs(os.path.dirname(dropin), exist_ok=True)
-            # Derive the section header from the config file name.
-            sec = os.path.splitext(os.path.basename(target))[0].upper()
-            write_file(ctx, dropin,
-                       "# CIS hardening drop-in — do not edit\n"
-                       "[%s]\n" % sec)
-        target = dropin
     if op == "bool_present":
         val = ""
         sepc = ""

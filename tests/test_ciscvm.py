@@ -525,13 +525,14 @@ class TestRenderAll:
 
     def test_pre_audit_logfix_provisioner_present(self, valid_toml, tmp_path):
         """v0.10.1: a fix-logperms provisioner runs between reconnect and re-audit
-        to repair boot-loosened log-file perms before the gate check."""
+        to repair boot-loosened log-file perms and journald config before the gate check."""
         r = resolve(valid_toml)
         wd = tmp_path / "build"
         render_all(wd, r)
         hcl = (wd / "packer" / "main.pkr.hcl").read_text()
         assert "fix-logperms.sh" in hcl
         assert "chmod g-wx,o-rwx" in hcl
+        assert "ForwardToSyslog=no" in hcl
         # Must appear after reconnect but before re-audit
         reconnect_idx = hcl.find("reconnected.sh")
         logfix_idx = hcl.find("fix-logperms.sh")
