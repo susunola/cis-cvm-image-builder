@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.8"
+VERSION = "0.14.9"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -753,6 +753,10 @@ build {
   provisioner "shell" {
     pause_before = "5s"
     remote_path  = "/opt/ciscvm-ansible/ssh-guard.sh"
+    # Packer deletes the uploaded script after running it (skip_clean=false
+    # by default).  Keep it: provisioner 3.5 re-runs this same file right
+    # before reboot to re-open the SSH port in the POST-apply firewall zones.
+    skip_clean   = true
     inline = [
       "set +e",
       "# CIS hardening may leave the hostname unresolvable by removing its",
