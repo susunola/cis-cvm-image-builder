@@ -208,12 +208,22 @@ benchmark = "CIS-v1.0.0"
 
 ## Architecture
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/ciscvm-pipeline-dark.png">
-    <img src="docs/ciscvm-pipeline-light.png" alt="ciscvm build pipeline — TOML config to hardened golden image" width="720">
-  </picture>
-</p>
+```
+Build machine                                 Tencent Cloud
+┌────────────────────────────┐                ┌──────────────────────────────────────────┐
+│ ciscvm.toml                │                │ Ephemeral CVM  (VPC)                     │
+│ [image].name               │                │                                          │
+│ [cloud].assume_role_arn    │                │ 1. install ansible-core                  │
+│ [meta].*                   │                │ 2. CIS apply  (cis_engine + rules.json)  │
+│                            │  packer build  │ 3. reboot + re-audit (pending rules)     │
+│                            ┼───────────────▶│ 4. gate  score >= 85% ──┬─ fail ──────── ┤
+│ ciscvm CLI ──▶ Packer ──   │                │                                          │
+│ (tencentcloud-cvm plugin)  │                │                                          │
+│                            │                │ CreateImage ──▶ img-xxxx                 │
+└────────────────────────────┘                └──────────────────────────────────────────┘
+```
+
+Interactive diagram with theme toggle: [ciscvm-pipeline.html](docs/ciscvm-pipeline.html)
 
 ### Linux pipeline
 
