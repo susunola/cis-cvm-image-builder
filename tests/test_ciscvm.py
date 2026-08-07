@@ -277,6 +277,38 @@ class TestResolve:
         with pytest.raises(ConfigError, match=r"assume_role_duration"):
             resolve(valid_toml)
 
+    def test_security_token_env_default(self, valid_toml):
+        r = resolve(valid_toml)
+        assert r.security_token_env == "TENCENTCLOUD_SECURITY_TOKEN"
+
+    def test_security_token_env_custom(self, valid_toml):
+        valid_toml["cloud"]["security_token_env"] = "MY_STS_TOKEN"
+        r = resolve(valid_toml)
+        assert r.security_token_env == "MY_STS_TOKEN"
+
+    def test_security_token_env_rendered(self, valid_toml):
+        import tempfile
+        from pathlib import Path
+        valid_toml["cloud"]["security_token_env"] = "MY_STS_TOKEN"
+        r = resolve(valid_toml)
+        with tempfile.TemporaryDirectory() as td:
+            wd = Path(td) / "build"
+            render_all(wd, r)
+            hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+            assert 'default   = env("MY_STS_TOKEN")' in hcl
+            assert "security_token              = var.security_token" in hcl
+            assert "__SECURITY_TOKEN_ENV__" not in hcl
+
+    def test_security_token_env_invalid(self, valid_toml):
+        import tempfile
+        from pathlib import Path
+        valid_toml["cloud"]["security_token_env"] = "MY-TOKEN;rm"
+        r = resolve(valid_toml)
+        with tempfile.TemporaryDirectory() as td:
+            wd = Path(td) / "build"
+            with pytest.raises(ConfigError, match=r"security_token_env"):
+                render_all(wd, r)
+
 
 class TestExtractImageIds:
     def test_multi_region_artifact(self):
