@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.7"
+VERSION = "0.14.8"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -764,8 +764,8 @@ build {
       "[ -z \"$SSH_PORT\" ] && SSH_PORT=22",
       "echo \"[ssh-guard] ensuring SSH port $SSH_PORT stays open\"",
       "if command -v firewall-cmd >/dev/null 2>&1 && sudo systemctl is-active firewalld >/dev/null 2>&1; then for z in $(sudo firewall-cmd --get-active-zones 2>/dev/null | grep -v '^ '); do sudo firewall-cmd --zone=$z --add-port=$SSH_PORT/tcp; sudo firewall-cmd --zone=$z --add-port=$SSH_PORT/tcp --permanent; done; sudo firewall-cmd --reload; fi",
-      "if command -v nft >/dev/null 2>&1 && sudo systemctl is-active nftables >/dev/null 2>&1; then for t in $(sudo nft list tables 2>/dev/null | awk '{print $2}'); do sudo nft add rule $t input tcp dport $SSH_PORT accept 2>/dev/null || true; done; fi",
-      "if command -v iptables >/dev/null 2>&1; then sudo iptables -C INPUT -p tcp --dport $SSH_PORT -j ACCEPT 2>/dev/null || sudo iptables -I INPUT -p tcp --dport $SSH_PORT -j ACCEPT 2>/dev/null || true; fi",
+      "if command -v nft >/dev/null 2>&1 && sudo systemctl is-active nftables >/dev/null 2>&1; then for t in $(sudo nft list tables 2>/dev/null | awk '{print $2}'); do sudo nft add rule $t input tcp dport $SSH_PORT accept 2>/dev/null || true; done; sudo nft list ruleset > /etc/sysconfig/nftables.conf 2>/dev/null || true; fi",
+      "if command -v iptables >/dev/null 2>&1; then sudo iptables -C INPUT -p tcp --dport $SSH_PORT -j ACCEPT 2>/dev/null || sudo iptables -I INPUT -p tcp --dport $SSH_PORT -j ACCEPT 2>/dev/null || true; sudo iptables-save > /etc/sysconfig/iptables 2>/dev/null || true; fi",
       "# Ensure key-based root login survives CIS hardening (PermitRootLogin no)",
       "if sudo sshd -T 2>/dev/null | grep -qi '^permitrootlogin no'; then",
       "  echo \"[ssh-guard] CIS disabled root login; restoring key-based root login\"",
@@ -774,6 +774,20 @@ build {
       "fi",
       "# Build user fallback (created by install-ansible.sh) — sudoers.d already grants NOPASSWD; do NOT add to wheel (CIS 5.2.7 requires wheel to stay empty)",
       "true"
+    ]
+  }
+
+  # 3.5 Re-apply the SSH guard right before reboot.  The apply playbook on
+  #      TencentOS 4 can reload firewalld / shift active zones (CIS 3.4.x),
+  #      which silently drops the guard's earlier rules — after reboot the
+  #      build then can't reconnect (i/o timeout, not refused).  Re-running
+  #      the guard here enumerates the POST-apply zones and persists the
+  #      SSH port opening in all of them.
+  provisioner "shell" {
+    pause_before = "5s"
+    remote_path  = "/opt/ciscvm-ansible/ssh-guard-reapply.sh"
+    inline = [
+      "sudo bash /opt/ciscvm-ansible/ssh-guard.sh"
     ]
   }
 
