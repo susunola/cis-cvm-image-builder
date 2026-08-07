@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.11.6"
+VERSION = "0.11.7"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -981,6 +981,17 @@ INSTALL_SH_TEMPLATE = r"""#!/usr/bin/env bash
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
+
+# ── Hostname DNS safeguard ──
+# TencentOS cloud images ship /etc/hosts with only "127.0.0.1 localhost".
+# After CIS hardening modifies firewall / resolv.conf, internal DNS may
+# become unreachable.  Every sudo call then triggers a PAM gethostbyname
+# that falls through /etc/hosts (hostname not present) → DNS timeout
+# (5-30s per call).  We fix this ONCE here, before any sudo or hardening,
+# so every downstream provisioner (ssh-guard, fix-logperms, finalize)
+# inherits the fix for free.
+grep -q "^127.0.0.1.*$(hostname)" /etc/hosts 2>/dev/null || \
+    echo "127.0.0.1 $(hostname)" >> /etc/hosts
 
 # 1. System dependencies.
 #    Refreshing package indexes (apt-get update / dnf makecache / zypper
