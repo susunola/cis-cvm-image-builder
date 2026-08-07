@@ -1,0 +1,40 @@
+name: publish-pypi
+
+# Publishes ciscvm to PyPI when a version tag (v*) is pushed.
+# Authentication: prefer trusted publishing (OIDC — no token stored); if the
+# project is not yet configured for it, fall back to the PYPI_TOKEN secret.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  id-token: write             # required for trusted publishing
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tooling
+        run: pip install build
+
+      - name: Build wheel + sdist
+        run: python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Trusted publishing is used automatically when no token is given.
+          # Enable it once at
+          #   https://pypi.org/manage/account/publishing/
+          #   (owner: the account that owns the "ciscvm" project)
+          # Otherwise create a PyPI API token and store it as PYPI_TOKEN.
+          password: ${{ secrets.PYPI_TOKEN }}

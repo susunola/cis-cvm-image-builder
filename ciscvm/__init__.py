@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.4"
+VERSION = "0.14.5"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -2392,6 +2392,187 @@ def cmd_images(args: argparse.Namespace) -> int:
     return 0
 
 
+# ── Automatic image cleanup ──────────────────────────────────────────────────
+# ciscvm cleanup-images: retire old golden images by lineage age.  Uses a
+# minimal TC3-HMAC-SHA256 signer (stdlib only — keeps the package zero-dep)
+# against cvm:DescribeImages / cvm:DeleteImages.  Default is a dry run;
+# --apply performs the deletion.  Credentials come from the standard env
+# vars (TENCENTCLOUD_SECRET_ID/KEY[/TOKEN]).
+def _tc3_api(service: str, action: str, version: str, region: str,
+             params: dict, secret_id: str, secret_key: str,
+             token: str | None = None) -> dict:
+    """Call a Tencent Cloud API v3 endpoint with TC3-HMAC-SHA256 signing."""
+    import hashlib
+    import hmac
+    import time
+    from datetime import datetime, timezone
+
+    host = f"{service}.tencentcloudapi.com"
+    timestamp = int(time.time())
+    date = datetime.fromtimestamp(timestamp, timezone.utc).strftime("%Y-%m-%d")
+    payload = json.dumps(params, separators=(",", ":"))
+    ct = "application/json; charset=utf-8"
+    canonical_headers = (f"content-type:{ct}\n"
+                         f"host:{host}\n"
+                         f"x-tc-action:{action.lower()}\n")
+    signed_headers = "content-type;host;x-tc-action"
+
+    def _h(s: str) -> str:
+        return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+    canonical_request = "\n".join(["POST", "/", "", canonical_headers,
+                                   signed_headers, _h(payload)])
+    credential_scope = f"{date}/{service}/tc3_request"
+    string_to_sign = "\n".join(["TC3-HMAC-SHA256", str(timestamp),
+                                credential_scope, _h(canonical_request)])
+    secret_date = hmac.new(("TC3" + secret_key).encode(), date.encode(),
+                           hashlib.sha256).digest()
+    secret_service = hmac.new(secret_date, service.encode(), hashlib.sha256).digest()
+    secret_signing = hmac.new(secret_service, b"tc3_request", hashlib.sha256).digest()
+    signature = hmac.new(secret_signing, string_to_sign.encode(),
+                         hashlib.sha256).hexdigest()
+    authorization = (f"TC3-HMAC-SHA256 Credential={secret_id}/{credential_scope}, "
+                     f"SignedHeaders={signed_headers}, Signature={signature}")
+    headers = {
+        "Authorization": authorization,
+        "Content-Type": ct,
+        "Host": host,
+        "X-TC-Action": action,
+        "X-TC-Version": version,
+        "X-TC-Region": region,
+    }
+    if token:
+        headers["X-TC-Token"] = token
+    req = urllib.request.Request(f"https://{host}", data=payload.encode("utf-8"),
+                                 headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _images_exist(region: str, image_ids: list[str]) -> list[str]:
+    """Return which of *image_ids* still exist in *region* (via DescribeImages)."""
+    if not image_ids:
+        return []
+    sid, skey, tok = (os.environ.get("TENCENTCLOUD_SECRET_ID", ""),
+                      os.environ.get("TENCENTCLOUD_SECRET_KEY", ""),
+                      os.environ.get("TENCENTCLOUD_SECURITY_TOKEN", ""))
+    if not sid or not skey:
+        raise ConfigError("TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY not set — "
+                          "cannot query images for cleanup")
+    try:
+        resp = _tc3_api("cvm", "DescribeImages", "2017-03-12", region,
+                        {"ImageIds": image_ids}, sid, skey, tok or None)
+    except Exception as exc:
+        raise ConfigError(f"DescribeImages failed: {exc}") from exc
+    existing = [i["ImageId"] for i in resp.get("Response", {}).get("ImageSet", [])]
+    return existing
+
+
+def _delete_images(region: str, image_ids: list[str]) -> None:
+    sid, skey, tok = (os.environ.get("TENCENTCLOUD_SECRET_ID", ""),
+                      os.environ.get("TENCENTCLOUD_SECRET_KEY", ""),
+                      os.environ.get("TENCENTCLOUD_SECURITY_TOKEN", ""))
+    resp = _tc3_api("cvm", "DeleteImages", "2017-03-12", region,
+                    {"ImageIds": image_ids}, sid, skey, tok or None)
+    if "Error" in resp.get("Response", {}):
+        raise ConfigError(f"DeleteImages failed: {resp['Response']['Error']}")
+
+
+def cmd_cleanup_images(args: argparse.Namespace) -> int:
+    """Retire old golden images by lineage age. Dry-run by default."""
+    from datetime import datetime, timezone
+
+    path = _lineage_path()
+    if not path.exists():
+        info(f"No lineage records at {path} — nothing to clean.")
+        return 0
+
+    records: list[dict] = []
+    with open(path, encoding="utf-8") as fh:
+        for ln in fh:
+            ln = ln.strip()
+            if not ln:
+                continue
+            try:
+                records.append(json.loads(ln))
+            except json.JSONDecodeError:
+                continue
+
+    ok_recs = [r for r in records if r.get("status") == "ok" and not r.get("retired")]
+    ok_recs.sort(key=lambda r: r.get("ts", ""))  # oldest first
+
+    keep = max(0, int(getattr(args, "keep_latest", 1)))
+    older_than = max(1, int(getattr(args, "older_than", 30)))
+    cutoff = datetime.now(timezone.utc).timestamp() - older_than * 86400
+
+    candidates: list[tuple[dict, str]] = []  # (record, image_id)
+    for i, rec in enumerate(ok_recs):
+        if len(ok_recs) - i <= keep:
+            continue  # keep the newest N builds
+        try:
+            ts = datetime.strptime(rec.get("ts", ""), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+        except ValueError:
+            continue
+        if ts > cutoff:
+            continue
+        for img in rec.get("image_ids", []):
+            candidates.append((rec, img))
+
+    if not candidates:
+        ok(f"No images older than {older_than} days to retire (keeping {keep} latest).")
+        return 0
+
+    info(f"{len(candidates)} image(s) older than {older_than} days, keeping {keep} latest:")
+    # group candidates by region for API calls
+    by_region: dict[str, list[str]] = {}
+    for rec, img in candidates:
+        by_region.setdefault(rec.get("region", ""), []).append(img)
+
+    total_deleted = 0
+    for region, imgs in sorted(by_region.items()):
+        for img in sorted(set(imgs)):
+            if args.apply:
+                try:
+                    existing = _images_exist(region, [img])
+                    if not existing:
+                        info(f"  {region}: {img} already gone — marking retired")
+                    else:
+                        _delete_images(region, [img])
+                        ok(f"  {region}: deleted {img}")
+                    total_deleted += 1
+                except ConfigError as exc:
+                    fail(str(exc))
+                    return 1
+            else:
+                warn(f"  [dry-run] would delete {region}: {img}")
+
+    # mark retired in lineage (both dry-run and apply update the audit trail)
+    if args.apply:
+        retired_ids = {img for _, img in candidates}
+        lines: list[str] = []
+        retired_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with open(path, encoding="utf-8") as fh:
+            for ln in fh:
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    rec = json.loads(ln)
+                except json.JSONDecodeError:
+                    continue
+                if any(i in retired_ids for i in rec.get("image_ids", [])) and not rec.get("retired"):
+                    rec["retired"] = True
+                    rec["retired_ts"] = retired_ts
+                lines.append(json.dumps(rec, ensure_ascii=False))
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        ok(f"Retired {total_deleted} image(s); lineage updated.")
+
+    if not args.apply:
+        info("Re-run with --apply to actually delete (and mark lineage retired).")
+    return 0
+
+
 # ── Build notifications (WeCom group robot) ─────────────────────────────────
 # [notify].webhook + [notify].on ("always"|"success"|"failure", default
 # "failure").  Combined with an external cron / systemd timer this turns
@@ -2766,6 +2947,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_scn.add_argument("--min-score", type=float, default=85.0,
                        help="Gate threshold in percent (default 85)")
     p_scn.set_defaults(func=cmd_scan)
+
+    p_clnimg = sub.add_parser(
+        "cleanup-images",
+        help="Retire old golden images by lineage age (dry-run by default)")
+    p_clnimg.add_argument("--older-than", type=int, default=30,
+                          help="Delete builds older than N days (default 30)")
+    p_clnimg.add_argument("--keep-latest", type=int, default=1,
+                          help="Keep the newest N builds (default 1)")
+    p_clnimg.add_argument("--apply", action="store_true",
+                          help="Actually delete images (default is a dry run)")
+    p_clnimg.set_defaults(func=cmd_cleanup_images)
 
     return parser
 
