@@ -7,8 +7,6 @@ REPO=/opt/cis-cvm-image-builder
 CONFIG=/opt/ciscvm.toml
 ENV_FILE=/opt/env
 LOG=/opt/run.log
-GITHUB_TOKEN=${GITHUB_TOKEN:-}
-GIT_REMOTE=https://${GITHUB_TOKEN}@github.com/susunola/cis-cvm-image-builder.git
 
 # ── 参数解析 ──
 UPLOAD=false
@@ -19,11 +17,14 @@ for arg in "$@"; do
     esac
 done
 
-echo "[1/6] 加载 AK/SK ($ENV_FILE)"
+echo "[1/6] 加载 AK/SK + token ($ENV_FILE)"
 set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
+
+# GIT_REMOTE 必须在 source 之后拼接，否则 token 为空
+GIT_REMOTE=https://${GITHUB_TOKEN:-}@github.com/susunola/cis-cvm-image-builder.git
 
 echo "[2/6] 彻底清理旧文件"
 rm -rf "$REPO"
@@ -54,6 +55,10 @@ ciscvm build --config "$CONFIG" --yes --debug --log-file "$LOG" || BUILD_RC=$?
 
 # ── 上传日志到 git（run.log 每次覆写，必定产生新 commit）──
 if $UPLOAD; then
+    if [ -z "${GITHUB_TOKEN:-}" ]; then
+        echo "ERROR: --upload 需要 GITHUB_TOKEN，请在 $ENV_FILE 中配置" >&2
+        exit 1
+    fi
     echo "[7/7] 上传日志"
     mkdir -p "$REPO/logs"
     cp "$LOG" "$REPO/logs/run.log"
