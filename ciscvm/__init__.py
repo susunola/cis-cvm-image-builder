@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.10"
+VERSION = "0.14.11"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -767,7 +767,7 @@ build {
       "[ -z \"$SSH_PORT\" ] && SSH_PORT=$(sudo awk '/^[Pp]ort[ \\t]+[0-9]+/{print $2; exit}' /etc/ssh/sshd_config)",
       "[ -z \"$SSH_PORT\" ] && SSH_PORT=22",
       "echo \"[ssh-guard] ensuring SSH port $SSH_PORT stays open\"",
-      "if command -v firewall-cmd >/dev/null 2>&1 && sudo systemctl is-active firewalld >/dev/null 2>&1; then for z in $(sudo firewall-cmd --get-active-zones 2>/dev/null | grep -v '^ '); do sudo firewall-cmd --zone=$z --add-port=$SSH_PORT/tcp; sudo firewall-cmd --zone=$z --add-port=$SSH_PORT/tcp --permanent; done; sudo firewall-cmd --reload; fi",
+      "if command -v firewall-cmd >/dev/null 2>&1; then sudo systemctl enable firewalld >/dev/null 2>&1 || true; sudo systemctl start firewalld >/dev/null 2>&1 || true; echo \"[ssh-guard] zones: $(sudo firewall-cmd --get-zones 2>/dev/null | tr '\\n' ' ') | default: $(sudo firewall-cmd --get-default-zone 2>/dev/null)\"; for z in $(sudo firewall-cmd --get-zones 2>/dev/null); do sudo firewall-cmd --zone=$z --add-port=$SSH_PORT/tcp >/dev/null 2>&1 || true; sudo firewall-cmd --zone=$z --add-port=$SSH_PORT/tcp --permanent >/dev/null 2>&1 || true; done; sudo firewall-cmd --reload >/dev/null 2>&1 || true; fi",
       "if command -v nft >/dev/null 2>&1 && sudo systemctl is-active nftables >/dev/null 2>&1; then for t in $(sudo nft list tables 2>/dev/null | awk '{print $2}'); do sudo nft add rule $t input tcp dport $SSH_PORT accept 2>/dev/null || true; done; sudo nft list ruleset > /etc/sysconfig/nftables.conf 2>/dev/null || true; fi",
       "if command -v iptables >/dev/null 2>&1; then sudo iptables -C INPUT -p tcp --dport $SSH_PORT -j ACCEPT 2>/dev/null || sudo iptables -I INPUT -p tcp --dport $SSH_PORT -j ACCEPT 2>/dev/null || true; sudo iptables-save > /etc/sysconfig/iptables 2>/dev/null || true; fi",
       "# Ensure key-based root login survives CIS hardening (PermitRootLogin no)",
