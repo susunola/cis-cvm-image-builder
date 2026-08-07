@@ -194,6 +194,7 @@ benchmark = "CIS-v1.0.0"
 | `[cis]` | `level` | int | `1` (Level 1) or `2` (Level 2) |
 | `[cloud]` | `secret_id_env` | string | Env var for Secret ID |
 | | `secret_key_env` | string | Env var for Secret Key |
+| | `security_token_env` | string | STS session-token env var (default `TENCENTCLOUD_SECURITY_TOKEN`; used with OIDC/STS credentials) |
 | | `winrm_password_env` | string | Windows admin password env var |
 | | `assume_role_arn` | string | Group-account CAM role ARN (empty = off). e.g. `qcs::cam::uin/12345:roleName/X` |
 | | `assume_role_session` | string | AssumeRole session name (default `ciscvm`) |
@@ -390,6 +391,50 @@ distribute everywhere:
 
 When `assume_role_arn` is empty (the default) builds behave exactly as
 before — no group-account setup required.
+
+### OIDC / STS credentials (no long-lived AK/SK)
+
+For CI pipelines (GitHub Actions etc.) you can build **without storing any
+AK/SK**: the runner obtains short-lived STS credentials via OIDC federation,
+and ciscvm hands the session token straight to Packer.
+
+1. **CAM side (one-time)**: create an OIDC identity provider pointing at
+   `https://token.actions.githubusercontent.com`, then create a CAM role
+   whose trust conditions pin `oidc:iss`, `oidc:aud` (the client ID you
+   configured) and `oidc:sub` (e.g. `repo:susunola/cis-cvm-image-builder:
+   ref:refs/heads/main`). Attach the builder permissions
+   (`cvm:RunInstances`, `cvm:CreateImage`, `cvm:DescribeImages`, ...).
+
+2. **Workflow**: exchange the OIDC token for STS credentials with
+   `everpcpc/tencentcloud-oidc-auth@v1`, which exports
+   `TENCENTCLOUD_SECRET_ID`, `TENCENTCLOUD_SECRET_KEY` and
+   `TENCENTCLOUD_SECURITY_TOKEN` — Packer reads all three natively:
+
+   ```yaml
+   permissions:
+     id-token: write          # required for OIDC
+   steps:
+     - uses: everpcpc/tencentcloud-oidc-auth@v1
+       with:
+         role-arn: qcs::cam::uin/1234567890:roleName/ci-builder
+         oidc-provider-id: github
+         region: ap-guangzhou
+     - run: ciscvm build --config ciscvm.toml
+   ```
+
+3. **ciscvm side**: nothing to configure — the default
+   `security_token_env = "TENCENTCLOUD_SECURITY_TOKEN"` is picked up
+   automatically. Override it only if your CI exports the token under a
+   different name:
+
+   ```toml
+   [cloud]
+   security_token_env = "MY_CI_STS_TOKEN"
+   ```
+
+Note: `security_token` and `assume_role` are independent — STS credentials
+can themselves be scoped to the OIDC role, so you typically do not need
+both at once.
 
 ---
 
