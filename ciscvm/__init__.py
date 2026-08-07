@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.12.1"
+VERSION = "0.12.2"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -1059,16 +1059,15 @@ AUDIT="/opt/ciscvm-AUDIT-RESULT.json"
 REPORT="/opt/ciscvm-REPORT.md"
 BUILD_TS="$(date -u +%FT%TZ)"
 
-# Ensure hostname resolves BEFORE any sudo call. Packer runs this as root,
-# so we write /etc/hosts directly.  Without this, sudo hangs 5-30s per
-# call on hardened images where CIS may have removed the short hostname
-# from /etc/hosts — 20+ sudo calls ≈ 5+ minutes of silent DNS timeouts
-# which exceed Packer's ssh_read_write_timeout.
+# ── Hostname DNS safeguard (belt-and-suspenders with fix-logperms) ──
 grep -q "^127.0.0.1.*$(hostname)" /etc/hosts 2>/dev/null || \
     echo "127.0.0.1 $(hostname)" >> /etc/hosts
 
-# 1. /etc/ciscvm/banner — colored, shown by SSH Banner directive
-echo "[ciscvm-finalize] step 1/6: banner + motd + issue"
+# ── Progress helper: timestamps every step so hung sudo calls are obvious ──
+_step() { printf "[%(%H:%M:%S)T] finalize: %s\n" -1 "$*"; }
+
+# 1. Banner
+_step "banner: /etc/ciscvm/banner"
 sudo install -d -m 0755 /etc/ciscvm
 
 sudo tee /etc/ciscvm/banner > /dev/null <<'BANNER_EOF'
@@ -1084,6 +1083,7 @@ sudo tee /etc/ciscvm/banner > /dev/null <<'BANNER_EOF'
 \x1b[1;38;5;33m          '---.------.---'
 BANNER_EOF
 sudo chmod 0644 /etc/ciscvm/banner
+_step "motd"
 
 # 2. /etc/motd — post-login message (with build metadata)
 {
@@ -1100,7 +1100,8 @@ sudo chmod 0644 /etc/ciscvm/banner
 } | sudo tee /etc/motd > /dev/null
 sudo chmod 0644 /etc/motd
 
-# 3. /etc/issue, /etc/issue.net — console / pre-network-login (no ANSI,
+_step "issue + issue.net"
+# 3. /etc/issue, /etc/issue.net — console
 #    colour escape sequences render as garbage on serial consoles).
 {
     printf 'ciscv  CIS-HARDENED IMAGE BUILDER  --  %s\n' "__IMAGE_NAME__"
@@ -1120,14 +1121,14 @@ sudo chmod 0644 /etc/issue /etc/issue.net
 #      cloud-init / boot-time service recreation.  The CIS engine
 #      flags these in the re-audit, but they are not real hardening
 #      gaps — just transient artifacts recreated on every boot.
-echo "[ciscvm-finalize] step 2/6: fix boot-loosened log perms"
+_step "fix boot-log perms"
 for f in /var/log/cloud-init.log /var/log/cloud-init-output.log \
          /var/log/wtmp /var/log/btmp; do
     [ -f "$f" ] && sudo chmod 0640 "$f" 2>/dev/null || true
 done
 
 # 4. Wire the banner into sshd (drop-in; survives sshd_config rewrites by CIS)
-echo "[ciscvm-finalize] step 3/6: sshd banner drop-in"
+_step "sshd banner drop-in"
 sudo install -d -m 0755 /etc/ssh/sshd_config.d
 sudo tee /etc/ssh/sshd_config.d/99-ciscvm-banner.conf > /dev/null <<'SSHD_EOF'
 # ciscv — show the build banner before authentication.
@@ -1135,10 +1136,11 @@ sudo tee /etc/ssh/sshd_config.d/99-ciscvm-banner.conf > /dev/null <<'SSHD_EOF'
 Banner /etc/ciscvm/banner
 SSHD_EOF
 sudo chmod 0644 /etc/ssh/sshd_config.d/99-ciscvm-banner.conf
+_step "sshd reload"
 sudo systemctl reload sshd 2>/dev/null || true
 
 # 5. /opt/ciscvm-REPORT.md — what was done to the base image
-echo "[ciscvm-finalize] step 4/6: generate /opt/ciscvm-REPORT.md"
+_step "generate REPORT.md"
 sudo /opt/ciscvm-ansible/bin/python - "$SRC_IMG" "$IMG_NAME" "$OS_TAG" "$CIS_LEVEL" "$BENCH" "$VER" "$BUILD_TS" "$AUDIT" "$REPORT" <<'PY_EOF'
 import json, os, sys, tempfile
 src, name, os_tag, level, bench, ver, ts, audit_p, report_p = sys.argv[1:10]
@@ -1281,6 +1283,7 @@ with tempfile.NamedTemporaryFile("w", delete=False, suffix=".md") as fh:
     fh.write(content)
     tmp = fh.name
 os.system("sudo install -m 0644 -o root -g root {} {}".format(tmp, report_p))
+print("[ciscvm-finalize] _step wrote REPORT.md to /opt/")
 try:
     os.unlink(tmp)
 except FileNotFoundError:
