@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.11.8"
+VERSION = "0.11.9"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -112,117 +112,59 @@ def banner(title: str) -> None:
 #   winrm_username Default Administrator account
 #   os_tag         CVM source image OS tag
 #   benchmark      CIS benchmark version
+# ── Profile factory functions (deduplicate ~100 lines of boilerplate) ──
+def _ubuntu_profile(role_dir: str, os_tag: str, **kw) -> dict[str, Any]:
+    return {
+        "role_dir": role_dir, "ssh_username": "ubuntu", "os_tag": os_tag,
+        "benchmark": "CIS-v1.0.0",
+        "pkg_update": "sudo apt-get update -y",
+        "pkg_install": "sudo apt-get install -y python3-pip python3-venv git",
+        "cis_pkg_batch": "sudo apt-get install -y --no-install-recommends sudo libpam-modules authselect firewalld chrony rsyslog cron aide systemd-journal-remote || true",
+        "clean_cmd": "sudo apt-get clean", **kw,
+    }
+
+def _rhel_profile(role_dir: str, os_tag: str, **kw) -> dict[str, Any]:
+    return {
+        "role_dir": role_dir, "ssh_username": "root", "os_tag": os_tag,
+        "benchmark": "CIS-v1.0.0",
+        "pkg_update": "sudo dnf makecache",
+        "pkg_install": "sudo dnf install -y python3-pip git",
+        "cis_pkg_batch": "sudo dnf install -y --skip-broken sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote libselinux libselinux-utils || true",
+        "clean_cmd": "sudo dnf clean all", **kw,
+    }
+
+def _tlinux_profile(role_dir: str, os_tag: str, **kw) -> dict[str, Any]:
+    return {
+        "role_dir": role_dir, "ssh_username": "root", "ssh_port": 36000,
+        "os_tag": os_tag, "benchmark": "CIS-v1.0.0",
+        "pip_index_url": "https://mirrors.cloud.tencent.com/pypi/simple/",
+        "pkg_update": "sudo dnf makecache",
+        "pkg_install": "sudo dnf install -y python3-pip git",
+        "cis_pkg_batch": "sudo dnf install -y --skip-broken sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote libselinux libselinux-utils || true",
+        "clean_cmd": "sudo dnf clean all", **kw,
+    }
+
+def _sles_profile(role_dir: str, os_tag: str, **kw) -> dict[str, Any]:
+    return {
+        "role_dir": role_dir, "ssh_username": "root", "os_tag": os_tag,
+        "benchmark": "CIS-v1.0.0",
+        "pkg_update": "sudo zypper refresh",
+        "pkg_install": "sudo zypper install -y python3-pip python3-venv git",
+        "cis_pkg_batch": "sudo zypper --non-interactive install -y sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote || true",
+        "clean_cmd": "sudo zypper clean --all", **kw,
+    }
+
 PROFILES: dict[str, dict[str, Any]] = {
-    # ── Ubuntu ──
-    "ubuntu2004": {
-        "role_dir": "cis_ubuntu2004",
-        "ssh_username": "ubuntu",
-        "os_tag": "ubuntu-20.04",
-        "benchmark": "CIS-v1.0.0",
-        "pkg_update": "sudo apt-get update -y",
-        "pkg_install": "sudo apt-get install -y python3-pip python3-venv git",
-        "cis_pkg_batch": "sudo apt-get install -y --no-install-recommends sudo libpam-modules authselect firewalld chrony rsyslog cron aide systemd-journal-remote || true",
-        "clean_cmd": "sudo apt-get clean",
-    },
-    "ubuntu2204": {
-        "role_dir": "cis_ubuntu2204",
-        "ssh_username": "ubuntu",
-        "os_tag": "ubuntu-22.04",
-        "benchmark": "CIS-v1.0.0",
-        "pkg_update": "sudo apt-get update -y",
-        "pkg_install": "sudo apt-get install -y python3-pip python3-venv git",
-        "cis_pkg_batch": "sudo apt-get install -y --no-install-recommends sudo libpam-modules authselect firewalld chrony rsyslog cron aide systemd-journal-remote || true",
-        "clean_cmd": "sudo apt-get clean",
-    },
-    "ubuntu2404": {
-        "role_dir": "cis_ubuntu2404",
-        "ssh_username": "ubuntu",
-        "os_tag": "ubuntu-24.04",
-        "benchmark": "CIS-v1.0.0",
-        "pkg_update": "sudo apt-get update -y",
-        "pkg_install": "sudo apt-get install -y python3-pip python3-venv git",
-        "cis_pkg_batch": "sudo apt-get install -y --no-install-recommends sudo libpam-modules authselect firewalld chrony rsyslog cron aide systemd-journal-remote || true",
-        "clean_cmd": "sudo apt-get clean",
-    },
-    # ── RHEL ──
-    "rhel8": {
-        "role_dir": "cis_rhel8",
-        "ssh_username": "root",
-        "os_tag": "rhel-8",
-        "benchmark": "CIS-v1.0.0",
-        "ansible_core_spec": "ansible-core>=2.11",
-        "pkg_update": "sudo dnf makecache",
-        "pkg_install": "sudo dnf install -y python3-pip git",
-        "cis_pkg_batch": "sudo dnf install -y --skip-broken sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote libselinux libselinux-utils || true",
-        "clean_cmd": "sudo dnf clean all",
-    },
-    "rhel9": {
-        "role_dir": "cis_rhel9",
-        "ssh_username": "root",
-        "os_tag": "rhel-9",
-        "benchmark": "CIS-v1.0.0",
-        "pkg_update": "sudo dnf makecache",
-        "pkg_install": "sudo dnf install -y python3-pip git",
-        "cis_pkg_batch": "sudo dnf install -y --skip-broken sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote libselinux libselinux-utils || true",
-        "clean_cmd": "sudo dnf clean all",
-    },
-    "rhel10": {
-        "role_dir": "cis_rhel10",
-        "ssh_username": "root",
-        "os_tag": "rhel-10",
-        "benchmark": "CIS-v1.0.0",
-        "pkg_update": "sudo dnf makecache",
-        "pkg_install": "sudo dnf install -y python3-pip git",
-        "cis_pkg_batch": "sudo dnf install -y --skip-broken sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote libselinux libselinux-utils || true",
-        "clean_cmd": "sudo dnf clean all",
-    },
-    # ── TencentOS Server ──
-    "tencentos3": {
-        "role_dir": "cis_tencentos3",
-        "ssh_username": "root",
-        "ssh_port": 36000,
-        "os_tag": "tencentos-3",
-        "benchmark": "CIS-v1.0.0",
-        "ansible_core_spec": "ansible-core>=2.11",
-        "pip_index_url": "https://mirrors.cloud.tencent.com/pypi/simple/",
-        "pkg_update": "sudo dnf makecache",
-        "pkg_install": "sudo dnf install -y python3-pip git",
-        "cis_pkg_batch": "sudo dnf install -y --skip-broken sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote libselinux libselinux-utils || true",
-        "clean_cmd": "sudo dnf clean all",
-    },
-    "tencentos4": {
-        "role_dir": "cis_tencentos4",
-        "ssh_username": "root",
-        "ssh_port": 36000,
-        "os_tag": "tencentos-4",
-        "benchmark": "CIS-v1.0.0",
-        "pip_index_url": "https://mirrors.cloud.tencent.com/pypi/simple/",
-        "pkg_update": "sudo dnf makecache",
-        "pkg_install": "sudo dnf install -y python3-pip git",
-        "cis_pkg_batch": "sudo dnf install -y --skip-broken sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote libselinux libselinux-utils || true",
-        "clean_cmd": "sudo dnf clean all",
-    },
-    # ── SLES ──
-    "sles15": {
-        "role_dir": "cis_sles15",
-        "ssh_username": "root",
-        "os_tag": "sles-15",
-        "benchmark": "CIS-v1.0.0",
-        "pkg_update": "sudo zypper refresh",
-        "pkg_install": "sudo zypper install -y python3-pip python3-venv git",
-        "cis_pkg_batch": "sudo zypper --non-interactive install -y sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote || true",
-        "clean_cmd": "sudo zypper clean --all",
-    },
-    "sles16": {
-        "role_dir": "cis_sles16",
-        "ssh_username": "root",
-        "os_tag": "sles-16",
-        "benchmark": "CIS-v1.0.0",
-        "pkg_update": "sudo zypper refresh",
-        "pkg_install": "sudo zypper install -y python3-pip python3-venv git",
-        "cis_pkg_batch": "sudo zypper --non-interactive install -y sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote || true",
-        "clean_cmd": "sudo zypper clean --all",
-    },
+    "ubuntu2004":  _ubuntu_profile("cis_ubuntu2004", "ubuntu-20.04"),
+    "ubuntu2204":  _ubuntu_profile("cis_ubuntu2204", "ubuntu-22.04"),
+    "ubuntu2404":  _ubuntu_profile("cis_ubuntu2404", "ubuntu-24.04"),
+    "rhel8":       _rhel_profile("cis_rhel8", "rhel-8", ansible_core_spec="ansible-core>=2.11"),
+    "rhel9":       _rhel_profile("cis_rhel9", "rhel-9"),
+    "rhel10":      _rhel_profile("cis_rhel10", "rhel-10"),
+    "tencentos3":  _tlinux_profile("cis_tencentos3", "tencentos-3", ansible_core_spec="ansible-core>=2.11"),
+    "tencentos4":  _tlinux_profile("cis_tencentos4", "tencentos-4"),
+    "sles15":      _sles_profile("cis_sles15", "sles-15"),
+    "sles16":      _sles_profile("cis_sles16", "sles-16"),
     # ── Windows Server (winrm + controller-side ansible) ──
     "win2016": {
         "family": "windows",
