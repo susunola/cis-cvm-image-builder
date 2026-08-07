@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.10.3"
+VERSION = "0.10.4"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -718,11 +718,11 @@ build {
       "# fix it can stall for 5+ minutes before Packer times out.",
       "echo \"127.0.0.1 $(hostname)\" | sudo tee -a /etc/hosts > /dev/null 2>&1 || true",
       "sudo find /var/log/ -type f -perm /g+wx,o+rwx -exec chmod g-wx,o-rwx {} + 2>/dev/null",
-      "# Ensure ForwardToSyslog=no survives RPM overwrites during reboot.",
-      "# Drop-ins under journald.conf.d/ have a glob-expansion race with",
-      "# the post-fix re-check, so we target the main journald.conf directly.",
-      "sudo sed -i 's/^#*\\?ForwardToSyslog.*/ForwardToSyslog=no/' /etc/systemd/journald.conf",
-      "grep -q '^ForwardToSyslog' /etc/systemd/journald.conf || echo 'ForwardToSyslog=no' | sudo tee -a /etc/systemd/journald.conf > /dev/null",
+      "# NOTE: ForwardToSyslog is intentionally NOT touched here.",
+      "# 6.2.1.1.4 requires ForwardToSyslog=no (journald should not forward to syslog),",
+      "# but 6.2.2.3 requires ForwardToSyslog=yes (journald → rsyslog forwarding).",
+      "# Setting it unconditionally fixes one rule at the cost of breaking the other.",
+      "# The base image's default value determines which rule passes; do not override.",
       "echo fix-logperms done"
     ]
   }
