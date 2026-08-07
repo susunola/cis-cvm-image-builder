@@ -135,6 +135,8 @@ ciscvm build                              # render + packer build → custom ima
 ciscvm scan [--min-score 85]              # audit-only build (no remediation) + score gate
 ciscvm list                               # enumerate available profiles with metadata
 ciscvm images [--latest] [-n N]           # list recorded builds (lineage)
+ciscvm cleanup-images [--older-than 30]   # retire old images by lineage age
+ciscvm cleanup-images --apply             # actually delete (default = dry run)
 ciscvm verify --provenance <file>         # verify a SLSA provenance signature
 ciscvm verify --image <img-id>            # ... or locate provenance by image ID
 ciscvm clean                              # remove .ciscvm-build/
@@ -149,6 +151,9 @@ ciscvm clean                              # remove .ciscvm-build/
 | `-y` / `--yes` | build | Skip confirmation prompt |
 | `--log-file <path>` | build | Write full build log to file |
 | `--min-score <pct>` | scan | Gate threshold (default `85`; below it → exit 1) |
+| `--older-than <days>` | cleanup-images | Retire builds older than N days (default `30`) |
+| `--keep-latest <n>` | cleanup-images | Always keep the newest N builds (default `1`) |
+| `--apply` | cleanup-images | Actually delete (default is a dry run) |
 
 ---
 
@@ -485,7 +490,18 @@ distribute pipeline):
   ```bash
   ciscvm images            # recent builds, newest first
   ciscvm images --latest   # the most recent record
+  ciscvm cleanup-images --older-than 30   # dry-run: what would be retired
+  ciscvm cleanup-images --older-than 30 --apply   # actually delete
   ```
+
+  `cleanup-images` retires golden images older than N days (default 30),
+  always keeping the newest build (`--keep-latest`, default 1). It uses the
+  lineage records to find the image IDs, verifies them via
+  `cvm:DescribeImages`, deletes via `cvm:DeleteImages` (stdlib TC3-signed —
+  no extra dependencies), and marks the lineage entries `retired`. Credentials
+  come from `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY`
+  (optionally `TENCENTCLOUD_SECURITY_TOKEN`). Pair with cron/systemd timer
+  for fully automatic retirement.
 
 - **Notify (scheduling companion)** — post build results to a WeCom group
   robot. Combine with cron / systemd timer / SCF for scheduled rebuilds:
@@ -549,9 +565,9 @@ distribute pipeline):
 - [x] `ciscvm list` — enumerate available profiles with metadata
 - [x] `ciscvm scan` — audit-only mode (no remediation, gate on findings)
 - [x] Custom rule selection (`rules_include` / `rules_exclude` in `ciscvm.toml`)
-- [ ] PyPI package (`pip install ciscvm`)
+- [x] PyPI package (`pip install ciscvm`) — publish workflow included
+- [x] Automatic image cleanup (retire old images by lineage age)
 - [ ] SLSA L2: reproducible builds (pinned build environment)
-- [ ] Automatic image cleanup (retire old images by lineage age)
 
 ## Contributing
 

@@ -1532,3 +1532,95 @@ class TestScanListRules:
         assert rc == 0
         assert lin.call_args.kwargs["ok"] is True
         prov.assert_called_once()
+
+
+class TestCleanupImages:
+    """ciscvm cleanup-images — retire old images by lineage age."""
+
+    def _seed_lineage(self, tmp_path, days_ago):
+        import ciscvm
+        from datetime import datetime, timezone, timedelta
+        ciscvm._lineage_path = lambda: tmp_path / "lineage.jsonl"
+        path = tmp_path / "lineage.jsonl"
+        def rec(ts, imgs, status="ok"):
+            return json.dumps({"ts": ts, "status": status, "region": "ap-guangzhou",
+                               "image_ids": imgs, "image_name": "n", "cis_level": 1})
+        now = datetime.now(timezone.utc)
+        lines = [
+            rec((now - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ"), ["img-old1", "img-old2"]),
+            rec((now - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ"), ["img-old3"]),
+            rec(now.strftime("%Y-%m-%dT%H:%M:%SZ"), ["img-new"]),
+        ]
+        path.write_text("\n".join(lines) + "\n")
+        return path
+
+    def test_dry_run_no_delete(self, tmp_path):
+        from ciscvm import cmd_cleanup_images
+        self._seed_lineage(tmp_path, days_ago=60)
+        with mock.patch("ciscvm._delete_images") as dele, \
+             mock.patch("ciscvm._images_exist") as exist:
+            rc = cmd_cleanup_images(mock.MagicMock(older_than=30, keep_latest=1, apply=False))
+        assert rc == 0
+        dele.assert_not_called()
+        exist.assert_not_called()
+
+    def test_apply_deletes_and_marks_retired(self, tmp_path):
+        from ciscvm import cmd_cleanup_images
+        path = self._seed_lineage(tmp_path, days_ago=60)
+        with mock.patch("ciscvm._images_exist", return_value=["img-old1", "img-old2", "img-old3"]), \
+             mock.patch("ciscvm._delete_images") as dele:
+            rc = cmd_cleanup_images(mock.MagicMock(older_than=30, keep_latest=1, apply=True))
+        assert rc == 0
+        assert dele.call_count == 3  # 3 old images deleted, img-new kept
+        recs = [json.loads(x) for x in path.read_text().splitlines()]
+        retired = [r for r in recs if r.get("retired")]
+        assert len(retired) == 2  # both old records retired
+        assert all(not r.get("retired") for r in recs if "img-new" in (r.get("image_ids") or []))
+
+    def test_keep_latest_protects_newest(self, tmp_path):
+        from ciscvm import cmd_cleanup_images
+        self._seed_lineage(tmp_path, days_ago=60)
+        with mock.patch("ciscvm._images_exist", return_value=["img-old1", "img-old2", "img-old3"]), \
+             mock.patch("ciscvm._delete_images") as dele:
+            rc = cmd_cleanup_images(mock.MagicMock(older_than=30, keep_latest=2, apply=True))
+        assert rc == 0
+        # keep_latest=2: img-new + one old record protected -> only 2 old deleted
+        assert dele.call_count == 2
+
+    def test_nothing_to_clean(self, tmp_path):
+        from ciscvm import cmd_cleanup_images
+        self._seed_lineage(tmp_path, days_ago=1)
+        with mock.patch("ciscvm._delete_images") as dele:
+            rc = cmd_cleanup_images(mock.MagicMock(older_than=30, keep_latest=1, apply=True))
+        assert rc == 0
+        dele.assert_not_called()
+
+    def test_tc3_signer_shape(self, tmp_path):
+        """The TC3 signer must produce a well-formed signed request."""
+        import ciscvm
+        captured = {}
+        def fake_urlopen(req, *a, **kw):
+            hdr = {k.lower(): v for k, v in req.headers.items()}
+            captured["url"] = req.full_url
+            captured["auth"] = hdr.get("authorization", "")
+            captured["action"] = hdr.get("x-tc-action", "")
+            captured["region"] = hdr.get("x-tc-region", "")
+            captured["body"] = req.data.decode()
+            class R:
+                def read(self):
+                    return b'{"Response": {"ImageSet": [{"ImageId": "img-x"}]}}'
+                def __enter__(self):
+                    return self
+                def __exit__(self, *a):
+                    return False
+            return R()
+        with mock.patch("ciscvm.urllib.request.urlopen", side_effect=fake_urlopen):
+            import os as _os
+            with mock.patch.dict(_os.environ, {"TENCENTCLOUD_SECRET_ID": "AKIDtest", "TENCENTCLOUD_SECRET_KEY": "sk-test"}):
+                out = ciscvm._images_exist("ap-guangzhou", ["img-x"])
+        assert out == ["img-x"]
+        assert captured["url"].endswith("cvm.tencentcloudapi.com")
+        assert captured["auth"].startswith("TC3-HMAC-SHA256 Credential=AKIDtest/")
+        assert "SignedHeaders=content-type;host;x-tc-action" in captured["auth"]
+        assert captured["action"] == "DescribeImages"
+        assert captured["region"] == "ap-guangzhou"
