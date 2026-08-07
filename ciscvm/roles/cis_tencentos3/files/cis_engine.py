@@ -557,12 +557,57 @@ def c_mount_opt(ctx, p):
         mp, opt, ",".join(sorted(mounts[mp]["opts"])))
 
 
+def _shm_exec_processes():
+    """Processes whose executable or mapped text segment lives under /dev/shm.
+
+    Remounting /dev/shm with noexec only breaks programs that *execute*
+    from it (rare), so probe reality instead of assuming: if anything is
+    actually running from there, skip the live remount and report it.
+    Returns a list of (pid, path) — empty means it is safe to apply.
+    """
+    hits = []
+    try:
+        pids = [p for p in os.listdir("/proc") if p.isdigit()]
+    except OSError:
+        return hits
+    for pid in pids:
+        try:
+            exe = os.readlink("/proc/%s/exe" % pid)
+            if exe.startswith("/dev/shm"):
+                hits.append((pid, exe))
+                continue
+        except OSError:
+            pass
+        try:
+            with open("/proc/%s/maps" % pid, "r", errors="replace") as fh:
+                for ln in fh:
+                    if "/dev/shm" in ln and " r-xp " in ln:
+                        parts = ln.split()
+                        hits.append((pid, parts[-1] if parts else "?"))
+                        break
+        except OSError:
+            continue
+    return hits
+
+
 @fix("mount_opt")
 def f_mount_opt(ctx, p):
     mp, opt = p["mount"], p["option"]
     mounts = _mounts(ctx)
     if mp not in mounts:
         return False, "%s is not a separate mount point; cannot remediate" % mp
+    # Smart guard for the noexec-on-shared-memory case: only block the LIVE
+    # remount when a process is genuinely executing from the mount.  The
+    # fstab entry is still persisted either way, so the option takes effect
+    # on the next clean boot regardless.
+    skip_live = False
+    if mp == "/dev/shm" and opt == "noexec":
+        risky = _shm_exec_processes()
+        if risky:
+            ctx.add_note("mount_opt %s: %d process(es) execute from /dev/shm "
+                         "(%s) — live remount skipped, persisted in fstab only"
+                         % (mp, len(risky), ", ".join(p for _, p in risky[:3])))
+            skip_live = True
     # 1. persist in /etc/fstab
     changed = False
     if exists("/etc/fstab"):
@@ -601,6 +646,10 @@ def f_mount_opt(ctx, p):
     # 2. apply live — carry the CURRENT options, or a remount with only the
     #    new option would silently drop everything else (nodev/nosuid/
     #    seclabel) and could break SELinux labelling on /dev/shm.
+    if skip_live:
+        return True, ("persisted %s on %s in fstab%s; live remount deferred "
+                      "(processes execute from the mount)" % (
+                          opt, mp, "" if changed else " (already set)"))
     cur_opts = ",".join(sorted(mounts[mp]["opts"]))
     rc, _, err = sh(["mount", "-o", "remount,%s,%s" % (cur_opts, opt), mp])
     ctx.invalidate("mounts")
