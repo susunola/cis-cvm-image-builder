@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.3"
+VERSION = "0.14.4"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -733,12 +733,8 @@ build {
     # Keep the staging dir so cleanup.sh can preserve the bundled role
     # (engine + rules.json) inside the image for later re-scans.
     clean_staging_directory = false
-    # TMPDIR off /tmp: ansible-core >=2.16 (modular ansiballz) caches module
-    # payloads under tempfile.gettempdir() (/tmp) and reuses them across
-    # tasks.  TencentOS 4's /tmp can be tmpfs-backed or swept, which makes
-    # the reused payload vanish mid-run (zipimport FileNotFoundError → "No
-    # start of json char found").  Point it at stable root-disk storage.
-    ansible_env_vars = ["TMPDIR=/opt/ciscvm-ansible/tmp"]
+    # TMPDIR relocation lives in the venv wrapper (install-ansible.sh) —
+    # ansible-local has no ansible_env_vars argument.
     extra_arguments  = [
       "-v",
       "-e", "ansible_python_interpreter=/opt/ciscvm-ansible/bin/python"
@@ -845,9 +841,7 @@ build {
     # Keep the staging dir so cleanup.sh can preserve the bundled role
     # (engine + rules.json) inside the image for later re-scans.
     clean_staging_directory = false
-    # Same TMPDIR relocation as the apply provisioner — modular ansiballz
-    # payload cache must not live on /tmp (TencentOS 4).
-    ansible_env_vars = ["TMPDIR=/opt/ciscvm-ansible/tmp"]
+    # TMPDIR relocation lives in the venv wrapper (install-ansible.sh).
     extra_arguments  = [
       "-v",
       "-e", "ansible_python_interpreter=/opt/ciscvm-ansible/bin/python",
@@ -1236,6 +1230,17 @@ sudo "$PY" -m venv "$VENV"
 sudo mkdir -p "$VENV/tmp"
 sudo "$VENV/bin/python" -m pip install --disable-pip-version-check \
     __PIP_INDEX_FLAG__ '__ANSIBLE_CORE_SPEC__' pexpect passlib
+
+# Wrap ansible-playbook so the controller process runs with TMPDIR off /tmp.
+# ansible-core >=2.16 (modular ansiballz) caches module payloads under
+# tempfile.gettempdir(); on TencentOS 4 that cache is unreliable.
+sudo mv "$VENV/bin/ansible-playbook" "$VENV/bin/ansible-playbook.real"
+sudo tee "$VENV/bin/ansible-playbook" > /dev/null <<'APB_EOF'
+#!/usr/bin/env bash
+export TMPDIR=/opt/ciscvm-ansible/tmp
+exec /opt/ciscvm-ansible/bin/ansible-playbook.real "$@"
+APB_EOF
+sudo chmod +x "$VENV/bin/ansible-playbook"
 
 # 4. Create a non-root build user.  CIS rules can disable root SSH login
 #    (e.g. PermitRootLogin no); Packer reconnects as this user after the
