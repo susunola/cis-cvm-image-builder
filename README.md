@@ -244,8 +244,8 @@ benchmark = "CIS-v1.0.0"
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/ciscvm-pipeline-dark.png">
-    <img src="docs/ciscvm-pipeline-light.png" alt="ciscvm build pipeline — TOML config to hardened golden image" width="720">
+    <source media="(prefers-color-scheme: dark)" srcset="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-pipeline-dark.png">
+    <img src="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-pipeline-light.png" alt="ciscvm build pipeline — TOML config to hardened golden image" width="720">
   </picture>
 </p>
 
@@ -253,8 +253,8 @@ benchmark = "CIS-v1.0.0"
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/ciscvm-pipeline-linux-dark.png">
-    <img src="docs/ciscvm-pipeline-linux-light.png" alt="ciscvm Linux pipeline — SSH + ansible-local" width="720">
+    <source media="(prefers-color-scheme: dark)" srcset="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-pipeline-linux-dark.png">
+    <img src="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-pipeline-linux-light.png" alt="ciscvm Linux pipeline — SSH + ansible-local" width="720">
   </picture>
 </p>
 
@@ -332,8 +332,8 @@ the next admin does not have to guess.
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/ciscvm-pipeline-win-dark.png">
-    <img src="docs/ciscvm-pipeline-win-light.png" alt="ciscvm Windows pipeline — WinRM + controller-side ansible" width="720">
+    <source media="(prefers-color-scheme: dark)" srcset="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-pipeline-win-dark.png">
+    <img src="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-pipeline-win-light.png" alt="ciscvm Windows pipeline — WinRM + controller-side ansible" width="720">
   </picture>
 </p>
 
