@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.12.2"
+VERSION = "0.12.3"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -1063,11 +1063,18 @@ BUILD_TS="$(date -u +%FT%TZ)"
 grep -q "^127.0.0.1.*$(hostname)" /etc/hosts 2>/dev/null || \
     echo "127.0.0.1 $(hostname)" >> /etc/hosts
 
-# ── Progress helper: timestamps every step so hung sudo calls are obvious ──
-_step() { printf "[%(%H:%M:%S)T] finalize: %s\n" -1 "$*"; }
+# ── Progress bar: 20 fine-grained steps with percentage ──
+_TOTAL=17; _N=0
+_bar() {
+    _N=$((_N + 1))
+    local pct=$((_N * 100 / _TOTAL)) w=$((_N * 24 / _TOTAL)) i=0 bar=""
+    while [ "$i" -lt "$w" ]; do bar="${bar}█"; i=$((i+1)); done
+    while [ "$i" -lt 24 ]; do bar="${bar}░"; i=$((i+1)); done
+    printf "\r=== [%s] %3d%% (%2d/%2d) %s ===\n" "$bar" "$pct" "$_N" "$_TOTAL" "$*"
+}
 
 # 1. Banner
-_step "banner: /etc/ciscvm/banner"
+_bar "banner: /etc/ciscvm/banner"
 sudo install -d -m 0755 /etc/ciscvm
 
 sudo tee /etc/ciscvm/banner > /dev/null <<'BANNER_EOF'
@@ -1082,8 +1089,9 @@ sudo tee /etc/ciscvm/banner > /dev/null <<'BANNER_EOF'
 \x1b[1;38;5;33m        '.              .'
 \x1b[1;38;5;33m          '---.------.---'
 BANNER_EOF
+_bar "banner perms"
 sudo chmod 0644 /etc/ciscvm/banner
-_step "motd"
+_bar "motd"
 
 # 2. /etc/motd — post-login message (with build metadata)
 {
@@ -1098,9 +1106,10 @@ _step "motd"
     printf '\x1b[33m[ ADMIN   ]\x1b[0m ssh ciscvm@<host>            (root login disabled per CIS 5.1.22)\n'
     printf '\x1b[33m[ ESCALATE]\x1b[0m sudo -i                        (NOPASSWD via /etc/sudoers.d/ciscvm-build)\n'
 } | sudo tee /etc/motd > /dev/null
+_bar "motd perms"
 sudo chmod 0644 /etc/motd
 
-_step "issue + issue.net"
+_bar "issue + issue.net"
 # 3. /etc/issue, /etc/issue.net — console
 #    colour escape sequences render as garbage on serial consoles).
 {
@@ -1110,37 +1119,42 @@ _step "issue + issue.net"
     printf 'Report:   /opt/ciscvm-REPORT.md  (run "ciscvm-info")\n'
     printf 'Admin:    ssh ciscvm@<host>      (root login disabled per CIS)\n'
 } | sudo tee /etc/issue      > /dev/null
+_bar "issue.net"
 {
     printf 'ciscv  CIS-HARDENED IMAGE BUILDER  --  %s\n' "__IMAGE_NAME__"
     printf 'OS/Level: %s / %s   Built: %s by ciscv %s\n' "__IMAGE_OS__" "__CIS_LEVEL__" "$BUILD_TS" "__CISCVM_VERSION__"
     printf 'Report: /opt/ciscvm-REPORT.md\n'
 } | sudo tee /etc/issue.net  > /dev/null
+_bar "issue perms"
 sudo chmod 0644 /etc/issue /etc/issue.net
 
 # 3.5 Fix log-file permissions that may have been loosened by
 #      cloud-init / boot-time service recreation.  The CIS engine
 #      flags these in the re-audit, but they are not real hardening
 #      gaps — just transient artifacts recreated on every boot.
-_step "fix boot-log perms"
+_bar "fix boot-log perms"
+_bar "  cloud-init log"
 for f in /var/log/cloud-init.log /var/log/cloud-init-output.log \
          /var/log/wtmp /var/log/btmp; do
     [ -f "$f" ] && sudo chmod 0640 "$f" 2>/dev/null || true
 done
 
 # 4. Wire the banner into sshd (drop-in; survives sshd_config rewrites by CIS)
-_step "sshd banner drop-in"
+_bar "sshd drop-in dir"
 sudo install -d -m 0755 /etc/ssh/sshd_config.d
 sudo tee /etc/ssh/sshd_config.d/99-ciscvm-banner.conf > /dev/null <<'SSHD_EOF'
 # ciscv — show the build banner before authentication.
 # Patched on top of CIS hardening by ciscvm-finalize.sh.
 Banner /etc/ciscvm/banner
 SSHD_EOF
+_bar "sshd drop-in perms"
 sudo chmod 0644 /etc/ssh/sshd_config.d/99-ciscvm-banner.conf
-_step "sshd reload"
+_bar "sshd reload"
 sudo systemctl reload sshd 2>/dev/null || true
 
 # 5. /opt/ciscvm-REPORT.md — what was done to the base image
-_step "generate REPORT.md"
+_bar "generate REPORT.md"
+_bar "  running Python"
 sudo /opt/ciscvm-ansible/bin/python - "$SRC_IMG" "$IMG_NAME" "$OS_TAG" "$CIS_LEVEL" "$BENCH" "$VER" "$BUILD_TS" "$AUDIT" "$REPORT" <<'PY_EOF'
 import json, os, sys, tempfile
 src, name, os_tag, level, bench, ver, ts, audit_p, report_p = sys.argv[1:10]
@@ -1289,9 +1303,11 @@ try:
 except FileNotFoundError:
     pass  # install -m moves the file atomically; tmp may already be gone
 PY_EOF
+_bar "install REPORT to /opt"
 sudo chmod 0644 /opt/ciscvm-REPORT.md
 
 # 6. /usr/local/bin/ciscvm-info — one-shot summary command
+_bar "ciscvm-info helper"
 sudo tee /usr/local/bin/ciscvm-info > /dev/null <<'INFO_EOF'
 #!/usr/bin/env bash
 # ciscvm-info — show a short summary of this image's CIS hardening.
@@ -1311,6 +1327,7 @@ echo "Full report: cat $REPORT  (or 'less $REPORT')"
 INFO_EOF
 sudo chmod 0755 /usr/local/bin/ciscvm-info
 
+_bar "done"
 echo "[ciscvm] finalize complete: banner + motd + /opt/ciscvm-REPORT.md"
 """
 
