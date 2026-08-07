@@ -4194,9 +4194,16 @@ def main():
 
         def _apply_one(ctx, rule):
             fam = rule.get("family", "")
+            # Families that MUST be serialised because every rule in the
+            # family writes to a single shared file (via atomic_write which
+            # is not concurrency-safe across threads):
+            #   sysctl     → all 33 rules → /etc/sysctl.d/60-cis-hardening.conf
+            #   sshd_param → all 18 rules → /etc/ssh/sshd_config.d/99-cis-sshd.conf
+            #   pkg_*      → all rules   → dnf (single RPM database)
             if fam in ("pkg_present", "pkg_not_present", "pkg_any_present",
                        "pkg_not_installed", "pkg_installed", "pkg_removed",
-                       "pkg_audit", "pkg_firewall", "pkg_password"):
+                       "pkg_audit", "pkg_firewall", "pkg_password",
+                       "sysctl", "sshd_param"):
                 with ctx._pkg_lock:
                     return run_rule(ctx, rule)
             return run_rule(ctx, rule)
