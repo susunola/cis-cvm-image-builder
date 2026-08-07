@@ -1,63 +1,63 @@
-2026-08-07T14:50:40   [36m•[0m Build log → /opt/run.log
-2026/08/07 14:50:41 [INFO] Packer version: 1.16.0 [go1.26.3 linux amd64]
-2026/08/07 14:50:41 [INFO] PACKER_CONFIG env var not set; checking the default config file path
-2026/08/07 14:50:41 [INFO] PACKER_CONFIG env var set; attempting to open config file: /root/.packerconfig
-2026/08/07 14:50:41 [WARN] Config file doesn't exist: /root/.packerconfig
-2026/08/07 14:50:41 [INFO] Setting cache directory: /root/.cache/packer
-2026/08/07 14:50:41 [TRACE] listing potential installations for "github.com/hashicorp/ansible" that match ">= 1.0.0, < 2.0.0". plugingetter.ListInstallationsOptions{PluginDirectory:"/root/.config/packer/plugins", BinaryInstallationOptions:plugingetter.BinaryInstallationOptions{APIVersionMajor:"5", APIVersionMinor:"0", OS:"linux", ARCH:"amd64", Ext:"", Checksummers:[]plugingetter.Checksummer{plugingetter.Checksummer{Type:"sha256", Hash:(*sha256.Digest)(0xbb1b6b04480)}}, ReleasesOnly:false}}
-2026/08/07 14:50:41 [TRACE] Found the following "github.com/hashicorp/ansible" installations: [{/root/.config/packer/plugins/github.com/hashicorp/ansible/packer-plugin-ansible_v1.1.6_x5.0_linux_amd64 v1.1.6 x5.0}]
-2026/08/07 14:50:41 found external [-packer-default-plugin-name- local] provisioner from ansible plugin
-2026/08/07 14:50:41 [TRACE] listing potential installations for "github.com/hashicorp/tencentcloud" that match ">= 1.0.0, < 2.0.0". plugingetter.ListInstallationsOptions{PluginDirectory:"/root/.config/packer/plugins", BinaryInstallationOptions:plugingetter.BinaryInstallationOptions{APIVersionMajor:"5", APIVersionMinor:"0", OS:"linux", ARCH:"amd64", Ext:"", Checksummers:[]plugingetter.Checksummer{plugingetter.Checksummer{Type:"sha256", Hash:(*sha256.Digest)(0xbb1b6b04480)}}, ReleasesOnly:false}}
-2026/08/07 14:50:41 [TRACE] Found the following "github.com/hashicorp/tencentcloud" installations: [{/root/.config/packer/plugins/github.com/hashicorp/tencentcloud/packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64 v1.2.0 x5.0}]
-2026/08/07 14:50:41 [INFO] found external [cvm] builders from tencentcloud plugin
-2026/08/07 14:50:41 plugin "/root/.config/packer/plugins/github.com/hashicorp/tencentcloud/packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64" does not support Protobuf, forcing use of Gob
-2026/08/07 14:50:41 [TRACE] listing potential installations for <nil> that match "". plugingetter.ListInstallationsOptions{PluginDirectory:"/root/.config/packer/plugins", BinaryInstallationOptions:plugingetter.BinaryInstallationOptions{APIVersionMajor:"5", APIVersionMinor:"0", OS:"linux", ARCH:"amd64", Ext:"", Checksummers:[]plugingetter.Checksummer{plugingetter.Checksummer{Type:"sha256", Hash:(*sha256.Digest)(0xbb1b6b04c00)}}, ReleasesOnly:false}}
-2026/08/07 14:50:41 found external [-packer-default-plugin-name- local] provisioner from ansible plugin
-2026/08/07 14:50:41 [INFO] found external [cvm] builders from tencentcloud plugin
-2026/08/07 14:50:41 [TRACE] validateValue: not active for subnet_id, so skipping
-2026/08/07 14:50:41 [TRACE] validateValue: not active for secret_id, so skipping
-2026/08/07 14:50:41 [TRACE] validateValue: not active for secret_key, so skipping
-2026/08/07 14:50:41 [TRACE] validateValue: not active for source_image_id, so skipping
-2026/08/07 14:50:41 [TRACE] validateValue: not active for ssh_port, so skipping
-2026/08/07 14:50:41 [TRACE] validateValue: not active for image_copy_regions, so skipping
-2026/08/07 14:50:41 [TRACE] validateValue: not active for vpc_id, so skipping
-2026/08/07 14:50:41 [TRACE] validateValue: not active for associate_public_ip_address, so skipping
-2026/08/07 14:50:41 [TRACE] validateValue: not active for image_name_prefix, so skipping
-2026/08/07 14:50:41 [TRACE] validateValue: not active for image_os_tag, so skipping
-2026/08/07 14:50:41 [TRACE] validateValue: not active for image_benchmark, so skipping
-2026/08/07 14:50:41 [TRACE] validateValue: not active for security_group_id, so skipping
-2026/08/07 14:50:41 [TRACE] validateValue: not active for region, so skipping
-2026/08/07 14:50:41 [TRACE] validateValue: not active for zone, so skipping
-2026/08/07 14:50:41 [TRACE] validateValue: not active for instance_type, so skipping
-2026/08/07 14:50:41 [TRACE] validateValue: not active for ssh_username, so skipping
-2026/08/07 14:50:41 [TRACE] validateValue: not active for ssh_timeout, so skipping
-2026/08/07 14:50:41 [TRACE] validateValue: not active for cis_level, so skipping
-2026/08/07 14:50:41 [INFO] Starting external plugin /root/.config/packer/plugins/github.com/hashicorp/tencentcloud/packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64 start builder cvm
-2026/08/07 14:50:41 Starting plugin: /root/.config/packer/plugins/github.com/hashicorp/tencentcloud/packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64 []string{"/root/.config/packer/plugins/github.com/hashicorp/tencentcloud/packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64", "start", "builder", "cvm"}
-2026/08/07 14:50:41 Waiting for RPC address for: /root/.config/packer/plugins/github.com/hashicorp/tencentcloud/packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64
-2026/08/07 14:50:41 Received unix RPC address for /root/.config/packer/plugins/github.com/hashicorp/tencentcloud/packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64: addr is /tmp/packer-plugin2465316846
-2026/08/07 14:50:41 packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64 plugin: 2026/08/07 14:50:41 Plugin address: unix /tmp/packer-plugin2465316846
-2026/08/07 14:50:41 packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64 plugin: 2026/08/07 14:50:41 Waiting for connection...
-2026/08/07 14:50:41 packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64 plugin: 2026/08/07 14:50:41 Serving a plugin connection...
-2026/08/07 14:50:41 packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64 plugin: 2026/08/07 14:50:41 [TRACE] starting builder cvm
-2026/08/07 14:50:41 [DEBUG] - common: receiving ConfigSpec as gob
+2026-08-07T14:50:55   [36m•[0m Build log → /opt/run.log
+2026/08/07 14:50:55 [INFO] Packer version: 1.16.0 [go1.26.3 linux amd64]
+2026/08/07 14:50:55 [INFO] PACKER_CONFIG env var not set; checking the default config file path
+2026/08/07 14:50:55 [INFO] PACKER_CONFIG env var set; attempting to open config file: /root/.packerconfig
+2026/08/07 14:50:55 [WARN] Config file doesn't exist: /root/.packerconfig
+2026/08/07 14:50:55 [INFO] Setting cache directory: /root/.cache/packer
+2026/08/07 14:50:55 [TRACE] listing potential installations for "github.com/hashicorp/ansible" that match ">= 1.0.0, < 2.0.0". plugingetter.ListInstallationsOptions{PluginDirectory:"/root/.config/packer/plugins", BinaryInstallationOptions:plugingetter.BinaryInstallationOptions{APIVersionMajor:"5", APIVersionMinor:"0", OS:"linux", ARCH:"amd64", Ext:"", Checksummers:[]plugingetter.Checksummer{plugingetter.Checksummer{Type:"sha256", Hash:(*sha256.Digest)(0x3fccbacd4200)}}, ReleasesOnly:false}}
+2026/08/07 14:50:55 [TRACE] Found the following "github.com/hashicorp/ansible" installations: [{/root/.config/packer/plugins/github.com/hashicorp/ansible/packer-plugin-ansible_v1.1.6_x5.0_linux_amd64 v1.1.6 x5.0}]
+2026/08/07 14:50:55 found external [-packer-default-plugin-name- local] provisioner from ansible plugin
+2026/08/07 14:50:55 [TRACE] listing potential installations for "github.com/hashicorp/tencentcloud" that match ">= 1.0.0, < 2.0.0". plugingetter.ListInstallationsOptions{PluginDirectory:"/root/.config/packer/plugins", BinaryInstallationOptions:plugingetter.BinaryInstallationOptions{APIVersionMajor:"5", APIVersionMinor:"0", OS:"linux", ARCH:"amd64", Ext:"", Checksummers:[]plugingetter.Checksummer{plugingetter.Checksummer{Type:"sha256", Hash:(*sha256.Digest)(0x3fccbacd4200)}}, ReleasesOnly:false}}
+2026/08/07 14:50:56 [TRACE] Found the following "github.com/hashicorp/tencentcloud" installations: [{/root/.config/packer/plugins/github.com/hashicorp/tencentcloud/packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64 v1.2.0 x5.0}]
+2026/08/07 14:50:56 [INFO] found external [cvm] builders from tencentcloud plugin
+2026/08/07 14:50:56 plugin "/root/.config/packer/plugins/github.com/hashicorp/tencentcloud/packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64" does not support Protobuf, forcing use of Gob
+2026/08/07 14:50:56 [TRACE] listing potential installations for <nil> that match "". plugingetter.ListInstallationsOptions{PluginDirectory:"/root/.config/packer/plugins", BinaryInstallationOptions:plugingetter.BinaryInstallationOptions{APIVersionMajor:"5", APIVersionMinor:"0", OS:"linux", ARCH:"amd64", Ext:"", Checksummers:[]plugingetter.Checksummer{plugingetter.Checksummer{Type:"sha256", Hash:(*sha256.Digest)(0x3fccba9fa800)}}, ReleasesOnly:false}}
+2026/08/07 14:50:56 found external [-packer-default-plugin-name- local] provisioner from ansible plugin
+2026/08/07 14:50:56 [INFO] found external [cvm] builders from tencentcloud plugin
+2026/08/07 14:50:56 [TRACE] validateValue: not active for secret_key, so skipping
+2026/08/07 14:50:56 [TRACE] validateValue: not active for region, so skipping
+2026/08/07 14:50:56 [TRACE] validateValue: not active for zone, so skipping
+2026/08/07 14:50:56 [TRACE] validateValue: not active for ssh_timeout, so skipping
+2026/08/07 14:50:56 [TRACE] validateValue: not active for cis_level, so skipping
+2026/08/07 14:50:56 [TRACE] validateValue: not active for instance_type, so skipping
+2026/08/07 14:50:56 [TRACE] validateValue: not active for source_image_id, so skipping
+2026/08/07 14:50:56 [TRACE] validateValue: not active for ssh_username, so skipping
+2026/08/07 14:50:56 [TRACE] validateValue: not active for ssh_port, so skipping
+2026/08/07 14:50:56 [TRACE] validateValue: not active for subnet_id, so skipping
+2026/08/07 14:50:56 [TRACE] validateValue: not active for security_group_id, so skipping
+2026/08/07 14:50:56 [TRACE] validateValue: not active for image_os_tag, so skipping
+2026/08/07 14:50:56 [TRACE] validateValue: not active for vpc_id, so skipping
+2026/08/07 14:50:56 [TRACE] validateValue: not active for associate_public_ip_address, so skipping
+2026/08/07 14:50:56 [TRACE] validateValue: not active for image_copy_regions, so skipping
+2026/08/07 14:50:56 [TRACE] validateValue: not active for image_name_prefix, so skipping
+2026/08/07 14:50:56 [TRACE] validateValue: not active for image_benchmark, so skipping
+2026/08/07 14:50:56 [TRACE] validateValue: not active for secret_id, so skipping
+2026/08/07 14:50:56 [INFO] Starting external plugin /root/.config/packer/plugins/github.com/hashicorp/tencentcloud/packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64 start builder cvm
+2026/08/07 14:50:56 Starting plugin: /root/.config/packer/plugins/github.com/hashicorp/tencentcloud/packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64 []string{"/root/.config/packer/plugins/github.com/hashicorp/tencentcloud/packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64", "start", "builder", "cvm"}
+2026/08/07 14:50:56 Waiting for RPC address for: /root/.config/packer/plugins/github.com/hashicorp/tencentcloud/packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64
+2026/08/07 14:50:56 Received unix RPC address for /root/.config/packer/plugins/github.com/hashicorp/tencentcloud/packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64: addr is /tmp/packer-plugin2602244871
+2026/08/07 14:50:56 packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64 plugin: 2026/08/07 14:50:56 Plugin address: unix /tmp/packer-plugin2602244871
+2026/08/07 14:50:56 packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64 plugin: 2026/08/07 14:50:56 Waiting for connection...
+2026/08/07 14:50:56 packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64 plugin: 2026/08/07 14:50:56 Serving a plugin connection...
+2026/08/07 14:50:56 packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64 plugin: 2026/08/07 14:50:56 [TRACE] starting builder cvm
+2026/08/07 14:50:56 [DEBUG] - common: receiving ConfigSpec as gob
 Error: Unsupported argument
 
   on packer/main.pkr.hcl line 63:
+  (source code not available)
+
+An argument named "ssh_keepalive_interval" is not expected here. Did you mean
+"ssh_keep_alive_interval"?
+
 
   on packer/main.pkr.hcl line 63:
   (source code not available)
 
-An argument named "ssh_keepalive_interval" is not expected here. Did you mean
-"ssh_keep_alive_interval"?
-
-2026/08/07 14:50:41 [INFO] (telemetry) Finalizing.
-  (source code not available)
-
+2026/08/07 14:50:56 [INFO] (telemetry) Finalizing.
 An argument named "ssh_keepalive_interval" is not expected here. Did you mean
 "ssh_keep_alive_interval"?
 
 
-2026/08/07 14:50:41 waiting for all plugin processes to complete...
-2026/08/07 14:50:41 /root/.config/packer/plugins/github.com/hashicorp/tencentcloud/packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64: plugin process exited
-2026-08-07T14:50:41   [31m✗[0m packer build failed (see output above)
+2026/08/07 14:50:56 waiting for all plugin processes to complete...
+2026/08/07 14:50:56 /root/.config/packer/plugins/github.com/hashicorp/tencentcloud/packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64: plugin process exited
+2026-08-07T14:50:56   [31m✗[0m packer build failed (see output above)
