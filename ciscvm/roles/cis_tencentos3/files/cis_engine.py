@@ -385,7 +385,13 @@ def uid_min(default=1000):
 
 
 def conf_values(files, key, seps=(r"\s+", r"\s*=\s*")):
-    """Collect active values for `key` across a list of files/globs."""
+    """Collect active values for `key` across a list of files/globs.
+
+    The key may sit at line start OR after a shell prefix such as
+    `declare -rx ` (e.g. `declare -rx TMOUT=900` in profile scripts),
+    and bare flags without any separator are collected as value ""
+    (e.g. `enforce_for_root` in pwquality.conf).
+    """
     found = []
     for spec in files:
         for path in sorted(globmod.glob(spec)) if any(c in spec for c in "*?[") else [spec]:
@@ -395,11 +401,18 @@ def conf_values(files, key, seps=(r"\s+", r"\s*=\s*")):
                 s = ln.strip()
                 if not s or s.startswith("#"):
                     continue
+                matched = False
                 for sep in seps:
-                    m = re.match(r"^\s*\$?" + re.escape(key) + sep + r"(.*)$", s, re.I)
+                    m = re.search(r"(?:^|[\s=])" + re.escape(key) + sep + r"(.*)$",
+                                  s, re.I)
                     if m:
                         found.append((path, m.group(1).strip()))
+                        matched = True
                         break
+                if not matched:
+                    # bare flag line (no separator): `enforce_for_root`
+                    if re.search(r"(?:^|[\s=])" + re.escape(key) + r"\s*$", s, re.I):
+                        found.append((path, ""))
     return found
 
 
@@ -481,12 +494,19 @@ def c_kmod(ctx, p):
     mod = p["module"]
     conf = ctx.cached("modprobe_showconfig",
                       lambda: out(["modprobe", "--showconfig"], 120) or "")
+    # modprobe --showconfig does NOT always surface install/blacklist
+    # directives from /etc/modprobe.d on every distro (observed on
+    # TencentOS 3) — scan the files themselves as the source of truth.
+    fconf = "".join((read(f) or "") + "\n"
+                    for f in sorted(globmod.glob("/etc/modprobe.d/*.conf")) +
+                    sorted(globmod.glob("/usr/lib/modprobe.d/*.conf")))
+    hay = conf + "\n" + fconf
     loaded = ctx.cached("lsmod", lambda: out("lsmod", 30) or "")
     bad = []
     blocked = re.search(r"^\s*install\s+%s\s+(/bin/(true|false)|/usr/bin/(true|false))"
-                        % re.escape(mod), conf, re.M) is not None
+                        % re.escape(mod), hay, re.M) is not None
     blacklisted = re.search(r"^\s*blacklist\s+%s\s*$" % re.escape(mod),
-                            conf, re.M) is not None
+                            hay, re.M) is not None
     is_loaded = re.search(r"^%s\s" % re.escape(mod), loaded, re.M) is not None
     # A module that does not exist on this kernel is inherently unavailable.
     avail = out(["modprobe", "-n", "-v", mod]) if have("modprobe") else ""
@@ -608,6 +628,23 @@ def f_partition(ctx, p):
     return True, "%s mounted as tmpfs (noexec,nosuid,nodev)" % mp
 
 
+def _sysctl_matches(cur, want):
+    """Compare a runtime sysctl value against the rule expectation.
+
+    CIS rules express acceptable ranges as regex-ish alternatives, e.g.
+    kernel.kptr_restrict "(1|2)" — a literal string compare would fail
+    even when the value is correct.
+    """
+    cur = " ".join(str(cur).split())
+    want = str(want)
+    if any(c in want for c in "|()"):
+        try:
+            return re.fullmatch(want, cur) is not None
+        except re.error:
+            pass
+    return cur == want
+
+
 @check("sysctl")
 def c_sysctl(ctx, p):
     bad, good = [], []
@@ -618,14 +655,14 @@ def c_sysctl(ctx, p):
             bad.append("%s: not available on this kernel" % k)
             continue
         cur = " ".join(cur.split())
-        if cur != want:
+        if not _sysctl_matches(cur, want):
             bad.append("%s = %s (expected %s)" % (k, cur, want))
             continue
         # also require it to be persisted
         files = ["/etc/sysctl.conf", "/etc/sysctl.d/*.conf",
                  "/run/sysctl.d/*.conf", "/usr/lib/sysctl.d/*.conf"]
         vals = conf_values(files, k, (r"\s*=\s*",))
-        if not vals or " ".join(vals[-1][1].split()) != want:
+        if not vals or not _sysctl_matches(vals[-1][1], want):
             bad.append("%s runtime ok but not persisted" % k)
         else:
             good.append("%s=%s" % (k, want))
@@ -886,11 +923,16 @@ def f_logfile_perm(ctx, p):
 @check("journald_fileperm")
 def c_journald_fileperm(ctx, p):
     bad = []
-    for spec in ("/etc/tmpfiles.d/systemd.conf", "/usr/lib/tmpfiles.d/systemd.conf"):
-        for ln in readlines(spec):
-            m = re.match(r"^\s*[zZ]\s+/(run|var)/log/journal(/%m)?\s+(\d{3,4})", ln)
-            if m and not mode_ok(int(m.group(3), 8), "2640"):
-                bad.append("%s: %s" % (spec, ln.strip()))
+    # /etc/tmpfiles.d overrides /usr/lib defaults — the vendor file always
+    # carries looser perms (2755); only the effective (highest-precedence)
+    # file counts.
+    spec = "/etc/tmpfiles.d/systemd.conf"
+    if not exists(spec):
+        spec = "/usr/lib/tmpfiles.d/systemd.conf"
+    for ln in readlines(spec):
+        m = re.match(r"^\s*[zZ]\s+/(run|var)/log/journal(/%m)?\s+(\d{3,4})", ln)
+        if m and not mode_ok(int(m.group(3), 8), "2640"):
+            bad.append("%s: %s" % (spec, ln.strip()))
     for d in ("/var/log/journal", "/run/log/journal"):
         for f in globmod.glob(d + "/*/*.journal"):
             _, _, st = owner_of(f)
@@ -1613,6 +1655,13 @@ def f_kv_conf(ctx, p):
         return True, "TMOUT=%s enforced via %s" % (want, os.path.basename(target))
 
     target = (p.get("files") or ["/etc/cis-hardening.conf"])[0]
+    # systemd-style drop-in: when the rule's globs cover <main>.d/*.conf,
+    # write the drop-in instead of the main file so a reboot (which may
+    # restore the distro's packaged main file) cannot revert our setting
+    # (e.g. journald.conf -> journald.conf.d/99-cis.conf).
+    dropin_glob = os.path.join(target + ".d", "*.conf")
+    if dropin_glob in (p.get("globs") or []):
+        target = os.path.join(target + ".d", "99-cis.conf")
     if op == "bool_present":
         val = ""
         sepc = ""
@@ -2347,7 +2396,10 @@ def c_useradd_inactive(ctx, p):
     bad = []
     if cur is None or cur < 0 or cur > mx:
         bad.append("useradd default INACTIVE=%s (expected 0..%d)" % (cur, mx))
-    users = out("awk -F: '$2 ~ /^\\$/ {print $1}' /etc/shadow 2>/dev/null | "
+    # Any non-empty, non-"*" password field counts — locked accounts
+    # (root on cloud images has "!!") are still login-capable via keys and
+    # must get an inactivity lock too.
+    users = out("awk -F: '$2 != \"\" && $2 != \"*\" {print $1}' /etc/shadow 2>/dev/null | "
                 "while read -r u; do i=$(chage --list \"$u\" 2>/dev/null | "
                 "awk -F: '/Password inactive/{print $2}' | tr -d ' '); "
                 "echo \"$u:$i\"; done", 120)
@@ -2366,7 +2418,7 @@ def c_useradd_inactive(ctx, p):
 def f_useradd_inactive(ctx, p):
     mx = p.get("max", 30)
     sh(["useradd", "-D", "-f", str(mx)], 30)
-    sh("awk -F: '$2 ~ /^\\$/ {print $1}' /etc/shadow | "
+    sh("awk -F: '$2 != \"\" && $2 != \"*\" {print $1}' /etc/shadow | "
        "xargs -r -n1 chage --inactive %d" % mx, 180)
     return True, "set default inactivity to %d days and updated existing users" % mx
 
@@ -3981,6 +4033,22 @@ def f_pam_arg(ctx, p):
     if not changed:
         return False, "nothing to change (module line missing?)"
     _pam_apply(ctx)
+    # authselect apply-changes regenerates /etc/pam.d from the selected
+    # profile.  TencentOS 3 ships a modified sssd profile that authselect
+    # refuses to clone, so apply-changes can re-inject the removed arg
+    # (nullok) from the stock profile.  Re-apply the edit once more so the
+    # final on-disk state is correct regardless.
+    if newarg is None:
+        for f in PAM_FILES:
+            if not exists(f):
+                continue
+            lines = readlines(f)
+            res = []
+            for l in lines:
+                if mod in l and not l.lstrip().startswith("#"):
+                    l = re.sub(r"\s+%s(=\S+)?" % re.escape(arg), "", l).rstrip()
+                res.append(l)
+            write_file(ctx, f, "\n".join(res).rstrip("\n") + "\n")
     verb = "removed" if newarg is None else "set"
     return True, "%s %s on %s in %d file(s)" % (verb, arg, mod, changed)
 
