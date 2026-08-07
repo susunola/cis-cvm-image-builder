@@ -251,6 +251,57 @@ class TestResolve:
         with pytest.raises(ConfigError, match=r"\[image\].name"):
             resolve(valid_toml)
 
+    def test_assume_role_default_off(self, valid_toml):
+        r = resolve(valid_toml)
+        assert r.assume_role_arn == ""
+        assert r.assume_role_session == "ciscvm"
+        assert r.assume_role_duration == 7200
+
+    def test_assume_role_configured(self, valid_toml):
+        valid_toml["cloud"]["assume_role_arn"] = \
+            "qcs::cam::uin/1234567890:roleName/CrossAccountBuilder"
+        valid_toml["cloud"]["assume_role_session"] = "my-build"
+        valid_toml["cloud"]["assume_role_duration"] = 3600
+        r = resolve(valid_toml)
+        assert r.assume_role_arn.endswith("CrossAccountBuilder")
+        assert r.assume_role_session == "my-build"
+        assert r.assume_role_duration == 3600
+
+    def test_assume_role_invalid_arn(self, valid_toml):
+        valid_toml["cloud"]["assume_role_arn"] = "bad arn;rm -rf"
+        with pytest.raises(ConfigError, match=r"assume_role_arn"):
+            resolve(valid_toml)
+
+    def test_assume_role_duration_range(self, valid_toml):
+        valid_toml["cloud"]["assume_role_duration"] = 99999
+        with pytest.raises(ConfigError, match=r"assume_role_duration"):
+            resolve(valid_toml)
+
+
+class TestExtractImageIds:
+    def test_multi_region_artifact(self):
+        lines = [
+            "==> tencentcloud-cvm.default: Creating image...",
+            "==> Builds finished. The artifacts of successful builds are:",
+            "--> tencentcloud-cvm.default: Tencentcloud images(ap-guangzhou: img-1p9mwidq",
+            "ap-hongkong: img-50m2n24g) were created.",
+            "",
+        ]
+        assert ciscvm._extract_image_ids(lines) == ["img-1p9mwidq", "img-50m2n24g"]
+
+    def test_single_region_artifact(self):
+        lines = [
+            "--> tencentcloud-cvm.default: Tencentcloud images(ap-guangzhou: img-abc123) were created.",
+        ]
+        assert ciscvm._extract_image_ids(lines) == ["img-abc123"]
+
+    def test_legacy_created_image_id(self):
+        lines = ["Created image ID: img-legacy999"]
+        assert ciscvm._extract_image_ids(lines) == ["img-legacy999"]
+
+    def test_no_match(self):
+        assert ciscvm._extract_image_ids(["==> building...", "==> done"]) == []
+
     def test_windows_profile(self):
         data = _make_win_toml("win2022")
         r = resolve(data)
