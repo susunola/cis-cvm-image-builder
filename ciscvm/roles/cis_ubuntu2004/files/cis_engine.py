@@ -4144,26 +4144,28 @@ def main():
                          % len(ctx._svc_queue))
         ctx.flush_restarts()
 
-        # ── Phase 4: Re-check fixed rules (parallel, read-only) ──
-        # Rules whose fix succeeded need a post-fix check to update status
-        # from "fail" to "pass".  This was previously done inline inside
-        # run_rule(); now we defer it so the checks run in parallel.
+        # ── Phase 4: Re-check fixed rules (parallel, using original ctx) ──
+        # Services have been restarted in Phase 3; rules whose re-check
+        # previously failed because the daemon hadn't reloaded should now
+        # pass.  We use the original ctx (not a fresh copy) so caches
+        # populated during apply are reused — a new Ctx would have empty
+        # caches and could mask the fixes.
         to_recheck = [r for r in results
                       if r.get("apply_status") in ("applied", "applied_pending")]
         if to_recheck:
             sys.stderr.write("cis-engine: phase 4 re-checking %d rule(s)\n"
                              % len(to_recheck))
-            ctx_re = Ctx(opts)
-            ctx_re.changed_files = ctx.changed_files  # share file list (read-only here)
+            # Invalidate caches that may be stale after service restarts.
+            ctx.invalidate("modprobe_showconfig", "lsmod")
 
             def _recheck(r):
                 fn = CHECKS.get(r["family"])
                 if fn:
                     try:
-                        st, detail = fn(ctx_re, r.get("params") or {})
+                        st, detail = fn(ctx, r.get("params") or {})
                         r["status"], r["detail"] = st, detail
-                    except Exception:                    # pragma: no cover
-                        pass
+                    except Exception as exc:                    # pragma: no cover
+                        ctx.add_note("re-check %s: %s" % (r["id"], exc))
                 return r
 
             results = _in_pool(_recheck, to_recheck) + \
