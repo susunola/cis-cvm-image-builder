@@ -701,65 +701,90 @@ def f_path_perm_glob(ctx, p):
 
 def _fs_scan(ctx):
     """One full-filesystem pass collecting every permission category the
-    audit needs.  Returns a dict of path lists:
-      world_files      - regular files writable by anyone
-      world_dirs       - world-writable directories lacking the sticky bit
-      unowned          - files/dirs with no owner or no group (nouser|nogroup)
-      ungrouped        - files/dirs with no group (nogroup)
-      privileged       - setuid/setgid regular files
-    A single `find` walk is ~10s on a full image; the per-rule scans below
-    used to each walk the tree independently (5x).  Fixes that chmod/chown
-    invalidate the cache so the post-fix re-check re-scans.
-    """
+    audit needs.  Returns a dict of path lists.
+
+    Mount points are parsed from 'df' output and passed as a list to
+    subprocess.run — no shell interpolation, eliminating command-injection
+    risk from mount-point names."""
     def load():
-        cmd = ("df --local -P 2>/dev/null | awk '{if (NR!=1) print $6}' | "
-               "while read -r m; do find \"$m\" -xdev \\( "
-               "-type f -perm -0002 -printf 'F|%p\\n' , "
-               "-type d -perm -0002 ! -perm -1000 -printf 'D|%p\\n' , "
-               "\\( -nouser -o -nogroup \\) -printf 'U|%p\\n' , "
-               "-nogroup -printf 'G|%p\\n' , "
-               "\\( -perm -4000 -o -perm -2000 \\) -type f -printf 'P|%p\\n' "
-               "\\) 2>/dev/null; done")
         res = {"world_files": [], "world_dirs": [], "unowned": [],
                "ungrouped": [], "privileged": []}
-        rc, o, _ = sh(cmd, 600)
+        # Collect local mount points (df --local -P, skip header)
+        rc, df_out, _ = sh(["df", "--local", "-P"], 60)
         if rc != 0:
-            # Fallback: GNU find may be missing -printf/',' support
-            # (e.g. busybox).  Run the legacy independent scans.
             return _fs_scan_legacy(res)
-        for ln in o.splitlines():
-            if len(ln) < 3 or ln[1] != "|":
+        mounts = []
+        for ln in df_out.splitlines():
+            f = ln.split()
+            if len(f) >= 6 and f[0] != "Filesystem":
+                mounts.append(f[5])  # mount point is column 6
+        if not mounts:
+            mounts = ["/"]
+        # Build the find expression once, pass mount points as ARGV
+        find_args = [
+            "-type", "f", "-perm", "-0002", "-printf", "F|%p\\n", ",",
+            "-type", "d", "-perm", "-0002", "!", "-perm", "-1000", "-printf", "D|%p\\n", ",",
+            "(", "-nouser", "-o", "-nogroup", ")", "-printf", "U|%p\\n", ",",
+            "-nogroup", "-printf", "G|%p\\n", ",",
+            "(", "-perm", "-4000", "-o", "-perm", "-2000", ")", "-type", "f", "-printf", "P|%p\\n",
+        ]
+        for mp in mounts:
+            rc, o, _ = sh(["find", mp, "-xdev"] + find_args, 300)
+            if rc not in (0, 1):      # find returns 1 on permission denied
                 continue
-            tag, path = ln[0], ln[2:]
-            key = {"F": "world_files", "D": "world_dirs", "U": "unowned",
-                   "G": "ungrouped", "P": "privileged"}.get(tag)
-            if key:
-                # Exclude paths that are transient cloud-agent artifacts
-                # recreated on every boot (not real security findings).
-                if path.startswith("/dev/shm/tmp_agent/"):
+            if not o:
+                continue
+            for ln in o.splitlines():
+                if len(ln) < 3 or ln[1] != "|":
                     continue
-                if path.startswith("/usr/local/tmanager/"):
-                    continue
-                res[key].append(path)
+                tag, path = ln[0], ln[2:]
+                key = {"F": "world_files", "D": "world_dirs", "U": "unowned",
+                       "G": "ungrouped", "P": "privileged"}.get(tag)
+                if key:
+                    if path.startswith("/dev/shm/tmp_agent/"):
+                        continue
+                    if path.startswith("/usr/local/tmanager/"):
+                        continue
+                    res[key].append(path)
+        if not any(res.values()):
+            # All mount-point scans produced no results — likely
+            # a busybox system without GNU find -printf support.
+            return _fs_scan_legacy(res)
         return res
     return ctx.cached("fs_scan", load)
 
 
 def _fs_scan_legacy(res):
-    """Fallback scans when GNU find -printf is unavailable (busybox etc.)."""
+    """Fallback scans when GNU find -printf is unavailable (busybox etc.).
+    Parses mount points and runs separate find processes — no shell interpolation."""
     scans = [
-        ("world_files", "-type f -perm -0002"),
-        ("world_dirs", "-type d -perm -0002 ! -perm -1000"),
-        ("unowned", r"\( -nouser -o -nogroup \)"),
+        ("world_files", "-type", "f", "-perm", "-0002"),
+        ("world_dirs", "-type", "d", "-perm", "-0002", "!", "-perm", "-1000"),
+        ("unowned", "(", "-nouser", "-o", "-nogroup", ")"),
         ("ungrouped", "-nogroup"),
-        ("privileged", r"\( -perm -4000 -o -perm -2000 \) -type f"),
+        ("privileged", "(", "-perm", "-4000", "-o", "-perm", "-2000", ")", "-type", "f"),
     ]
-    for key, cond in scans:
-        cmd = ("df --local -P 2>/dev/null | awk '{if (NR!=1) print $6}' | "
-               "while read -r m; do find \"$m\" -xdev %s 2>/dev/null; done" % cond)
-        rc, o, _ = sh(cmd, 300)
-        if rc == 0 and o:
-            res[key] = [p for p in o.splitlines() if p]
+    rc, df_out, _ = sh(["df", "--local", "-P"], 60)
+    mounts = []
+    if rc == 0:
+        for ln in df_out.splitlines():
+            f = ln.split()
+            if len(f) >= 6 and f[0] != "Filesystem":
+                mounts.append(f[5])
+    if not mounts:
+        mounts = ["/"]
+    for key, *cond in scans:
+        all_paths = []
+        for mp in mounts:
+            rc, o, _ = sh(["find", mp, "-xdev"] + cond, 300)
+            if rc not in (0, 1):
+                continue
+            if o:
+                all_paths.extend(p for p in o.splitlines() if p
+                                 and not p.startswith("/dev/shm/tmp_agent/")
+                                 and not p.startswith("/usr/local/tmanager/"))
+        if all_paths:
+            res[key] = all_paths
     return res
 
 
@@ -3063,15 +3088,36 @@ def _interactive_users(ctx):
 
 
 def _passwd_entries():
-    return [ln.split(":") for ln in readlines("/etc/passwd") if ln.count(":") >= 6]
+    """Parse /etc/passwd — cached: called ~10× per audit scan."""
+    global _PASSWD_CACHE
+    if _PASSWD_CACHE is None:
+        _PASSWD_CACHE = [ln.split(":") for ln in readlines("/etc/passwd") if ln.count(":") >= 6]
+    return _PASSWD_CACHE
+
+
+_PASSWD_CACHE = None
 
 
 def _shadow_entries():
-    return [ln.split(":") for ln in readlines("/etc/shadow") if ln.count(":") >= 8]
+    """Parse /etc/shadow — cached."""
+    global _SHADOW_CACHE
+    if _SHADOW_CACHE is None:
+        _SHADOW_CACHE = [ln.split(":") for ln in readlines("/etc/shadow") if ln.count(":") >= 8]
+    return _SHADOW_CACHE
+
+
+_SHADOW_CACHE = None
 
 
 def _group_entries():
-    return [ln.split(":") for ln in readlines("/etc/group") if ln.count(":") >= 3]
+    """Parse /etc/group — cached."""
+    global _GROUP_CACHE
+    if _GROUP_CACHE is None:
+        _GROUP_CACHE = [ln.split(":") for ln in readlines("/etc/group") if ln.count(":") >= 3]
+    return _GROUP_CACHE
+
+
+_GROUP_CACHE = None
 
 
 def _ua_su_wheel(ctx):
