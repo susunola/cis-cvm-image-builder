@@ -359,12 +359,12 @@ _PKG_CACHE_LOCK = threading.Lock()
 
 
 def _installed_pkgs():
-    """Set of installed package names (rpm -qa, one subprocess, cached)."""
+    """Set of installed package names (rpm -qa --qf, one subprocess, cached)."""
     global _PKG_CACHE
     if _PKG_CACHE is None:
         with _PKG_CACHE_LOCK:
             if _PKG_CACHE is None:
-                rc, o, _ = sh(["rpm", "-qa"], 120)
+                rc, o, _ = sh(["rpm", "-qa", "--qf", "%{NAME}\n"], 120)
                 _PKG_CACHE = set(o.split())
     return _PKG_CACHE
 
