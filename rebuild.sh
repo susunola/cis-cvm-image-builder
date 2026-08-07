@@ -7,6 +7,8 @@ REPO=/opt/cis-cvm-image-builder
 CONFIG=/opt/ciscvm.toml
 ENV_FILE=/opt/env
 LOG=/opt/run.log
+GITHUB_TOKEN=${GITHUB_TOKEN:-}
+GIT_REMOTE=https://${GITHUB_TOKEN}@github.com/susunola/cis-cvm-image-builder.git
 
 # ── 参数解析 ──
 UPLOAD=false
@@ -60,7 +62,7 @@ if $UPLOAD; then
     git -c user.name="rebuild-bot" \
         -c user.email="bot@cis-cvm" \
         commit -m "ci: run.log ($(date '+%Y-%m-%d %H:%M:%S'))"
-    git push
+    git push "$GIT_REMOTE"
     echo "     已推送: $(git rev-parse --short HEAD)"
 fi
 
