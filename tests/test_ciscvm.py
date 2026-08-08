@@ -1289,6 +1289,35 @@ class TestAllProfilesRender:
         if r.family != "windows":
             assert "__CLEAN_CMD__" not in hcl, f"{profile_name}: unreplaced marker"
 
+    @pytest.mark.parametrize("profile_name", list(PROFILES))
+    def test_inline_items_comma_separated(self, profile_name, valid_toml, tmp_path):
+        """Regression: a missing comma between inline items silently became one
+        concatenated string in Python (implicit literal joining) and produced an
+        HCL 'Missing item separator' parse error in packer build."""
+        import re
+
+        if PROFILES[profile_name].get("family") == "windows":
+            data = _make_win_toml(profile_name)
+        else:
+            valid_toml["build"]["profile"] = profile_name
+            data = valid_toml
+
+        r = resolve(data)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+
+        blocks = list(re.finditer(r"inline\s*=\s*\[(.*?)\]\s*\n", hcl, re.S))
+        assert blocks, f"{profile_name}: no inline blocks found in HCL"
+        for blk in blocks:
+            lines = [l for l in blk.group(1).splitlines() if l.strip()]
+            for i in range(len(lines) - 1):
+                prev = lines[i].rstrip()
+                assert not prev.endswith('"') or prev.endswith('",'), (
+                    f"{profile_name}: inline item {i} missing trailing comma: "
+                    f"{prev[:80]!r}"
+                )
+
 
 class TestBuildGovernance:
     """smoke test / lineage / notification / provenance (v0.14)."""

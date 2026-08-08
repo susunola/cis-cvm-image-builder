@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.13"
+VERSION = "0.14.14"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -815,7 +815,7 @@ build {
       "sudo chmod +x /opt/ciscvm-ansible/ssh-guard-boot.sh",
       "sudo systemctl daemon-reload",
       "sudo systemctl enable ciscvm-ssh-guard.service >/dev/null 2>&1 || true",
-      "echo \"[ssh-guard] boot oneshot installed: ciscvm-ssh-guard.service\""
+      "echo \"[ssh-guard] boot oneshot installed: ciscvm-ssh-guard.service\"",
       "# Ensure key-based root login survives CIS hardening (PermitRootLogin no)",
       "if sudo sshd -T 2>/dev/null | grep -qi '^permitrootlogin no'; then",
       "  echo \"[ssh-guard] CIS disabled root login; restoring key-based root login\"",
