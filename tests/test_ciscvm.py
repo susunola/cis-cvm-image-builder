@@ -3244,3 +3244,69 @@ class TestOscapStatusClassification:
         with open("ciscvm/__init__.py", encoding="utf-8") as fh:
             src = fh.read()
         assert "+= 0" not in src  # dead no-op removed
+
+
+# ===========================================================================
+# Round-2 review (2026-08-09): SARIF detail extraction · main() top-level
+# exception guard
+# ===========================================================================
+class TestSarifDetailExtraction:
+    """P2 — SARIF detail must collect the rule's detail lines, not the
+    next rule header."""
+
+    def test_detail_collects_following_lines(self):
+        from ciscvm import _build_sarif
+        out = json.loads(_build_sarif([
+            "  ✗ 1.1.1.1 | Mounting cramfs disabled",
+            "    kernel module cramfs is loadable",
+            "    fix: set modprobe blacklist",
+            "  ✗ 1.1.1.2 | Second rule",
+        ]))
+        res = out["runs"][0]["results"]
+        assert res[0]["message"]["text"] == (
+            "kernel module cramfs is loadable fix: set modprobe blacklist")
+        assert res[1]["message"]["text"] == "Second rule"
+
+    def test_detail_stops_at_blank(self):
+        from ciscvm import _build_sarif
+        out = json.loads(_build_sarif([
+            "  ✗ 5.1.1 | X",
+            "    some detail",
+            "",
+            "  ✗ 5.1.2 | Y",
+        ]))
+        res = out["runs"][0]["results"]
+        assert res[0]["message"]["text"] == "some detail"
+
+    def test_no_detail_falls_back_to_title(self):
+        from ciscvm import _build_sarif
+        out = json.loads(_build_sarif(["  ✗ 1.1.1.1 | Title only"]))
+        res = out["runs"][0]["results"]
+        assert res[0]["message"]["text"] == "Title only"
+
+
+class TestMainExceptionGuard:
+    """P2 — main() converts internal errors to exit 70, Ctrl-C to 130."""
+
+    def test_internal_error_exit_70(self, monkeypatch, capsys):
+        from ciscvm import main
+        monkeypatch.setattr(
+            "ciscvm.build_parser",
+            lambda: type("P", (), {"parse_args": lambda self, a: type(
+                "A", (), {"func": lambda *a: (_ for _ in ()).throw(
+                    RuntimeError("boom")), "verbose": False})()})())
+        rc = main([])
+        assert rc == 70
+        err = capsys.readouterr().err
+        # the guard surfaces the failure: traceback + a human message
+        assert "Traceback" in err
+        assert "boom" in err
+
+    def test_keyboard_interrupt_exit_130(self, monkeypatch):
+        from ciscvm import main
+        monkeypatch.setattr(
+            "ciscvm.build_parser",
+            lambda: type("P", (), {"parse_args": lambda self, a: type(
+                "A", (), {"func": lambda *a: (_ for _ in ()).throw(
+                    KeyboardInterrupt()), "verbose": False})()})())
+        assert main([]) == 130
