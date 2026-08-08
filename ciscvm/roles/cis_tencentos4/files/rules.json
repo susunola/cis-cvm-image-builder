@@ -144,12 +144,13 @@
     ],
     "platforms": [],
     "assessment": "Automated",
-    "family": "partition",
+    "family": "manual",
     "params": {
       "mount": "/var"
     },
     "risk": "none",
-    "page": 46
+    "page": 46,
+    "note": "CIS Manual: dedicated /var partition requires infra-level disk layout"
   },
   {
     "id": "1.1.3.2",
@@ -194,12 +195,13 @@
     ],
     "platforms": [],
     "assessment": "Automated",
-    "family": "partition",
+    "family": "manual",
     "params": {
       "mount": "/var/tmp"
     },
     "risk": "none",
-    "page": 53
+    "page": 53,
+    "note": "CIS Manual: dedicated /var/tmp partition requires infra-level disk layout"
   },
   {
     "id": "1.1.4.2",
@@ -261,12 +263,13 @@
     ],
     "platforms": [],
     "assessment": "Automated",
-    "family": "partition",
+    "family": "manual",
     "params": {
       "mount": "/var/log"
     },
     "risk": "none",
-    "page": 62
+    "page": 62,
+    "note": "CIS Manual: dedicated /var/log partition requires infra-level disk layout"
   },
   {
     "id": "1.1.5.2",
@@ -328,12 +331,13 @@
     ],
     "platforms": [],
     "assessment": "Automated",
-    "family": "partition",
+    "family": "manual",
     "params": {
       "mount": "/var/log/audit"
     },
     "risk": "none",
-    "page": 70
+    "page": 70,
+    "note": "CIS Manual: dedicated /var/log/audit partition requires infra-level disk layout"
   },
   {
     "id": "1.1.7.1",
@@ -344,12 +348,13 @@
     ],
     "platforms": [],
     "assessment": "Automated",
-    "family": "partition",
+    "family": "manual",
     "params": {
       "mount": "/home"
     },
     "risk": "none",
-    "page": 73
+    "page": 73,
+    "note": "CIS Manual: dedicated /home partition requires infra-level disk layout"
   },
   {
     "id": "1.1.7.2",
@@ -866,14 +871,15 @@
     ],
     "platforms": [],
     "assessment": "Automated",
-    "family": "selinux",
+    "family": "manual",
     "params": {
       "kind": "mode_enforcing",
       "value": ""
     },
-    "risk": "disruptive",
+    "risk": "none",
     "page": 143,
-    "reboot_required": true
+    "reboot_required": true,
+    "note": "SELinux kept permissive by design: enforcing on first boot triggers autorelabel stall; verify site policy"
   },
   {
     "id": "1.7.1.6",
@@ -926,7 +932,7 @@
         "mcstrans"
       ]
     },
-    "risk": "disruptive",
+    "risk": "safe",
     "page": 150
   },
   {
@@ -1061,13 +1067,14 @@
     ],
     "platforms": [],
     "assessment": "Automated",
-    "family": "crypto_policy",
+    "family": "manual",
     "params": {
       "kind": "future_or_fips"
     },
-    "risk": "disruptive",
+    "risk": "none",
     "page": 167,
-    "reboot_required": true
+    "reboot_required": true,
+    "note": "crypto policy kept DEFAULT: FUTURE/FIPS would break sshd key exchange; verify site policy"
   },
   {
     "id": "2.1.1",
@@ -2237,7 +2244,7 @@
     ],
     "platforms": [],
     "assessment": "Automated",
-    "family": "svc_enabled",
+    "family": "manual",
     "params": {
       "units": [
         "nftables.service"
@@ -2246,8 +2253,9 @@
         "nftables"
       ]
     },
-    "risk": "disruptive",
-    "page": 307
+    "risk": "none",
+    "page": 307,
+    "note": "profile uses the firewalld scheme (3.4.2.x); nftables scheme is an alternative, not additive"
   },
   {
     "id": "3.4.3.8",
@@ -2290,14 +2298,15 @@
     ],
     "platforms": [],
     "assessment": "Automated",
-    "family": "pkg_absent",
+    "family": "manual",
     "params": {
       "packages": [
         "nftables"
       ]
     },
-    "risk": "disruptive",
-    "page": 315
+    "risk": "none",
+    "page": 315,
+    "note": "profile uses the firewalld scheme; firewalld's backend is nftables so 'not installed' is unsatisfiable"
   },
   {
     "id": "3.4.4.1.3",
@@ -2308,15 +2317,16 @@
     ],
     "platforms": [],
     "assessment": "Automated",
-    "family": "svc_disabled",
+    "family": "manual",
     "params": {
       "units": [
         "firewalld.service"
       ],
       "packages": []
     },
-    "risk": "disruptive",
-    "page": 316
+    "risk": "none",
+    "page": 316,
+    "note": "firewalld must stay enabled for the SSH reboot guard; conflicts with this rule"
   },
   {
     "id": "3.4.4.2.1",
@@ -2484,7 +2494,7 @@
       "key": "audit",
       "value": "1"
     },
-    "risk": "disruptive",
+    "risk": "safe",
     "page": 343,
     "reboot_required": true
   },
@@ -2503,7 +2513,7 @@
       "match": "audit_backlog_limit=(\\d+)",
       "min": 8192
     },
-    "risk": "disruptive",
+    "risk": "safe",
     "page": 345,
     "reboot_required": true
   },
@@ -3861,14 +3871,15 @@
     ],
     "platforms": [],
     "assessment": "Automated",
-    "family": "sshd_param",
+    "family": "manual",
     "params": {
       "key": "PermitRootLogin",
       "op": "eq",
       "value": "no"
     },
-    "risk": "disruptive",
-    "page": 528
+    "risk": "none",
+    "page": 528,
+    "note": "PermitRootLogin kept prohibit-password for operations access (key-based root login only)"
   },
   {
     "id": "5.2.11",
