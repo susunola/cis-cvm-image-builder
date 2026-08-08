@@ -478,7 +478,7 @@ class TestRenderAll:
         assert "ciscvm-finalize.sh" in hcl
         assert 'source      = "packer/scripts/ciscvm-finalize.sh"' in hcl
         assert 'destination = "/opt/ciscvm-ansible/ciscvm-finalize.sh"' in hcl
-        assert 'remote_path  = "/opt/ciscvm-ansible/run-finalize.sh"' in hcl
+        assert 'remote_path  = "/root/ciscvm-run-finalize.sh"' in hcl
         assert "run-finalize.sh" in hcl
         # Finalize script: all the in-image channels are written.
         assert "/etc/ciscvm/banner" in finalize
@@ -1361,6 +1361,18 @@ class TestAllProfilesRender:
             # post-reboot evidence echo must exist
             assert "post-reboot: autorelabel=" in hcl, (
                 f"{profile_name}: post-reboot state evidence missing"
+            )
+            # /opt must be made rw (fstab ro stripped + remount) so post-reboot
+            # provisioner uploads and ansible staging do not hit a ro fs
+            assert "fstab /opt line rewritten to rw" in hcl, (
+                f"{profile_name}: /opt ro fstab fix missing"
+            )
+            assert 'remount,rw /opt' in hcl, (
+                f"{profile_name}: /opt remount rw missing"
+            )
+            # post-reboot provisioner uploads must not depend on /opt writable
+            assert 'remote_path       = "/root/ciscvm-reconnected.sh"' in hcl, (
+                f"{profile_name}: reconnect upload still targets /opt"
             )
 
 

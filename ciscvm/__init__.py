@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.17"
+VERSION = "0.14.18"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -791,6 +791,16 @@ build {
       "  sudo iptables -C INPUT -p tcp --dport $SSH_PORT -j ACCEPT 2>/dev/null || sudo iptables -I INPUT -p tcp --dport $SSH_PORT -j ACCEPT 2>/dev/null || echo \"[ssh-guard] WARN: iptables add failed\"",
       "  sudo iptables-save > /etc/sysconfig/iptables 2>/dev/null && echo \"[ssh-guard] iptables ruleset persisted\" || echo \"[ssh-guard] WARN: iptables save failed\"",
       "fi",
+      "# /opt read-only after reboot: TencentOS 4 images may carry a ro entry for",
+      "# /opt in fstab (rw while running, ro once the fstab applies at boot).  Every",
+      "# post-reboot provisioner uploads to /opt/ciscvm-ansible and ansible-local",
+      "# stages there too, so a ro /opt kills the whole rebuild with",
+      "# 'scp: /opt/ciscvm-ansible/reconnected.sh: Read-only file system'.  Strip",
+      "# ro/defaults from the /opt fstab line now and remount rw for the image.",
+      "if grep -qE '(^|[[:space:]])/opt([[:space:]]|$)' /etc/fstab 2>/dev/null; then",
+      "  sudo awk '{ if ($2==\"/opt\" && $1 !~ /^#/) { n=\"\"; split($4,o,\",\"); for(i in o){ if(o[i]!=\"ro\" && o[i]!=\"defaults\"){ n=(n==\"\"?o[i]:n\",\"o[i]); } } $4=(n==\"\"?\"rw\":n\",rw\"); } print }' /etc/fstab > /tmp/ciscvm-fstab.new 2>/dev/null && sudo mv /tmp/ciscvm-fstab.new /etc/fstab && echo \"[ssh-guard] fstab /opt line rewritten to rw\" || echo \"[ssh-guard] WARN: fstab /opt rewrite failed\"",
+      "  sudo mount -o remount,rw /opt >/dev/null 2>&1 && echo \"[ssh-guard] /opt remounted rw\" || echo \"[ssh-guard] WARN: /opt remount rw failed (not a separate mount?)\"",
+      "fi",
       "# Install a post-boot oneshot that re-opens the SSH port after reboot.",
       "# Runs BEFORE sshd (Before=sshd.service) so the port is already open when",
       "# sshd accepts; logs to /var/log/ciscvm-ssh-guard.log so a still-failing",
@@ -920,7 +930,7 @@ build {
     # Upload to /opt (not /tmp): systemd-tmpfiles on the freshly rebooted
     # image may purge /tmp (tmp.conf D-type cleanup), which made the
     # reconnect probe fail with 'bash: script: Permission denied' (126).
-    remote_path       = "/opt/ciscvm-ansible/reconnected.sh"
+    remote_path       = "/root/ciscvm-reconnected.sh"
     inline            = ["echo reconnected"]
     valid_exit_codes  = [0, 1, -1]
   }
@@ -931,7 +941,7 @@ build {
   #     flags them in the re-audit unless we fix them first.
   provisioner "shell" {
     pause_before = "5s"
-    remote_path  = "/opt/ciscvm-ansible/fix-logperms.sh"
+    remote_path  = "/root/ciscvm-fix-logperms.sh"
     inline = [
       "set +e",
       "# Post-reboot state evidence: if SELinux autorelabel ran at boot it would",
@@ -982,7 +992,7 @@ build {
   #    same authorized_keys) remains the supported admin channel.
   provisioner "shell" {
     pause_before = "10s"
-    remote_path  = "/opt/ciscvm-ansible/cleanup.sh"
+    remote_path  = "/root/ciscvm-cleanup.sh"
     inline = [
       "__CLEAN_CMD__",
       "# Re-lock root login for the final image (CIS 5.1.22/5.2.10).  Do NOT",
@@ -1003,7 +1013,7 @@ build {
   #     so /tmp/cis-*/result.json still exists when we get here.
   provisioner "shell" {
     pause_before = "5s"
-    remote_path  = "/opt/ciscvm-ansible/collect-audit.sh"
+    remote_path  = "/root/ciscvm-collect-audit.sh"
     inline = [
       "set +e",
       "SRC=$(ls -dt /tmp/cis-*/result.json 2>/dev/null | head -1)",
@@ -1032,7 +1042,7 @@ build {
   #    before Packer snapshots the image.
   provisioner "shell" {
     pause_before = "5s"
-    remote_path  = "/opt/ciscvm-ansible/run-finalize.sh"
+    remote_path  = "/root/ciscvm-run-finalize.sh"
     inline = [
       "# Fix hostname BEFORE sudo — 'sudo bash' hangs on DNS if /etc/hosts",
       "# lacks the short hostname.  We write as root (Packer is root) so",
