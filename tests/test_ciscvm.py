@@ -1411,7 +1411,11 @@ class TestAllProfilesRender:
                 f"{profile_name}: root mount state VERIFY missing"
             )
             # post-reboot provisioner uploads must not depend on /opt writable
-            assert 'remote_path       = "/root/ciscvm-reconnected.sh"' in hcl, (
+            # (v0.14.33: dir is /root for root-login profiles, /home/<user>
+            # for ubuntu — never /tmp, which may be noexec after CIS apply)
+            ssh_user = PROFILES[profile_name].get("ssh_username", "root")
+            remote_dir = "/root" if ssh_user == "root" else f"/home/{ssh_user}"
+            assert f'remote_path       = "{remote_dir}/ciscvm-reconnected.sh"' in hcl, (
                 f"{profile_name}: reconnect upload still targets /opt"
             )
 
@@ -1979,6 +1983,8 @@ class TestRemotePathCoverage:
                 missing.append(hcl[m.start():m.start() + 60])
         assert not missing, f"shell provisioners missing remote_path: {missing}"
 
-    def test_smoke_upload_to_root(self):
-        assert 'remote_path = "/root/ciscvm-smoke.sh"' in \
+    def test_smoke_upload_to_remote_dir(self):
+        # v0.14.33: smoke uploads via the __REMOTE_DIR__ placeholder so
+        # ubuntu (non-root) profiles get /home/ubuntu instead of /root.
+        assert 'remote_path = "__REMOTE_DIR__/ciscvm-smoke.sh"' in \
             open("ciscvm/__init__.py").read()
