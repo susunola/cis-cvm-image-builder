@@ -4544,8 +4544,14 @@ def select(rules, profile, platform, include, exclude, sections, families):
 def run_rule(ctx, rule):
     fam = rule["family"]
     params = rule.get("params") or {}
+    # P0#2 — benchmark-qualified rule reference: the catalog `id` is the
+    # official CIS numbering (1.1.1.1 …); `rule_id` adds the benchmark
+    # edition so results cross-reference CIS-CAT / SCAP exactly.
+    _bm = ctx.opts.benchmark or ""
     res = {
         "id": rule["id"],
+        "rule_id": (_bm + " " + rule["id"]).strip(),
+        "benchmark": _bm,
         "title": rule["title"],
         "section": rule.get("section") or "",
         "levels": rule.get("levels") or [],

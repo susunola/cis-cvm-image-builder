@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import tomllib
+from datetime import UTC
 from pathlib import Path
 from unittest import mock
 
@@ -984,6 +985,14 @@ class TestCmdBuildOutput:
         r.region = "ap-guangzhou"
         r.source_image_id = "img-abc"
         r.instance_type = "S5.MEDIUM2"
+        # Post-borrow features (P0#3 / P2#9 / P2#10) — explicit False/empty so
+        # MagicMock's truthy defaults don't trigger verify-boot / share paths.
+        r.verify_boot = False
+        r.image_share_accounts = []
+        r.image_benchmark = "CIS-v1.0.0"
+        r.sbom = False
+        r.cve_scan = False
+        r.rules_overrides = {}
         return r, tmp_path / "build"
 
     def test_build_does_not_reprint_output(self, tmp_path, capsys):
@@ -1611,7 +1620,6 @@ class TestVerify:
         assert rc == 1  # unsigned provenance does not verify
 
     def test_verify_by_image_id(self, valid_toml, tmp_path):
-        import ciscvm
         from ciscvm import cmd_verify
         self._make_prov(tmp_path, image_id="img-target-1")
         with (
@@ -1623,7 +1631,6 @@ class TestVerify:
         assert rc == 0
 
     def test_verify_image_not_found(self, valid_toml, tmp_path):
-        import ciscvm
         from ciscvm import cmd_verify
         self._make_prov(tmp_path, image_id="img-other")
         with mock.patch("ciscvm._lineage_path", return_value=tmp_path / "lineage.jsonl"):
@@ -1716,14 +1723,15 @@ class TestCleanupImages:
     """ciscvm cleanup-images — retire old images by lineage age."""
 
     def _seed_lineage(self, tmp_path, days_ago):
+        from datetime import datetime, timedelta
+
         import ciscvm
-        from datetime import datetime, timezone, timedelta
         ciscvm._lineage_path = lambda: tmp_path / "lineage.jsonl"
         path = tmp_path / "lineage.jsonl"
         def rec(ts, imgs, status="ok"):
             return json.dumps({"ts": ts, "status": status, "region": "ap-guangzhou",
                                "image_ids": imgs, "image_name": "n", "cis_level": 1})
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         lines = [
             rec((now - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ"), ["img-old1", "img-old2"]),
             rec((now - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ"), ["img-old3"]),
@@ -1952,7 +1960,8 @@ class TestAuditDedup:
     def test_engine_cross_file_dedup(self):
         """f_audit_rule / f_audit_privileged must both skip rules already in
         the sibling ruleset so augenrules --load never sees a duplicate."""
-        src = open("ciscvm/roles/cis_tencentos4/files/cis_engine.py").read()
+        with open("ciscvm/roles/cis_tencentos4/files/cis_engine.py", encoding="utf-8") as fh:
+            src = fh.read()
         assert "6*-cis-privileged.rules" in src, "f_audit_rule lacks privileged dedup"
         assert "6[0-9]-cis-hardening.rules" in src, "f_audit_privileged lacks hardening dedup"
 
@@ -1988,3 +1997,672 @@ class TestRemotePathCoverage:
         # ubuntu (non-root) profiles get /home/ubuntu instead of /root.
         assert 'remote_path = "__REMOTE_DIR__/ciscvm-smoke.sh"' in \
             open("ciscvm/__init__.py").read()
+
+
+# ===========================================================================
+# Borrows from benchmark comparison (2026-08): P0#1 audit / P0#2 rule_id /
+# P0#3 verify-image / P1#4 benchmark / P1#5 overrides / P1#6 cve+sbom /
+# P1#7 change detection / P2#8 xccdf / P2#9 share / P2#10 sbom-provenance /
+# P2#11 kitty csv
+# ===========================================================================
+class TestRuleOverrides:
+    """P1#5 — [cis].overrides deep-merges per-rule params into the
+    workspace copy of rules.json (bundled catalog never mutated)."""
+
+    def _resolve(self, valid_toml, overrides):
+        valid_toml.setdefault("cis", {})["overrides"] = overrides
+        return resolve(valid_toml)
+
+    def test_overrides_parsed(self, valid_toml):
+        r = self._resolve(valid_toml, {"5.2.2": {"ssh_max_auth_tries": 4}})
+        assert r.rules_overrides == {"5.2.2": {"ssh_max_auth_tries": 4}}
+
+    def test_bad_rule_id_rejected(self, valid_toml):
+        from ciscvm import resolve
+        valid_toml.setdefault("cis", {})["overrides"] = {"nonsense": {"a": 1}}
+        with pytest.raises(ConfigError, match="not a dotted CIS rule ID"):
+            resolve(valid_toml)
+
+    def test_overrides_not_a_table_rejected(self, valid_toml):
+        from ciscvm import resolve
+        valid_toml.setdefault("cis", {})["overrides"] = ["1.1.1.1"]
+        with pytest.raises(ConfigError, match="overrides must be a table"):
+            resolve(valid_toml)
+
+    def test_apply_merges_params_into_workspace_copy(self, valid_toml, tmp_path):
+        from ciscvm import render_all
+        r = self._resolve(valid_toml, {"1.1.1.1": {"module": "overridden"}})
+        wd = tmp_path / "w"
+        render_all(wd, r)
+        rules = json.loads(
+            (wd / "ansible" / "roles" / "cis_tencentos3" / "files" / "rules.json")
+            .read_text(encoding="utf-8"))
+        target = next(x for x in rules if x.get("id") == "1.1.1.1")
+        assert target["params"]["module"] == "overridden"
+        # bundled catalog untouched
+        with open("ciscvm/roles/cis_tencentos3/files/rules.json", encoding="utf-8") as fh:
+            bundled = json.loads(fh.read())
+        btarget = next(x for x in bundled if x.get("id") == "1.1.1.1")
+        assert btarget["params"]["module"] == "cramfs"
+
+    def test_unknown_rule_id_fails_fast(self, valid_toml, tmp_path):
+        from ciscvm import render_all
+        r = self._resolve(valid_toml, {"9.9.9.9": {"a": 1}})
+        wd = tmp_path / "w"
+        with pytest.raises(ConfigError, match="unknown rule ID"):
+            render_all(wd, r)
+
+
+class TestFingerprintAndChangeDetection:
+    """P1#7 — deterministic fingerprint; build --skip-if-unchanged skips."""
+
+    def test_fingerprint_deterministic(self, valid_toml):
+        from ciscvm import _build_fingerprint
+        r1 = resolve(valid_toml)
+        r2 = resolve(json.loads(json.dumps(valid_toml)))
+        assert _build_fingerprint(r1) == _build_fingerprint(r2)
+        assert len(_build_fingerprint(r1)) == 64
+
+    def test_fingerprint_changes_with_source_image(self, valid_toml):
+        from ciscvm import _build_fingerprint
+        a = resolve(valid_toml)
+        valid_toml["build"]["source_image_id"] = "img-different"
+        b = resolve(valid_toml)
+        assert _build_fingerprint(a) != _build_fingerprint(b)
+
+    def test_fingerprint_changes_with_rules_hash(self, valid_toml, monkeypatch):
+        from ciscvm import _build_fingerprint
+        r = resolve(valid_toml)
+        monkeypatch.setattr("ciscvm._bundled_rules_hash", lambda rd: "0" * 64)
+        fp1 = _build_fingerprint(r)
+        monkeypatch.setattr("ciscvm._bundled_rules_hash", lambda rd: "1" * 64)
+        fp2 = _build_fingerprint(r)
+        assert fp1 != fp2
+
+    def test_pending_skips_when_unchanged(self, valid_toml, tmp_path, monkeypatch):
+        from ciscvm import _build_fingerprint, cmd_pending, resolve
+        r = resolve(valid_toml)
+        fp = _build_fingerprint(r)
+        line = {
+            "ts": "2026-08-01T00:00:00Z", "status": "ok",
+            "profile": r.profile_name, "cis_level": r.level,
+            "region": r.region, "image_ids": ["img-old"], "fingerprint": fp,
+        }
+        home = tmp_path / "home"
+        (home / ".ciscvm").mkdir(parents=True)
+        (home / ".ciscvm" / "lineage.jsonl").write_text(
+            json.dumps(line) + "\n", encoding="utf-8")
+        monkeypatch.setattr("ciscvm._lineage_path",
+                            lambda: home / ".ciscvm" / "lineage.jsonl")
+        monkeypatch.setattr("ciscvm._image_ids_still_exist", lambda r, ids: True)
+        monkeypatch.setattr("ciscvm._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        args = mock.MagicMock(config="c", workdir="w")
+        assert cmd_pending(args) == 0  # unchanged → no rebuild needed
+
+    def test_pending_requires_rebuild_when_changed(self, valid_toml, tmp_path, monkeypatch):
+        from ciscvm import cmd_pending, resolve
+        r = resolve(valid_toml)
+        line = {
+            "ts": "2026-08-01T00:00:00Z", "status": "ok",
+            "profile": r.profile_name, "cis_level": r.level,
+            "region": r.region, "image_ids": ["img-old"],
+            "fingerprint": "different",
+        }
+        home = tmp_path / "home"
+        (home / ".ciscvm").mkdir(parents=True)
+        (home / ".ciscvm" / "lineage.jsonl").write_text(
+            json.dumps(line) + "\n", encoding="utf-8")
+        monkeypatch.setattr("ciscvm._lineage_path",
+                            lambda: home / ".ciscvm" / "lineage.jsonl")
+        monkeypatch.setattr("ciscvm._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        args = mock.MagicMock(config="c", workdir="w")
+        assert cmd_pending(args) == 1  # changed → rebuild required
+
+
+class TestCveScanAndSbom:
+    """P1#6 — cve_scan trivy gate + sbom emission blocks spliced into HCL."""
+
+    def test_cve_scan_block_rendered(self, valid_toml, tmp_path):
+        from ciscvm import render_all
+        valid_toml.setdefault("meta", {})["cve_scan"] = True
+        r = resolve(valid_toml)
+        wd = tmp_path / "w"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text(encoding="utf-8")
+        assert "ciscvm-cve-scan.sh" in hcl
+        assert "trivy fs" in hcl
+        assert "CVE GATE FAIL" in hcl
+
+    def test_sbom_block_rendered(self, valid_toml, tmp_path):
+        from ciscvm import render_all
+        valid_toml.setdefault("meta", {})["sbom"] = True
+        r = resolve(valid_toml)
+        wd = tmp_path / "w"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text(encoding="utf-8")
+        assert "ciscvm-sbom.sh" in hcl
+        assert "SBOM_SHA256" in hcl
+        assert "ciscvm-SBOM.jsonl" in hcl
+
+    def test_supply_chain_absent_by_default(self, valid_toml, tmp_path):
+        from ciscvm import render_all
+        r = resolve(valid_toml)
+        wd = tmp_path / "w"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text(encoding="utf-8")
+        assert "ciscvm-cve-scan.sh" not in hcl
+        assert "ciscvm-sbom.sh" not in hcl
+        assert "__SUPPLY_CHAIN_BLOCK__" not in hcl
+
+    def test_sbom_sha_and_count_extraction(self):
+        from ciscvm import _extract_sbom_count, _extract_sbom_sha
+        lines = [
+            "[ciscvm] sbom: 137 packages -> /opt/ciscvm-SBOM.jsonl",
+            "[ciscvm] SBOM_SHA256=" + "a" * 64,
+        ]
+        assert _extract_sbom_sha(lines) == "a" * 64
+        assert _extract_sbom_count(lines) == 137
+        assert _extract_sbom_sha(["nothing"]) is None
+        assert _extract_sbom_count(["nothing"]) is None
+
+
+class TestShareImages:
+    """P2#9 — share_accounts → cvm:ModifyImageSharePermission after build."""
+
+    def test_share_accounts_parsed(self, valid_toml):
+        valid_toml.setdefault("image", {})["share_accounts"] = ["uin/1234567890"]
+        r = resolve(valid_toml)
+        assert r.image_share_accounts == ["uin/1234567890"]
+
+    def test_bad_account_rejected(self, valid_toml):
+        from ciscvm import resolve
+        valid_toml.setdefault("image", {})["share_accounts"] = ["not-an-uin"]
+        with pytest.raises(ConfigError, match="uin/"):
+            resolve(valid_toml)
+
+    def test_share_calls_api_with_accounts(self, valid_toml, monkeypatch):
+        from ciscvm import _share_images
+        calls = {}
+        def fake_tc3(service, action, version, region, params, sid, skey, token):
+            calls["action"] = action
+            calls["params"] = params
+            return {"Response": {"RequestId": "x"}}
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
+        monkeypatch.setattr("ciscvm._tc3_api", fake_tc3)
+        _share_images("ap-guangzhou", ["img-abc"], ["uin/1234567890"])
+        assert calls["action"] == "ModifyImageSharePermission"
+        assert calls["params"]["ImageIds"] == ["img-abc"]
+        assert calls["params"]["AccountIds"] == ["uin/1234567890"]
+
+    def test_share_warns_without_creds(self, valid_toml, monkeypatch, caplog):
+        from ciscvm import _share_images
+        monkeypatch.delenv("TENCENTCLOUD_SECRET_ID", raising=False)
+        monkeypatch.delenv("TENCENTCLOUD_SECRET_KEY", raising=False)
+        _share_images("ap-guangzhou", ["img-abc"], ["uin/1"])
+        assert "cannot share images" in caplog.text
+
+
+class TestXccdfReport:
+    """P2#8 — scan --xccdf exports an XCCDF 1.2 TestResult."""
+
+    def test_build_xccdf(self):
+        from ciscvm import _build_xccdf
+        out = _build_xccdf(["  ✗ 1.1.1.1 | Mounting cramfs disabled",
+                            "detail line",
+                            "  ✗ 1.1.1.2 | Second rule",
+                            "nothing"],
+                           benchmark="CIS TencentOS 4 v1.0.0")
+        assert '<?xml version="1.0" encoding="UTF-8"?>' in out
+        assert 'idref="xccdf_org.ciscvm.content_rule_1.1.1.1"' in out
+        assert 'idref="xccdf_org.ciscvm.content_rule_1.1.1.2"' in out
+        assert "<result>fail</result>" in out
+        assert "CIS TencentOS 4 v1.0.0" in out
+
+    def test_write_xccdf(self, tmp_path):
+        from ciscvm import _write_xccdf
+        args = mock.MagicMock(xccdf=str(tmp_path / "out.xml"))
+        _write_xccdf(args, ["  ✗ 5.1.1 | X"], benchmark="CIS v1")
+        assert (tmp_path / "out.xml").exists()
+        assert "rule_5.1.1" in (tmp_path / "out.xml").read_text()
+
+
+class TestIndependentAudit:
+    """P0#1 — ciscvm audit (oscap / inspec) + parsers."""
+
+    def test_parse_oscap_arf(self):
+        from ciscvm import _parse_oscap_arf
+        xml = """<?xml version="1.0"?>
+<arf xmlns="http://scap.nist.gov/schema/asset-reporting-format/1.1">
+  <report>
+    <content>
+      <TestResult xmlns="http://checklists.nist.gov/xccdf/1.2">
+        <score>0.75</score>
+        <rule-result idref="xccdf_org.ssgproject.content_rule_aide_scan">
+          <result>pass</result>
+        </rule-result>
+        <rule-result idref="xccdf_org.ssgproject.content_rule_grub2_password">
+          <result>fail</result>
+        </rule-result>
+        <rule-result idref="xccdf_org.ssgproject.content_rule_disable_ctrlaltdel">
+          <result>notselected</result>
+        </rule-result>
+      </TestResult>
+    </content>
+  </report>
+</arf>"""
+        a = _parse_oscap_arf(xml)
+        assert a["score"] == 75.0
+        assert a["pass"] == 1
+        assert a["fail"] == 1
+        assert a["notselected"] == 1
+        assert a["tool"] == "oscap"
+
+    def test_parse_oscap_arf_bad_xml(self):
+        from ciscvm import _parse_oscap_arf
+        a = _parse_oscap_arf("<not-xml")
+        assert a["error"] == 1
+        assert a["results"][0]["status"] == "error"
+
+    def test_parse_inspec_json(self):
+        from ciscvm import _parse_inspec_json
+        data = {"controls": [
+            {"id": "cis-1.1.1.1", "status": "passed", "results": [{"status": "passed"}]},
+            {"id": "cis-1.1.1.2", "status": "failed", "results": [{"status": "failed", "message": "bad"}]},
+            {"id": "cis-1.1.1.3", "status": "skipped"},
+        ]}
+        a = _parse_inspec_json(data)
+        assert a["pass"] == 1
+        assert a["fail"] == 1
+        assert a["notselected"] == 1
+        assert a["score"] == 50.0
+
+    def test_parse_inspec_json_empty(self):
+        from ciscvm import _parse_inspec_json
+        a = _parse_inspec_json(None)
+        assert a["error"] == 1
+        assert a["score"] is None
+
+    def test_audit_oscap_requires_datastream(self):
+        from ciscvm import cmd_audit
+        args = mock.MagicMock(tool="oscap", host="1.2.3.4", datastream=None)
+        assert cmd_audit(args) == 1
+
+    def test_audit_requires_host(self):
+        from ciscvm import cmd_audit
+        args = mock.MagicMock(tool="inspec", host=None)
+        assert cmd_audit(args) == 1
+
+    def test_audit_kitty_requires_parse(self):
+        from ciscvm import cmd_audit
+        args = mock.MagicMock(tool="kitty", parse=None)
+        assert cmd_audit(args) == 1
+
+    def test_audit_kitty_parses_csv(self, tmp_path, caplog):
+        from ciscvm import cmd_audit
+        csv_p = tmp_path / "kitty.csv"
+        csv_p.write_text(
+            "RuleId,Compliant,Finding\n"
+            "1.1.1,True,ok\n"
+            "1.1.2,False,broken\n"
+            "1.1.3,Not Applicable,\n", encoding="utf-8")
+        args = mock.MagicMock(tool="kitty", parse=str(csv_p), min_score=50.0,
+                              sarif=None, xccdf=None)
+        assert cmd_audit(args) == 0  # 50% >= 50%
+        args2 = mock.MagicMock(tool="kitty", parse=str(csv_p), min_score=60.0,
+                               sarif=None, xccdf=None)
+        assert cmd_audit(args2) == 1  # 50% < 60%
+
+
+class TestKittyCsvParser:
+    """P2#11 — HardeningKitty CSV cross-check for Windows."""
+
+    def test_parse_basic(self):
+        from ciscvm import _parse_kitty_csv
+        csv_text = ("RuleId,Compliant,Finding\n"
+                    "1.1.1,True,ok\n"
+                    "1.1.2,False,broken\n"
+                    "1.1.3,Not Applicable,\n")
+        a = _parse_kitty_csv(csv_text)
+        assert a["pass"] == 1
+        assert a["fail"] == 1
+        assert a["notselected"] == 1
+        assert a["score"] == 50.0
+        assert a["tool"] == "kitty"
+
+    def test_parse_empty(self):
+        from ciscvm import _parse_kitty_csv
+        a = _parse_kitty_csv("")
+        assert a["error"] == 1
+        assert a["results"][0]["id"] == "_no_header_"
+
+    def test_parse_status_variants(self):
+        from ciscvm import _parse_kitty_csv
+        csv_text = ("RuleId,Status\n"
+                    "r1,Passed\n"
+                    "r2,FAILED\n"
+                    "r3,Skipped\n"
+                    "r4,True\n")
+        a = _parse_kitty_csv(csv_text)
+        assert a["pass"] == 2  # Passed + True
+        assert a["fail"] == 1
+        assert a["notselected"] == 1
+
+
+class TestRuleIdAndBenchmark:
+    """P0#2 — engine emits benchmark-qualified rule_id; SARIF carries
+    the benchmark reference so findings cross-reference CIS/SCAP."""
+
+    def test_engine_rule_id_present(self):
+        with open("ciscvm/roles/cis_tencentos4/files/cis_engine.py", encoding="utf-8") as fh:
+            src = fh.read()
+        assert '"rule_id": (_bm + " " + rule["id"]).strip()' in src
+        assert '"benchmark": _bm' in src
+
+    def test_all_linux_engines_in_sync(self):
+        import hashlib
+        hashes = set()
+        for role in ("cis_tencentos4", "cis_tencentos3", "cis_rhel8",
+                     "cis_rhel9", "cis_rhel10", "cis_ubuntu2004",
+                     "cis_ubuntu2204", "cis_ubuntu2404", "cis_sles15",
+                     "cis_sles16"):
+            with open(f"ciscvm/roles/{role}/files/cis_engine.py", "rb") as fh:
+                data = fh.read()
+            hashes.add(hashlib.sha256(data).hexdigest())
+        assert len(hashes) == 1, "Linux engines drifted out of sync"
+
+    def test_sarif_carries_benchmark(self):
+        from ciscvm import _build_sarif
+        out = json.loads(_build_sarif(["  ✗ 1.1.1.1 | X"],
+                                      benchmark="CIS TencentOS 4 v1.0.0"))
+        driver = out["runs"][0]["tool"]["driver"]
+        assert driver["properties"]["benchmark"] == "CIS TencentOS 4 v1.0.0"
+        assert driver["rules"][0]["properties"]["benchmark"] == "CIS TencentOS 4 v1.0.0"
+
+    def test_sarif_without_benchmark(self):
+        from ciscvm import _build_sarif
+        out = json.loads(_build_sarif(["  ✗ 1.1.1.1 | X"]))
+        driver = out["runs"][0]["tool"]["driver"]
+        assert "properties" not in driver
+
+    def test_list_shows_benchmark_column(self, capsys):
+        from ciscvm import cmd_list
+        assert cmd_list(mock.MagicMock()) == 0
+        out = capsys.readouterr().out
+        assert "benchmark" in out.splitlines()[0]
+
+
+class TestVerifyImage:
+    """P0#3 — clean-boot verification boots a probe from the produced image."""
+
+    def test_probe_launch(self, valid_toml, monkeypatch):
+        from ciscvm import _probe_launch
+        r = resolve(valid_toml)
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
+        monkeypatch.setattr(
+            "ciscvm._tc3_api",
+            lambda *a, **k: {"Response": {"InstanceIdSet": ["ins-probe"]}})
+        assert _probe_launch(r, "img-new", "ciscvm-verify") == "ins-probe"
+
+    def test_probe_launch_missing_creds(self, valid_toml, monkeypatch):
+        from ciscvm import _probe_launch
+        r = resolve(valid_toml)
+        monkeypatch.delenv("TENCENTCLOUD_SECRET_ID", raising=False)
+        with pytest.raises(ConfigError, match="not set"):
+            _probe_launch(r, "img-new", "ciscvm-verify")
+
+    def test_probe_terminate(self, valid_toml, monkeypatch):
+        from ciscvm import _probe_terminate
+        r = resolve(valid_toml)
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
+        called = []
+        monkeypatch.setattr(
+            "ciscvm._tc3_api",
+            lambda *a, **k: called.append(a) or {"Response": {"RequestId": "x"}})
+        _probe_terminate(r, "ins-probe")
+        # _tc3_api(service, action, version, region, params, sid, skey, token)
+        assert called[0][1] == "TerminateInstances"
+        assert called[0][4]["InstanceIds"] == ["ins-probe"]
+
+    def test_verify_image_requires_image(self, valid_toml, monkeypatch, tmp_path):
+        from ciscvm import cmd_verify_image
+        r = resolve(valid_toml)
+        monkeypatch.setattr("ciscvm._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        assert cmd_verify_image(mock.MagicMock(config="c", workdir="w",
+                                               image="", min_score=85.0)) == 1
+
+    def test_verify_image_success_path(self, valid_toml, monkeypatch, tmp_path):
+        from ciscvm import cmd_verify_image
+        r = resolve(valid_toml)
+        monkeypatch.setattr("ciscvm._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("ciscvm._probe_launch", lambda *a, **k: "ins-probe")
+        monkeypatch.setattr("ciscvm._probe_public_ip", lambda *a, **k: "1.2.3.4")
+        monkeypatch.setattr("ciscvm._probe_ssh_ready", lambda *a, **k: True)
+        monkeypatch.setattr("ciscvm._probe_scan",
+                            lambda *a, **k: {"summary": {"all": {"score": 96.0, "fail": 0}}})
+        terminated = []
+        monkeypatch.setattr("ciscvm._probe_terminate",
+                            lambda r_, i: terminated.append(i))
+        args = mock.MagicMock(config="c", workdir="w", image="img-new", min_score=85.0)
+        assert cmd_verify_image(args) == 0
+        assert terminated == ["ins-probe"]  # always terminated
+
+    def test_verify_image_gate_fail(self, valid_toml, monkeypatch, tmp_path):
+        from ciscvm import cmd_verify_image
+        r = resolve(valid_toml)
+        monkeypatch.setattr("ciscvm._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("ciscvm._probe_launch", lambda *a, **k: "ins-probe")
+        monkeypatch.setattr("ciscvm._probe_public_ip", lambda *a, **k: "1.2.3.4")
+        monkeypatch.setattr("ciscvm._probe_ssh_ready", lambda *a, **k: True)
+        monkeypatch.setattr("ciscvm._probe_scan",
+                            lambda *a, **k: {"summary": {"all": {"score": 40.0, "fail": 9}}})
+        terminated = []
+        monkeypatch.setattr("ciscvm._probe_terminate",
+                            lambda r_, i: terminated.append(i))
+        args = mock.MagicMock(config="c", workdir="w", image="img-new", min_score=85.0)
+        assert cmd_verify_image(args) == 1
+        assert terminated == ["ins-probe"]
+
+
+class TestBuildNewFeatures:
+    """cmd_build wiring: skip-if-unchanged, verify_boot, share, sbom capture."""
+
+    def _prep(self, tmp_path):
+        r = mock.MagicMock()
+        r.family = ""
+        r.profile_name = "cis_ubuntu2204"
+        r.level = 1
+        r.region = "ap-guangzhou"
+        r.source_image_id = "img-abc"
+        r.instance_type = "S5.MEDIUM2"
+        r.verify_boot = False
+        r.image_share_accounts = []
+        r.image_benchmark = "CIS-v1.0.0"
+        r.sbom = False
+        r.cve_scan = False
+        r.rules_overrides = {}
+        return r, tmp_path / "build"
+
+    def test_build_skips_when_unchanged(self, tmp_path, monkeypatch):
+        from ciscvm import PackerResult, cmd_build
+        r, wd = self._prep(tmp_path)
+        monkeypatch.setattr("ciscvm._load_resolve_preflight", lambda c, w: (r, wd))
+        monkeypatch.setattr("ciscvm._build_fingerprint", lambda r_: "fp123")
+        monkeypatch.setattr("ciscvm._last_successful_fingerprint",
+                            lambda r_: ("fp123", ["img-old"]))
+        monkeypatch.setattr("ciscvm._image_ids_still_exist", lambda r_, ids: True)
+        rendered = []
+        monkeypatch.setattr("ciscvm.render_all", lambda w, r: rendered.append(1))
+        run = []
+        monkeypatch.setattr("ciscvm.run_packer", lambda *a, **k: run.append(1) or
+                            PackerResult(exit_code=0))
+        args = mock.MagicMock(config="x", workdir=str(wd), yes=True, quiet=False,
+                              log_file=None, skip_if_unchanged=True)
+        assert cmd_build(args) == 0
+        assert rendered == [], "render_all must not run when skipping"
+        assert run == [], "packer must not run when skipping"
+
+    def test_build_verify_boot_wires_probe(self, tmp_path, monkeypatch, caplog):
+        from ciscvm import PackerResult, cmd_build
+        r, wd = self._prep(tmp_path)
+        r.verify_boot = True
+        r.secret_id_env = "TENCENTCLOUD_SECRET_ID"
+        r.secret_key_env = "TENCENTCLOUD_SECRET_KEY"
+        r.security_token_env = "TENCENTCLOUD_SECURITY_TOKEN"
+        r.ssh_username = "root"
+        r.ssh_port = 22
+        r.zone = "ap-guangzhou-3"
+        r.vpc_id = "vpc-x"
+        r.subnet_id = "subnet-x"
+        r.security_group_id = "sg-x"
+        r.associate_public_ip = True
+        monkeypatch.setattr("ciscvm._load_resolve_preflight", lambda c, w: (r, wd))
+        monkeypatch.setattr("ciscvm.render_all", lambda w, r: None)
+        monkeypatch.setattr("ciscvm.run_packer", lambda *a, **k:
+                            PackerResult(exit_code=0, stdout_lines=[
+                                "Created image ID: img-new"]))
+        monkeypatch.setattr("ciscvm.cmd_verify_image", lambda a, image_id=None: 0)
+        args = mock.MagicMock(config="x", workdir=str(wd), yes=True, quiet=False,
+                              log_file=None, skip_if_unchanged=False)
+        assert cmd_build(args) == 0
+        assert "Clean-boot verification" in caplog.text
+
+    def test_build_verify_boot_fail_blocks_image(self, tmp_path, monkeypatch, caplog):
+        from ciscvm import PackerResult, cmd_build
+        r, wd = self._prep(tmp_path)
+        r.verify_boot = True
+        r.secret_id_env = "TENCENTCLOUD_SECRET_ID"
+        r.secret_key_env = "TENCENTCLOUD_SECRET_KEY"
+        r.security_token_env = "TENCENTCLOUD_SECURITY_TOKEN"
+        r.ssh_username = "root"
+        r.ssh_port = 22
+        r.zone = "ap-guangzhou-3"
+        r.vpc_id = "vpc-x"
+        r.subnet_id = "subnet-x"
+        r.security_group_id = "sg-x"
+        r.associate_public_ip = True
+        monkeypatch.setattr("ciscvm._load_resolve_preflight", lambda c, w: (r, wd))
+        monkeypatch.setattr("ciscvm.render_all", lambda w, r: None)
+        monkeypatch.setattr("ciscvm.run_packer", lambda *a, **k:
+                            PackerResult(exit_code=0, stdout_lines=[
+                                "Created image ID: img-new"]))
+        monkeypatch.setattr("ciscvm.cmd_verify_image", lambda a, image_id=None: 1)
+        args = mock.MagicMock(config="x", workdir=str(wd), yes=True, quiet=False,
+                              log_file=None, skip_if_unchanged=False)
+        assert cmd_build(args) == 1
+        assert "not approved" in caplog.text
+
+    def test_build_share_wired(self, tmp_path, monkeypatch):
+        from ciscvm import PackerResult, cmd_build
+        r, wd = self._prep(tmp_path)
+        r.image_share_accounts = ["uin/1234567890"]
+        r.secret_id_env = "TENCENTCLOUD_SECRET_ID"
+        r.secret_key_env = "TENCENTCLOUD_SECRET_KEY"
+        r.security_token_env = "TENCENTCLOUD_SECURITY_TOKEN"
+        monkeypatch.setattr("ciscvm._load_resolve_preflight", lambda c, w: (r, wd))
+        monkeypatch.setattr("ciscvm.render_all", lambda w, r: None)
+        monkeypatch.setattr("ciscvm.run_packer", lambda *a, **k:
+                            PackerResult(exit_code=0, stdout_lines=[
+                                "Created image ID: img-new"]))
+        shared = []
+        monkeypatch.setattr("ciscvm._share_images",
+                            lambda region, ids, accs: shared.append((ids, accs)))
+        args = mock.MagicMock(config="x", workdir=str(wd), yes=True, quiet=False,
+                              log_file=None, skip_if_unchanged=False)
+        assert cmd_build(args) == 0
+        assert shared == [(["img-new"], ["uin/1234567890"])]
+
+    def test_build_captures_sbom(self, tmp_path, monkeypatch):
+        from ciscvm import PackerResult, cmd_build
+        r, wd = self._prep(tmp_path)
+        r.secret_id_env = "TENCENTCLOUD_SECRET_ID"
+        r.secret_key_env = "TENCENTCLOUD_SECRET_KEY"
+        r.security_token_env = "TENCENTCLOUD_SECURITY_TOKEN"
+        monkeypatch.setattr("ciscvm._load_resolve_preflight", lambda c, w: (r, wd))
+        monkeypatch.setattr("ciscvm.render_all", lambda w, r: None)
+        monkeypatch.setattr("ciscvm.run_packer", lambda *a, **k:
+                            PackerResult(exit_code=0, stdout_lines=[
+                                "Created image ID: img-new",
+                                "[ciscvm] sbom: 42 packages -> /opt/ciscvm-SBOM.jsonl",
+                                "[ciscvm] SBOM_SHA256=" + "b" * 64,
+                            ]))
+        lineage = {}
+        monkeypatch.setattr("ciscvm._record_lineage",
+                            lambda r_, ids, name, score, ok, sbom_sha=None,
+                            sbom_count=None: lineage.update(
+                                {"sha": sbom_sha, "count": sbom_count}) or None)
+        prov = {}
+        monkeypatch.setattr("ciscvm._write_provenance",
+                            lambda r_, ids, name, score, sbom_sha=None,
+                            sbom_count=None: prov.update(
+                                {"sha": sbom_sha, "count": sbom_count}) or None)
+        args = mock.MagicMock(config="x", workdir=str(wd), yes=True, quiet=False,
+                              log_file=None, skip_if_unchanged=False)
+        assert cmd_build(args) == 0
+        assert lineage["sha"] == "b" * 64
+        assert lineage["count"] == 42
+        assert prov["sha"] == "b" * 64
+        assert prov["count"] == 42
+
+
+class TestProvenanceSbom:
+    """P2#10 — provenance references the emitted SBOM (hash + count)."""
+
+    def test_provenance_records_sbom(self, valid_toml, tmp_path, monkeypatch):
+        from ciscvm import _write_provenance
+        r = resolve(valid_toml)
+        home = tmp_path / "home"
+        monkeypatch.setattr("ciscvm._lineage_path",
+                            lambda: home / ".ciscvm" / "lineage.jsonl")
+        monkeypatch.setattr("ciscvm._bundled_rules_hash", lambda rd: "r" * 64)
+        monkeypatch.setattr("ciscvm._build_fingerprint", lambda r_: "f" * 64)
+        prov = _write_provenance(r, ["img-abc"], "img-name", 96.5,
+                                 sbom_sha="s" * 64, sbom_count=137)
+        assert prov is not None and prov.exists()
+        doc = json.loads(prov.read_text(encoding="utf-8"))
+        meta = doc["predicate"]["runDetails"]["metadata"]
+        assert meta["sbomSha256"] == "s" * 64
+        assert meta["sbomPackageCount"] == 137
+        assert meta["reAuditScore"] == 96.5
+        ext = doc["predicate"]["buildDefinition"]["externalParameters"]
+        assert ext["rules_sha256"] == "r" * 64
+        assert ext["fingerprint"] == "f" * 64
+
+    def test_provenance_without_sbom(self, valid_toml, tmp_path, monkeypatch):
+        from ciscvm import _write_provenance
+        r = resolve(valid_toml)
+        home = tmp_path / "home"
+        monkeypatch.setattr("ciscvm._lineage_path",
+                            lambda: home / ".ciscvm" / "lineage.jsonl")
+        monkeypatch.setattr("ciscvm._bundled_rules_hash", lambda rd: "r" * 64)
+        monkeypatch.setattr("ciscvm._build_fingerprint", lambda r_: "f" * 64)
+        prov = _write_provenance(r, ["img-abc"], "img-name", None)
+        doc = json.loads(prov.read_text(encoding="utf-8"))
+        meta = doc["predicate"]["runDetails"]["metadata"]
+        assert "sbomSha256" not in meta
+        assert "reAuditScore" not in meta
+
+
+class TestLineageFields:
+    """P1#4 — lineage records benchmark + fingerprint for change detection."""
+
+    def test_lineage_records_benchmark_and_fingerprint(self, valid_toml,
+                                                       tmp_path, monkeypatch):
+        from ciscvm import _record_lineage
+        r = resolve(valid_toml)
+        home = tmp_path / "home"
+        monkeypatch.setattr("ciscvm._lineage_path",
+                            lambda: home / ".ciscvm" / "lineage.jsonl")
+        monkeypatch.setattr("ciscvm._build_fingerprint", lambda r_: "fp-1")
+        p = _record_lineage(r, ["img-1"], "name", 95.0, True)
+        assert p is not None
+        rec = json.loads(p.read_text(encoding="utf-8").splitlines()[0])
+        assert rec["benchmark"] == r.image_benchmark
+        assert rec["fingerprint"] == "fp-1"
