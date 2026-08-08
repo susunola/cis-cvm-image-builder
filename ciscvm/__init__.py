@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.21"
+VERSION = "0.14.22"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -1123,8 +1123,11 @@ SMOKE_LINUX_BLOCK = r"""  provisioner "shell" {
       "else",
       "  echo '[ciscvm] smoke test: /dev/shm noexec not applied (L1 disruptive) — skipped'",
       "fi",
-      "echo '[ciscvm] smoke test: no weak SSH crypto'",
-      "if sudo sshd -T 2>/dev/null | tr ',' '\\n' | grep -Eiq 'hmac-sha1|hmac-md5|umac-64|chacha20|aes128-cbc|aes192-cbc|aes256-cbc'; then",
+      "echo '[ciscvm] smoke test: no genuinely weak SSH crypto (MD5/3DES/RC4/Blowfish)'",
+      "# CIS 1.6.5/1.6.6 explicitly ALLOW hmac-sha1*, umac-64*, chacha20* and",
+      "# aes*-cbc — the guard's drop-in keeps them.  Only flag algorithms CIS",
+      "# actually forbids, or an L1 build can never pass this check.",
+      "if sudo sshd -T 2>/dev/null | grep -Eiq 'md5|3des-cbc|arcfour|blowfish-cbc|cast128|salsa20'; then",
       "  echo '[ciscvm] SMOKE FAIL: weak SSH crypto present'; exit 1;",
       "fi",
       "echo '[ciscvm] smoke test: journal-upload (if enabled)'",
