@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.25"
+VERSION = "0.14.26"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -972,6 +972,15 @@ build {
       "# boot skipped relabel entirely (desired).  sshd active confirms the",
       "# instance is fully up.  Printed first so a failed build is attributable.",
       "echo \"[ciscvm] post-reboot: autorelabel=$([ -f /.autorelabel ] && echo PRESENT || echo GONE) selinux=$(sudo getenforce 2>/dev/null) sshd=$(sudo systemctl is-active sshd 2>/dev/null)\"",
+      "# L2 enables auditd (4.1.1.2) and apply shows 'enabled and running', yet",
+      "# after reboot it can come up inactive (audit 4.1.3.x then all fail with",
+      "# 'not loaded in the running config' + smoke FAIL).  Diagnose and force a",
+      "# start; the journal excerpt surfaces the real reason if start fails.",
+      "echo \"[ciscvm] auditd: active=$(sudo systemctl is-active auditd 2>/dev/null) enabled=$(sudo systemctl is-enabled auditd 2>&1)\"",
+      "if ! sudo systemctl is-active --quiet auditd 2>/dev/null; then",
+      "  sudo systemctl start auditd >/dev/null 2>&1 && echo '[ciscvm] auditd started OK' || { echo '[ciscvm] auditd START FAILED:'; sudo journalctl -u auditd -n 8 --no-pager 2>&1 | tail -8; }",
+      "  echo \"[ciscvm] auditd after start: $(sudo systemctl is-active auditd 2>/dev/null)\"",
+      "fi",
       "# Ensure hostname resolves BEFORE any sudo call.  CIS hardening may",
       "# leave /etc/hosts without the short hostname, which makes sudo PAM",
       "# hang on DNS (5-30s per call).  Packer runs as root: no sudo needed.",
