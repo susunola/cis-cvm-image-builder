@@ -42,7 +42,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.16.1"
+VERSION = "0.16.2"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -3895,15 +3895,26 @@ def _build_sarif(stdout_lines: list[str], benchmark: str = "") -> str:
     rules: list[dict[str, Any]] = []
     results: list[dict[str, Any]] = []
     seen: set[str] = set()
+    _rule_re = re.compile(r"\s*✗\s+([0-9][0-9.]+)\s*\|\s*(.*?)\s*$")
     for i, line in enumerate(stdout_lines):
-        m = re.match(r"\s*✗\s+([0-9][0-9.]+)\s*\|\s*(.*?)\s*$", line)
+        m = _rule_re.match(line)
         if not m:
             continue
         rid, title = m.group(1), m.group(2).strip()
         if rid in seen:
             continue
         seen.add(rid)
-        detail = stdout_lines[i + 1].strip() if i + 1 < len(stdout_lines) else ""
+        # Collect the detail: the indented line(s) directly after this rule
+        # line, stopping at the next rule line or a blank line.  (The old
+        # `stdout_lines[i+1]` grabbed whatever was next — often the next
+        # rule header instead of the actual failure detail.)
+        detail_parts: list[str] = []
+        for j in range(i + 1, min(i + 4, len(stdout_lines))):
+            nxt = stdout_lines[j].strip()
+            if not nxt or _rule_re.match(stdout_lines[j]):
+                break
+            detail_parts.append(nxt)
+        detail = " ".join(detail_parts)
         rule_obj: dict[str, Any] = {"id": rid, "shortDescription": {"text": title}}
         if benchmark:
             rule_obj["properties"] = {"benchmark": benchmark}
@@ -4925,7 +4936,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     _setup_logging(verbose=args.verbose)
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except KeyboardInterrupt:
+        print(file=sys.stderr)
+        fail("interrupted")
+        return 130
+    except Exception as exc:  # never leak a raw traceback to end users
+        import traceback as _tb
+        _tb.print_exc(file=sys.stderr)
+        fail(f"internal error: {type(exc).__name__}: {exc}")
+        return 70
 
 
 if __name__ == "__main__":

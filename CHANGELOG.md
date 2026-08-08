@@ -5,6 +5,24 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
+## [0.16.2] — 2026-08-09
+
+Round-2 review — the engine (`cis_engine.py`), HCL templates, packer
+subprocess handling and the build/clean guards were audited; no new P0/P1
+bugs found (those code paths had been hardened across earlier releases).
+Two polish fixes landed:
+
+### Fixed
+- **SARIF detail extraction**: `scan --sarif` grabbed whatever line came
+  after a failing rule — often the *next* rule header instead of the
+  failure detail.  Now collects the indented detail lines up to the next
+  rule/blank line.
+- **`main()` top-level guard**: an uncaught exception in any subcommand
+  now prints the traceback plus a human `internal error` message and
+  exits 70 (Ctrl-C exits 130) instead of leaking a raw traceback.
+
+Tests: 299 → 304 (5 new regression tests).
+
 ## [0.16.1] — 2026-08-09
 
 Post-review hardening — bugs found in a systematic review of v0.15.0/v0.16.0.
