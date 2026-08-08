@@ -1402,18 +1402,35 @@ class TestBuildGovernance:
         assert "SMOKE FAIL" in hcl
 
     def test_smoke_auditd_conditional(self, valid_toml, tmp_path):
-        """Regression (v0.14.20): auditd is L2 (4.1.x excluded at L1) — the
-        smoke test must only require auditd active when it is installed, not
-        hard-fail an L1 image that legitimately has no auditd."""
+        """Regression (v0.14.20/21): auditd is L2 (4.1.x excluded at L1) — the
+        smoke test must only require auditd active when it is ENABLED, not when
+        its unit file merely exists (TOS4 ships the unit but L1 leaves it off)."""
         r = resolve(valid_toml)
         wd = tmp_path / "build"
         render_all(wd, r)
         hcl = (wd / "packer" / "main.pkr.hcl").read_text()
-        assert "auditd active (if installed" in hcl
-        assert "list-unit-files auditd.service" in hcl
+        assert "auditd active (if enabled" in hcl
+        assert "is-enabled --quiet auditd" in hcl
         # the unconditional hard fail must be gone
         assert "SMOKE FAIL: auditd not active" not in hcl
-        assert "auditd not installed (L1) — skipped" in hcl
+        assert "auditd not enabled (L1) — skipped" in hcl
+
+    def test_smoke_shm_and_journal_conditional(self, valid_toml, tmp_path):
+        """Regression (v0.14.21): /dev/shm noexec (1.1.8.2) is L1-disruptive
+        and journal-upload's unit exists on every systemd box — the smoke test
+        must gate both on 'actually applied/enabled', not on file existence."""
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        # /dev/shm gated on fstab applying noexec
+        assert "smoke test: /dev/shm noexec (if hardened in fstab)" in hcl
+        assert "SMOKE FAIL: /dev/shm noexec applied but not live" in hcl
+        assert "SMOKE FAIL: /dev/shm lacks noexec" not in hcl
+        # journal-upload gated on is-enabled, not unit-file existence
+        assert "journal-upload (if enabled)" in hcl
+        assert "is-enabled --quiet systemd-journal-upload.service" in hcl
+        assert "list-unit-files systemd-journal-upload.service" not in hcl
 
     def test_smoke_disabled(self, valid_toml, tmp_path):
         valid_toml["meta"]["smoke_test"] = False

@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.20"
+VERSION = "0.14.21"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -1111,21 +1111,27 @@ SMOKE_LINUX_BLOCK = r"""  provisioner "shell" {
       "sudo sshd -T >/dev/null 2>&1 || { echo '[ciscvm] SMOKE FAIL: sshd -T rejected config'; exit 1; }",
       "echo '[ciscvm] smoke test: sshd active'",
       "systemctl is-active --quiet sshd || { echo '[ciscvm] SMOKE FAIL: sshd not active'; exit 1; }",
-      "echo '[ciscvm] smoke test: auditd active (if installed — L1 skips auditd)'",
-      "if systemctl list-unit-files auditd.service >/dev/null 2>&1; then",
+      "echo '[ciscvm] smoke test: auditd active (if enabled — L1 skips auditd)'",
+      "if systemctl is-enabled --quiet auditd 2>/dev/null; then",
       "  systemctl is-active --quiet auditd || { echo '[ciscvm] SMOKE FAIL: auditd inactive'; exit 1; }",
       "else",
-      "  echo '[ciscvm] smoke test: auditd not installed (L1) — skipped'",
+      "  echo '[ciscvm] smoke test: auditd not enabled (L1) — skipped'",
       "fi",
-      "echo '[ciscvm] smoke test: /dev/shm noexec'",
-      "awk '$2 == \"/dev/shm\" && $4 ~ /noexec/' /proc/mounts | grep -q . || { echo '[ciscvm] SMOKE FAIL: /dev/shm lacks noexec'; exit 1; }",
+      "echo '[ciscvm] smoke test: /dev/shm noexec (if hardened in fstab)'",
+      "if grep -E '[[:space:]]/dev/shm[[:space:]]' /etc/fstab 2>/dev/null | grep -q noexec; then",
+      "  awk '$2 == \"/dev/shm\" && $4 ~ /noexec/' /proc/mounts | grep -q . || { echo '[ciscvm] SMOKE FAIL: /dev/shm noexec applied but not live'; exit 1; }",
+      "else",
+      "  echo '[ciscvm] smoke test: /dev/shm noexec not applied (L1 disruptive) — skipped'",
+      "fi",
       "echo '[ciscvm] smoke test: no weak SSH crypto'",
       "if sudo sshd -T 2>/dev/null | tr ',' '\\n' | grep -Eiq 'hmac-sha1|hmac-md5|umac-64|chacha20|aes128-cbc|aes192-cbc|aes256-cbc'; then",
       "  echo '[ciscvm] SMOKE FAIL: weak SSH crypto present'; exit 1;",
       "fi",
-      "echo '[ciscvm] smoke test: journal-upload (if configured)'",
-      "if systemctl list-unit-files systemd-journal-upload.service >/dev/null 2>&1; then",
+      "echo '[ciscvm] smoke test: journal-upload (if enabled)'",
+      "if systemctl is-enabled --quiet systemd-journal-upload.service 2>/dev/null; then",
       "  systemctl is-active --quiet systemd-journal-upload || { echo '[ciscvm] SMOKE FAIL: journal-upload inactive'; exit 1; }",
+      "else",
+      "  echo '[ciscvm] smoke test: journal-upload not enabled — skipped'",
       "fi",
       "echo '[ciscvm] smoke test PASSED — image is buildable'"
     ]
