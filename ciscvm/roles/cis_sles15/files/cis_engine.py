@@ -2687,7 +2687,26 @@ def f_selinux(ctx, p):
         set_kv_in_file(ctx, "/etc/selinux/config", "SELINUX", mode, sep="=")
         rc, cur, _ = sh(["getenforce"], 30)
         if (cur or "").strip().lower() == "disabled":
-            return True, "SELINUX=%s written; a reboot with relabel is required" % mode
+            # SELinux was DISABLED.  Switching to enforcing requires a full
+            # filesystem relabel.  If we leave it to the reboot, systemd's
+            # selinux-autorelabel runs in early boot BEFORE network/sshd,
+            # which takes many minutes and makes Packer's post-reboot SSH
+            # reconnect time out (observed: 10-min build failure, all
+            # 'i/o timeout').  Instead, relabel NOW while SSH is still up,
+            # so the reboot boots straight into enforcing with correct
+            # labels and sshd comes up immediately.
+            if have("fixfiles"):
+                rc2, o2, e2 = sh("fixfiles -F relabel >/dev/null 2>&1", 1800)
+                if rc2 != 0:
+                    return False, ("SELINUX=enforcing written but fixfiles "
+                                   "relabel failed: %s" % (e2 or o2)[:160])
+            else:
+                rc2, o2, e2 = sh("restorecon -R / >/dev/null 2>&1", 1800)
+                if rc2 != 0:
+                    return False, ("SELINUX=enforcing written but restorecon "
+                                   "failed: %s" % (e2 or o2)[:160])
+            return True, ("SELINUX=%s written and filesystem relabeled "
+                          "(reboot to enforce)" % mode)
         sh(["setenforce", "1"], 30)
         return True, "SELINUX=%s written and setenforce 1 applied" % mode
     return False, "no automated remediation for %s" % kind
