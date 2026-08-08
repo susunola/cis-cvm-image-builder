@@ -989,6 +989,7 @@ class TestCmdBuildOutput:
         # MagicMock's truthy defaults don't trigger verify-boot / share paths.
         r.verify_boot = False
         r.image_share_accounts = []
+        r.image_share_org_units = []
         r.image_benchmark = "CIS-v1.0.0"
         r.sbom = False
         r.cve_scan = False
@@ -1745,7 +1746,7 @@ class TestCleanupImages:
         self._seed_lineage(tmp_path, days_ago=60)
         with mock.patch("ciscvm._delete_images") as dele, \
              mock.patch("ciscvm._images_exist") as exist:
-            rc = cmd_cleanup_images(mock.MagicMock(older_than=30, keep_latest=1, apply=False))
+            rc = cmd_cleanup_images(mock.MagicMock(older_than=30, keep_latest=1, unused_since=0, apply=False))
         assert rc == 0
         dele.assert_not_called()
         exist.assert_not_called()
@@ -1755,7 +1756,7 @@ class TestCleanupImages:
         path = self._seed_lineage(tmp_path, days_ago=60)
         with mock.patch("ciscvm._images_exist", return_value=["img-old1", "img-old2", "img-old3"]), \
              mock.patch("ciscvm._delete_images") as dele:
-            rc = cmd_cleanup_images(mock.MagicMock(older_than=30, keep_latest=1, apply=True))
+            rc = cmd_cleanup_images(mock.MagicMock(older_than=30, keep_latest=1, unused_since=0, apply=True))
         assert rc == 0
         assert dele.call_count == 3  # 3 old images deleted, img-new kept
         recs = [json.loads(x) for x in path.read_text().splitlines()]
@@ -1768,7 +1769,7 @@ class TestCleanupImages:
         self._seed_lineage(tmp_path, days_ago=60)
         with mock.patch("ciscvm._images_exist", return_value=["img-old1", "img-old2", "img-old3"]), \
              mock.patch("ciscvm._delete_images") as dele:
-            rc = cmd_cleanup_images(mock.MagicMock(older_than=30, keep_latest=2, apply=True))
+            rc = cmd_cleanup_images(mock.MagicMock(older_than=30, keep_latest=2, unused_since=0, apply=True))
         assert rc == 0
         # keep_latest=2: img-new + one old record protected -> only 2 old deleted
         assert dele.call_count == 2
@@ -1777,7 +1778,7 @@ class TestCleanupImages:
         from ciscvm import cmd_cleanup_images
         self._seed_lineage(tmp_path, days_ago=1)
         with mock.patch("ciscvm._delete_images") as dele:
-            rc = cmd_cleanup_images(mock.MagicMock(older_than=30, keep_latest=1, apply=True))
+            rc = cmd_cleanup_images(mock.MagicMock(older_than=30, keep_latest=1, unused_since=0, apply=True))
         assert rc == 0
         dele.assert_not_called()
 
@@ -2484,6 +2485,7 @@ class TestBuildNewFeatures:
         r.instance_type = "S5.MEDIUM2"
         r.verify_boot = False
         r.image_share_accounts = []
+        r.image_share_org_units = []
         r.image_benchmark = "CIS-v1.0.0"
         r.sbom = False
         r.cve_scan = False
@@ -2666,3 +2668,376 @@ class TestLineageFields:
         rec = json.loads(p.read_text(encoding="utf-8").splitlines()[0])
         assert rec["benchmark"] == r.image_benchmark
         assert rec["fingerprint"] == "fp-1"
+
+
+# ===========================================================================
+# Round-2 borrows (2026-08): #12 drift / #13 test_components / #14 deploy
+# webhook / #15 spot / #16 unused-since / #17 org-units / #19 list --versions
+# / #20 check-source
+# ===========================================================================
+class TestRound2Config:
+    """Round-2 config fields parse correctly."""
+
+    def test_spot_parsed(self, valid_toml):
+        valid_toml.setdefault("build", {})["spot"] = True
+        assert resolve(valid_toml).spot is True
+
+    def test_spot_default_off(self, valid_toml):
+        assert resolve(valid_toml).spot is False
+
+    def test_test_components_parsed(self, valid_toml):
+        valid_toml.setdefault("meta", {})["test_components"] = ["scripts/a.sh"]
+        assert resolve(valid_toml).test_components == ["scripts/a.sh"]
+
+    def test_deploy_webhook_parsed(self, valid_toml):
+        valid_toml.setdefault("notify", {})["deploy_webhook"] = "https://ci.example.com/x"
+        assert resolve(valid_toml).deploy_webhook == "https://ci.example.com/x"
+
+    def test_share_org_units_parsed(self, valid_toml):
+        valid_toml.setdefault("image", {})["share_org_units"] = ["uin/999"]
+        assert resolve(valid_toml).image_share_org_units == ["uin/999"]
+
+    def test_share_org_units_bad_rejected(self, valid_toml):
+        valid_toml.setdefault("image", {})["share_org_units"] = ["nope"]
+        with pytest.raises(ConfigError, match="uin/"):
+            resolve(valid_toml)
+
+
+class TestTestComponents:
+    """#13 — [meta].test_components spliced into HCL with file uploads."""
+
+    def _toml_with_scripts(self, valid_toml, tmp_path):
+        scripts = []
+        for name in ("check-a.sh", "check-b.sh"):
+            p = tmp_path / name
+            p.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+            scripts.append(str(p))
+        valid_toml.setdefault("meta", {})["test_components"] = scripts
+        return resolve(valid_toml)
+
+    def test_rendered_with_uploads(self, valid_toml, tmp_path):
+        from ciscvm import render_all
+        r = self._toml_with_scripts(valid_toml, tmp_path)
+        wd = tmp_path / "w"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text(encoding="utf-8")
+        assert "ciscvm-user-tests.sh" in hcl
+        assert "USER TEST FAIL" in hcl
+        # both scripts uploaded via file provisioners
+        assert 'test-components/00-check-a.sh' in hcl
+        assert 'test-components/01-check-b.sh' in hcl
+        # uploaded copies exist in the workdir
+        assert (wd / "packer" / "scripts" / "test-components" / "00-check-a.sh").exists()
+
+    def test_missing_script_fails_fast(self, valid_toml, tmp_path):
+        from ciscvm import render_all
+        valid_toml.setdefault("meta", {})["test_components"] = ["/nonexistent/x.sh"]
+        r = resolve(valid_toml)
+        with pytest.raises(ConfigError, match="script not found"):
+            render_all(tmp_path / "w", r)
+
+    def test_not_rendered_when_unset(self, valid_toml, tmp_path):
+        from ciscvm import render_all
+        r = resolve(valid_toml)
+        wd = tmp_path / "w"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text(encoding="utf-8")
+        assert "ciscvm-user-tests.sh" not in hcl
+        assert "__TEST_COMPONENTS_BLOCK__" not in hcl
+
+
+class TestSpot:
+    """#15 — [build].spot renders instance_charge_type=SPOTPAID."""
+
+    def test_spot_rendered(self, valid_toml, tmp_path):
+        from ciscvm import render_all
+        valid_toml.setdefault("build", {})["spot"] = True
+        r = resolve(valid_toml)
+        wd = tmp_path / "w"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text(encoding="utf-8")
+        assert 'instance_charge_type = "SPOTPAID"' in hcl
+
+    def test_no_spot_by_default(self, valid_toml, tmp_path):
+        from ciscvm import render_all
+        r = resolve(valid_toml)
+        wd = tmp_path / "w"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text(encoding="utf-8")
+        assert "SPOTPAID" not in hcl
+        assert "__SPOT_BLOCK__" not in hcl
+
+
+class TestDeployWebhook:
+    """#14 — [notify].deploy_webhook POSTs image metadata on success."""
+
+    def test_trigger_on_success(self, valid_toml, monkeypatch):
+        from ciscvm import _trigger_deploy_webhook, resolve
+        r = resolve(valid_toml)
+        r.deploy_webhook = "https://ci.example.com/images"
+        sent = {}
+
+        def fake_open(req, timeout=10):
+            sent["url"] = req.full_url
+            sent["payload"] = json.loads(req.data.decode())
+            class R:
+                status = 200
+            return R()
+
+        monkeypatch.setattr("ciscvm.urllib.request.urlopen", fake_open)
+        _trigger_deploy_webhook(r, ["img-abc"], 96.5, "img-name")
+        assert sent["url"] == "https://ci.example.com/images"
+        assert sent["payload"]["event"] == "image.ready"
+        assert sent["payload"]["image_id"] == "img-abc"
+        assert sent["payload"]["score"] == 96.5
+        assert sent["payload"]["profile"] == r.profile_name
+
+    def test_no_trigger_when_webhook_empty(self, valid_toml, monkeypatch):
+        from ciscvm import _send_notification, resolve
+        r = resolve(valid_toml)
+        r.deploy_webhook = ""
+        called = []
+        monkeypatch.setattr("ciscvm._trigger_deploy_webhook",
+                            lambda *a, **k: called.append(1))
+        _send_notification(r, True, ["img-1"], 90.0, "name")
+        assert called == []
+
+    def test_trigger_wired_from_notification(self, valid_toml, monkeypatch):
+        from ciscvm import _send_notification, resolve
+        r = resolve(valid_toml)
+        r.deploy_webhook = "https://ci.example.com/x"
+        called = []
+        monkeypatch.setattr("ciscvm._trigger_deploy_webhook",
+                            lambda *a, **k: called.append(a))
+        monkeypatch.setattr("ciscvm.urllib.request.urlopen",
+                            lambda req, timeout=10: type("R", (), {"status": 200})())
+        # success → trigger fires
+        _send_notification(r, True, ["img-1"], 90.0, "name")
+        assert len(called) == 1
+        # failure → no trigger
+        _send_notification(r, False, [], None, "name")
+        assert len(called) == 1
+
+
+class TestDrift:
+    """#12 — drift detection vs image baseline."""
+
+    def _doc(self, score, rules):
+        return {
+            "summary": {"all": {"score": score, "fail": sum(
+                1 for st in rules.values() if st == "fail"), "pass": 0}},
+            "results": [{"id": rid, "status": st} for rid, st in rules.items()],
+        }
+
+    def test_drift_diff_new_failures(self):
+        from ciscvm import _drift_diff
+        base = self._doc(100.0, {"1.1.1": "pass", "1.1.2": "pass"})
+        cur = self._doc(50.0, {"1.1.1": "pass", "1.1.2": "fail"})
+        d = _drift_diff(base, cur)
+        assert d["new_failures"] == ["1.1.2"]
+        assert d["recovered"] == []
+
+    def test_drift_diff_recovered(self):
+        from ciscvm import _drift_diff
+        base = self._doc(50.0, {"1.1.1": "fail"})
+        cur = self._doc(100.0, {"1.1.1": "pass"})
+        d = _drift_diff(base, cur)
+        assert d["new_failures"] == []
+        assert d["recovered"] == ["1.1.1"]
+
+    def test_drift_diff_absent_in_baseline(self):
+        from ciscvm import _drift_diff
+        base = self._doc(100.0, {"1.1.1": "pass"})
+        cur = self._doc(0.0, {"1.1.2": "fail"})
+        d = _drift_diff(base, cur)
+        assert d["new_failures"] == ["1.1.2"]
+
+    def test_cmd_drift_requires_host(self, valid_toml, monkeypatch, tmp_path):
+        from ciscvm import cmd_drift
+        r = resolve(valid_toml)
+        monkeypatch.setattr("ciscvm._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        assert cmd_drift(mock.MagicMock(config="c", workdir="w", host="")) == 1
+
+    def test_cmd_drift_no_drift(self, valid_toml, monkeypatch, tmp_path):
+        from ciscvm import cmd_drift
+        r = resolve(valid_toml)
+        r.ssh_username = "root"
+        r.ssh_port = 22
+        monkeypatch.setattr("ciscvm._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("ciscvm._probe_scan",
+                            lambda *a, **k: self._doc(100.0, {"1.1.1": "pass"}))
+        baseline = self._doc(100.0, {"1.1.1": "pass"})
+        bl = tmp_path / "bl.json"
+        bl.write_text(json.dumps(baseline), encoding="utf-8")
+        args = mock.MagicMock(config="c", workdir="w", host="1.2.3.4",
+                              image="", baseline=str(bl), ssh_user="", ssh_port=0,
+                              save_baseline=False)
+        assert cmd_drift(args) == 0
+
+    def test_cmd_drift_drift_detected(self, valid_toml, monkeypatch, tmp_path):
+        from ciscvm import cmd_drift
+        r = resolve(valid_toml)
+        r.ssh_username = "root"
+        r.ssh_port = 22
+        monkeypatch.setattr("ciscvm._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("ciscvm._probe_scan",
+                            lambda *a, **k: self._doc(50.0, {"1.1.1": "fail"}))
+        baseline = self._doc(100.0, {"1.1.1": "pass"})
+        bl = tmp_path / "bl.json"
+        bl.write_text(json.dumps(baseline), encoding="utf-8")
+        args = mock.MagicMock(config="c", workdir="w", host="1.2.3.4",
+                              image="", baseline=str(bl), ssh_user="", ssh_port=0,
+                              save_baseline=False)
+        assert cmd_drift(args) == 1
+
+    def test_save_baseline(self, valid_toml, monkeypatch, tmp_path):
+        from ciscvm import _lineage_path, cmd_save_baseline
+        r = resolve(valid_toml)
+        r.ssh_username = "root"
+        r.ssh_port = 22
+        home = tmp_path / "home"
+        monkeypatch.setattr("ciscvm._lineage_path",
+                            lambda: home / ".ciscvm" / "lineage.jsonl")
+        monkeypatch.setattr("ciscvm._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("ciscvm._probe_scan",
+                            lambda *a, **k: self._doc(99.0, {"1.1.1": "pass"}))
+        args = mock.MagicMock(config="c", workdir="w", host="1.2.3.4",
+                              image="img-x", ssh_user="", ssh_port=0)
+        assert cmd_save_baseline(args) == 0
+        bl = home / ".ciscvm" / "baselines" / "img-x.json"
+        assert bl.exists()
+        assert json.loads(bl.read_text())["summary"]["all"]["score"] == 99.0
+
+
+class TestUnusedSince:
+    """#16 — cleanup-images --unused-since keeps shared (in-use) images."""
+
+    def _lineage(self, tmp_path, n_old=3):
+        recs = []
+        for i in range(n_old):
+            recs.append({"ts": f"2026-07-0{i + 1}T00:00:00Z", "status": "ok",
+                         "profile": "tencentos3", "cis_level": 1,
+                         "region": "ap-guangzhou", "image_ids": [f"img-old{i + 1}"]})
+        recs.append({"ts": "2026-08-01T00:00:00Z", "status": "ok",
+                     "profile": "tencentos3", "cis_level": 1,
+                     "region": "ap-guangzhou", "image_ids": ["img-new"]})
+        home = tmp_path / "home"
+        (home / ".ciscvm").mkdir(parents=True)
+        (home / ".ciscvm" / "lineage.jsonl").write_text(
+            "\n".join(json.dumps(r) for r in recs) + "\n", encoding="utf-8")
+        return home
+
+    def test_shared_images_kept(self, tmp_path, monkeypatch):
+        from ciscvm import _lineage_path, cmd_cleanup_images
+        home = self._lineage(tmp_path)
+        monkeypatch.setattr("ciscvm._lineage_path",
+                            lambda: home / ".ciscvm" / "lineage.jsonl")
+        monkeypatch.setattr("ciscvm._image_is_shared", lambda region, img: True)
+        monkeypatch.setattr("ciscvm._images_exist", lambda r, ids: ids)
+        monkeypatch.setattr("ciscvm._delete_images", lambda r, ids: None)
+        args = mock.MagicMock(older_than=30, keep_latest=1, unused_since=1, apply=True)
+        assert cmd_cleanup_images(args) == 0
+
+    def test_unshared_images_deleted(self, tmp_path, monkeypatch):
+        from ciscvm import _lineage_path, cmd_cleanup_images
+        home = self._lineage(tmp_path)
+        monkeypatch.setattr("ciscvm._lineage_path",
+                            lambda: home / ".ciscvm" / "lineage.jsonl")
+        monkeypatch.setattr("ciscvm._image_is_shared", lambda region, img: False)
+        monkeypatch.setattr("ciscvm._images_exist", lambda r, ids: ids)
+        deleted = []
+        monkeypatch.setattr("ciscvm._delete_images",
+                            lambda r, ids: deleted.extend(ids))
+        args = mock.MagicMock(older_than=30, keep_latest=1, unused_since=1, apply=True)
+        assert cmd_cleanup_images(args) == 0
+        assert "img-new" not in deleted
+        assert len(deleted) == 3
+
+    def test_image_is_shared_api(self, monkeypatch):
+        from ciscvm import _image_is_shared
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
+        monkeypatch.setattr(
+            "ciscvm._tc3_api",
+            lambda *a, **k: {"Response": {"SharePermissionSet": [{"AccountId": "uin/1"}]}})
+        assert _image_is_shared("ap-guangzhou", "img-1") is True
+
+    def test_image_is_shared_fails_open(self, monkeypatch, caplog):
+        from ciscvm import _image_is_shared
+        monkeypatch.delenv("TENCENTCLOUD_SECRET_ID", raising=False)
+        # no creds → keep (True)
+        assert _image_is_shared("ap-guangzhou", "img-1") is True
+
+
+class TestCheckSource:
+    """#20 — vendor image refresh detection."""
+
+    def test_source_created_recorded_in_lineage(self, valid_toml, tmp_path, monkeypatch):
+        from ciscvm import _lineage_path, _record_lineage, resolve
+        r = resolve(valid_toml)
+        home = tmp_path / "home"
+        monkeypatch.setattr("ciscvm._lineage_path",
+                            lambda: home / ".ciscvm" / "lineage.jsonl")
+        monkeypatch.setattr("ciscvm._build_fingerprint", lambda r_: "fp")
+        monkeypatch.setattr("ciscvm._source_image_created",
+                            lambda r_: "2026-08-01T00:00:00Z")
+        p = _record_lineage(r, ["img-1"], "name", 95.0, True)
+        rec = json.loads(p.read_text(encoding="utf-8").splitlines()[0])
+        assert rec["source_image_created"] == "2026-08-01T00:00:00Z"
+
+    def test_check_source_unchanged(self, valid_toml, tmp_path, monkeypatch):
+        from ciscvm import _lineage_path, cmd_check_source, resolve
+        r = resolve(valid_toml)
+        home = tmp_path / "home"
+        (home / ".ciscvm").mkdir(parents=True)
+        (home / ".ciscvm" / "lineage.jsonl").write_text(
+            json.dumps({"ts": "2026-08-01T00:00:00Z", "status": "ok",
+                        "profile": r.profile_name, "region": r.region,
+                        "source_image_created": "2026-08-01T00:00:00Z"}) + "\n",
+            encoding="utf-8")
+        monkeypatch.setattr("ciscvm._lineage_path",
+                            lambda: home / ".ciscvm" / "lineage.jsonl")
+        monkeypatch.setattr("ciscvm._source_image_created",
+                            lambda r_: "2026-08-01T00:00:00Z")
+        monkeypatch.setattr("ciscvm._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        assert cmd_check_source(mock.MagicMock(config="c", workdir="w")) == 0
+
+    def test_check_source_refreshed(self, valid_toml, tmp_path, monkeypatch):
+        from ciscvm import _lineage_path, cmd_check_source, resolve
+        r = resolve(valid_toml)
+        home = tmp_path / "home"
+        (home / ".ciscvm").mkdir(parents=True)
+        (home / ".ciscvm" / "lineage.jsonl").write_text(
+            json.dumps({"ts": "2026-08-01T00:00:00Z", "status": "ok",
+                        "profile": r.profile_name, "region": r.region,
+                        "source_image_created": "2026-07-01T00:00:00Z"}) + "\n",
+            encoding="utf-8")
+        monkeypatch.setattr("ciscvm._lineage_path",
+                            lambda: home / ".ciscvm" / "lineage.jsonl")
+        monkeypatch.setattr("ciscvm._source_image_created",
+                            lambda r_: "2026-08-05T00:00:00Z")
+        monkeypatch.setattr("ciscvm._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        assert cmd_check_source(mock.MagicMock(config="c", workdir="w")) == 1
+
+
+class TestListVersions:
+    """#19 — ciscvm list --versions shows rule-catalog hash."""
+
+    def test_list_versions(self, capsys):
+        from ciscvm import cmd_list
+        assert cmd_list(mock.MagicMock(versions=True)) == 0
+        out = capsys.readouterr().out
+        assert "rules_sha256" in out.splitlines()[0]
+        assert "tencentos3" in out
+
+    def test_list_plain_unchanged(self, capsys):
+        from ciscvm import cmd_list
+        assert cmd_list(mock.MagicMock(versions=False)) == 0
+        out = capsys.readouterr().out
+        assert "benchmark" in out.splitlines()[0]

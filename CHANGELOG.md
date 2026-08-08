@@ -5,6 +5,49 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
+## [0.16.0] — 2026-08-08
+
+Round-2 borrows — the "post-delivery lifecycle" layer.  Benchmarked against
+Red Hat Insights Drift, EC2 Image Builder test components / EventBridge /
+spot instances / lifecycle policies, and AWS RAM-style org sharing.
+
+### Added
+- **#12 — Drift detection** (`ciscvm drift`): re-scan a LIVE instance over
+  SSH and diff against the baseline (the audit result shipped inside the
+  image, a saved baseline, or `--baseline <file>`).  Reports new failing
+  rules / recovered rules / score delta; exit 1 = drift.
+  `drift --save-baseline` persists a custom baseline.
+- **#13 — User test components** (`[meta].test_components`): user-defined
+  shell/powershell scripts are uploaded and run sequentially before the
+  snapshot (EC2 Image Builder test-component style); non-zero exit aborts
+  the build.  Missing scripts fail fast.
+- **#14 — Deploy trigger** (`[notify].deploy_webhook`): on build success,
+  POST `{event: image.ready, image_id, score, profile, region}` to the
+  customer's CI/CD (EventBridge-style).  Independent of the WeCom webhook.
+- **#15 — Spot build VM** (`[build].spot`): renders
+  `instance_charge_type = "SPOTPAID"` — up to ~90% cheaper build machine.
+- **#16 — Safe cleanup** (`cleanup-images --unused-since N`): only delete
+  images NOT shared with other accounts (`DescribeImageSharePermission`);
+  fails open (keeps) on API errors so an in-use image is never retired.
+- **#17 — Org-level sharing** (`[image].share_org_units`): merged with
+  `share_accounts` into one `ModifyImageSharePermission` call.
+- **#19 — Rule-set versioning** (`ciscvm list --versions`): per-profile
+  rules.json sha256 + engine version for audit pinning.
+- **#20 — Vendor refresh detection** (`ciscvm check-source`): compares the
+  source image's CreatedTime against the last build's lineage record;
+  exit 0 = unchanged, 1 = refreshed.  Lineage now records
+  `source_image_created`.
+- **#18 — STIG roadmap**: framework is CIS-only today; DISA STIG profiles
+  are documented as a roadmap item (same engine, new rule catalogs).
+
+### Changed
+- `_send_notification` fires `deploy_webhook` independently of the WeCom
+  webhook (deploy trigger no longer blocked when `[notify].webhook` unset).
+- Version bumped 0.15.0 → 0.16.0.
+
+### Tests
+- 287 tests (up from 257) — every round-2 feature has regression coverage.
+
 ## [0.15.0] — 2026-08-08
 
 Borrows from the 2026-08 benchmark comparison against Ansible Lockdown,

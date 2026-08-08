@@ -144,9 +144,13 @@ ciscvm clean
 | `ciscvm pending` | 变更检测：是否需要重建（退出码 0/1） |
 | `ciscvm cleanup-images [--older-than 30]` | 按血缘年龄退役旧镜像 |
 | `ciscvm cleanup-images --apply` | 实际删除（默认仅演练） |
+| `ciscvm cleanup-images --unused-since 60` | 只删除未共享（无下游引用）的镜像 |
 | `ciscvm verify --provenance <file>` | 校验 SLSA 来源签名 |
 | `ciscvm verify --image <img-id>` | 按镜像 ID 定位来源记录 |
 | `ciscvm verify-image --image <img-id>` | 对产出镜像做干净启动验收 |
+| `ciscvm drift --host <ip> [--image <id>]` | 实例配置漂移检测（对比镜像基线） |
+| `ciscvm drift --host <ip> --save-baseline` | 保存当前主机扫描为漂移基线 |
+| `ciscvm check-source` | 源镜像刷新检测（是否需要重建） |
 | `ciscvm audit --tool oscap ...` | 独立审计：OpenSCAP（RHEL 系 SCAP 内容） |
 | `ciscvm audit --tool inspec ...` | 独立审计：Chef InSpec（dev-sec 基线） |
 | `ciscvm audit --tool kitty --parse out.csv` | 独立审计：HardeningKitty（Windows）CSV |
@@ -194,11 +198,13 @@ vpc_id              = "vpc-xxxxxxxx"
 subnet_id           = "subnet-xxxxxxxx"
 security_group_id   = "sg-xxxxxxxx"
 associate_public_ip = true
+# spot = true                             # 可选：构建机用竞价实例（最高省 ~90%）
 
 [image]
 name_prefix  = "tencentos3-cis"
 copy_regions = ["ap-shanghai"]            # 留空 [] 不跨地域
 # share_accounts = ["uin/1234567890"]    # 可选：构建后与其它账号共享镜像
+# share_org_units = ["uin/1234567890"]   # 可选：组织级共享（同一 API）
 
 [cis]
 level = 1                                 # 1 或 2
@@ -215,6 +221,12 @@ secret_key_env = "TENCENTCLOUD_SECRET_KEY"
 # Windows 构建额外需要：
 # winrm_password_env = "WINRM_PASSWORD"
 
+# 构建通知（企微群机器人 webhook）。空 webhook = 关闭。
+# [notify]
+# webhook = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxx"
+# on      = "failure"            # always | success | failure
+# deploy_webhook = "https://ci.example.com/api/images"  # 构建成功 POST 镜像元数据（触发下游）
+
 [meta]
 os_tag    = "tencentos-3"
 benchmark = "CIS-v1.0.0"
@@ -222,6 +234,7 @@ benchmark = "CIS-v1.0.0"
 # cve_scan   = false          # 可选：快照前 trivy 漏洞闸门
 # sbom       = false          # 可选：向镜像与 provenance 输出 SBOM
 # verify_boot = false         # 可选：用产出镜像开探针实例做干净启动复审
+# test_components = ["scripts/app-check.sh"]  # 可选：快照前执行用户自定义测试脚本
 ```
 
 ### 配置参考
@@ -405,7 +418,16 @@ ciscvm build --log-file build.log
 - [x] 跨账号镜像共享（`[image].share_accounts`）
 - [x] provenance + 血缘锚定 SBOM（SLSA L2 风格证据）
 - [x] Windows 经 HardeningKitty CSV 交叉验证（`audit --tool kitty`）
+- [x] 实例配置漂移检测（`ciscvm drift`，对比镜像基线）
+- [x] 用户自定义测试组件（`[meta].test_components`）
+- [x] 构建成功触发下游（`[notify].deploy_webhook`）
+- [x] 竞价实例构建机（`[build].spot`，最高省 ~90%）
+- [x] 安全清理（`cleanup-images --unused-since`，共享中的镜像保留）
+- [x] 组织级共享（`[image].share_org_units`）
+- [x] 规则集版本化（`ciscvm list --versions`）
+- [x] 源镜像刷新检测（`ciscvm check-source`）
 - [ ] SLSA L2：完全可复现构建（锁定构建环境）
+- [ ] STIG 基准 profile（同一引擎，DISA 内容 — 路线图）
 
 ## 参与贡献
 
