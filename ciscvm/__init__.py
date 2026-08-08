@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.18"
+VERSION = "0.14.19"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -801,6 +801,16 @@ build {
       "  sudo awk '{ if ($2==\"/opt\" && $1 !~ /^#/) { n=\"\"; split($4,o,\",\"); for(i in o){ if(o[i]!=\"ro\" && o[i]!=\"defaults\"){ n=(n==\"\"?o[i]:n\",\"o[i]); } } $4=(n==\"\"?\"rw\":n\",rw\"); } print }' /etc/fstab > /tmp/ciscvm-fstab.new 2>/dev/null && sudo mv /tmp/ciscvm-fstab.new /etc/fstab && echo \"[ssh-guard] fstab /opt line rewritten to rw\" || echo \"[ssh-guard] WARN: fstab /opt rewrite failed\"",
       "  sudo mount -o remount,rw /opt >/dev/null 2>&1 && echo \"[ssh-guard] /opt remounted rw\" || echo \"[ssh-guard] WARN: /opt remount rw failed (not a separate mount?)\"",
       "fi",
+      "# Root read-only after reboot: the same class of problem hit the WHOLE root",
+      "# fs — observed 'scp: /root/...: Read-only file system' with v0.14.18 (root",
+      "# was ro, /opt ro was just a symptom).  First SELinux enable can make",
+      "# systemd-remount-fs fail and leave / ro.  Strip ro from the / fstab line",
+      "# (if any) so the next boot remounts rw.",
+      "if grep -qE '(^|[[:space:]])/[[:space:]]' /etc/fstab 2>/dev/null; then",
+      "  sudo awk '{ if ($2==\"/\" && $1 !~ /^#/) { n=\"\"; split($4,o,\",\"); for(i in o){ if(o[i]!=\"ro\" && o[i]!=\"defaults\"){ n=(n==\"\"?o[i]:n\",\"o[i]); } } $4=(n==\"\"?\"rw\":n\",rw\"); } print }' /etc/fstab > /tmp/ciscvm-fstab.new 2>/dev/null && sudo mv /tmp/ciscvm-fstab.new /etc/fstab && echo \"[ssh-guard] fstab / line rewritten to rw\" || echo \"[ssh-guard] WARN: fstab / rewrite failed\"",
+      "  sudo mount -o remount,rw / >/dev/null 2>&1 && echo \"[ssh-guard] / remounted rw\" || echo \"[ssh-guard] WARN: / remount rw failed\"",
+      "fi",
+      "echo \"[ssh-guard] VERIFY: root options=$(findmnt -no OPTIONS / 2>/dev/null)\"",
       "# Install a post-boot oneshot that re-opens the SSH port after reboot.",
       "# Runs BEFORE sshd (Before=sshd.service) so the port is already open when",
       "# sshd accepts; logs to /var/log/ciscvm-ssh-guard.log so a still-failing",
@@ -825,6 +835,13 @@ build {
       "#!/usr/bin/env bash",
       "exec >> /var/log/ciscvm-ssh-guard.log 2>&1",
       "echo \"[ssh-guard-boot] $(date -Is) start\"",
+      "# First enable of SELinux (even permissive) can make systemd-remount-fs",
+      "# fail, leaving / mounted ro while the rest of the boot continues: sshd",
+      "# comes up, but EVERY write (scp upload, /opt staging) fails with",
+      "# 'Read-only file system'.  Force rw here — this unit runs Before=sshd.",
+      "mount -o remount,rw / >/dev/null 2>&1 && echo \"[ssh-guard-boot] root remounted rw\" || echo \"[ssh-guard-boot] WARN: root remount rw failed\"",
+      "mount -o remount,rw /opt >/dev/null 2>&1 || true",
+      "echo \"[ssh-guard-boot] root=$(findmnt -no OPTIONS / 2>/dev/null)\"",
       "SSH_PORT=$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')",
       "[ -z \"$SSH_PORT\" ] && SSH_PORT=$(awk '/^[Pp]ort[ \\t]+[0-9]+/{print $2; exit}' /etc/ssh/sshd_config)",
       "[ -z \"$SSH_PORT\" ] && SSH_PORT=22",

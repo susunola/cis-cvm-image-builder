@@ -1370,6 +1370,18 @@ class TestAllProfilesRender:
             assert 'remount,rw /opt' in hcl, (
                 f"{profile_name}: /opt remount rw missing"
             )
+            # v0.14.19: the whole ROOT fs came up ro (scp to /root failed) —
+            # the boot oneshot must force remount rw before sshd, and the guard
+            # must strip ro from the / fstab line + report root mount options
+            assert "mount -o remount,rw / >/dev/null 2>&1" in hcl, (
+                f"{profile_name}: boot oneshot root remount rw missing"
+            )
+            assert "fstab / line rewritten to rw" in hcl, (
+                f"{profile_name}: guard root fstab ro fix missing"
+            )
+            assert "VERIFY: root options=$(findmnt -no OPTIONS /" in hcl, (
+                f"{profile_name}: root mount state VERIFY missing"
+            )
             # post-reboot provisioner uploads must not depend on /opt writable
             assert 'remote_path       = "/root/ciscvm-reconnected.sh"' in hcl, (
                 f"{profile_name}: reconnect upload still targets /opt"
