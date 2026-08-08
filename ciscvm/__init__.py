@@ -42,7 +42,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.16.2"
+VERSION = "0.16.3"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -745,7 +745,7 @@ def _apply_rule_overrides(workdir: Path, role_dir: str,
 # __HOSTS_FIX__ → bash scripts; __HOSTS_FIX_HCL__ → HCL inline ("-escaped).
 HOSTS_FIX_SNIPPET = (
     'grep "^127.0.0.1" /etc/hosts 2>/dev/null | grep -qwF "$(hostname)" || '
-    'echo "127.0.0.1 $(hostname)" >> /etc/hosts'
+    'echo "127.0.0.1 $(hostname)" | sudo tee -a /etc/hosts >/dev/null'
 )
 
 # ── Linux HCL (SSH communicator × ansible-local provisioner) ──
