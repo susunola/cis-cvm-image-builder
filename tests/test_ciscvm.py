@@ -1432,6 +1432,20 @@ class TestBuildGovernance:
         assert "is-enabled --quiet systemd-journal-upload.service" in hcl
         assert "list-unit-files systemd-journal-upload.service" not in hcl
 
+    def test_smoke_crypto_matches_cis_baseline(self, valid_toml, tmp_path):
+        """Regression (v0.14.22): CIS 1.6.5/1.6.6 ALLOW hmac-sha1*, umac-64*,
+        chacha20* and aes*-cbc — the smoke check must not flag those as weak
+        (an L1 image would never pass), only genuinely forbidden algorithms."""
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        assert "no genuinely weak SSH crypto" in hcl
+        # the old over-broad blacklist must be gone
+        assert "hmac-sha1|hmac-md5|umac-64|chacha20|aes128-cbc" not in hcl
+        # new check only flags CIS-forbidden algs
+        assert "md5|3des-cbc|arcfour|blowfish-cbc|cast128|salsa20" in hcl
+
     def test_smoke_disabled(self, valid_toml, tmp_path):
         valid_toml["meta"]["smoke_test"] = False
         r = resolve(valid_toml)
