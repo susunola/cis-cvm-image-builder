@@ -3058,10 +3058,15 @@ def c_audit_rule(ctx, p):
     ondisk = _ondisk_rules(ctx)
     miss_run, miss_disk = [], []
     for r in p["rules"]:
-        if not _rule_present(r, running):
-            miss_run.append(r)
-        if not _rule_present(r, ondisk):
-            miss_disk.append(r)
+        # Normalise the expected rule the same way the running/ondisk pools
+        # are built (_norm_rule) — otherwise rules written with the
+        # __UID_MIN__ placeholder never match the rendered "auid>=1000"
+        # (v0.14.27: 4.1.3.15/18/19/23 were permanently failing).
+        rr = _norm_rule(r)
+        if not _rule_present(rr, running):
+            miss_run.append(rr)
+        if not _rule_present(rr, ondisk):
+            miss_disk.append(rr)
     if not miss_run and not miss_disk:
         return "pass", "%d rule(s) loaded and persisted" % len(p["rules"])
     why = []

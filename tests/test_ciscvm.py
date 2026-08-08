@@ -652,6 +652,12 @@ class TestRenderAll:
         assert "auditd: active=$(sudo systemctl is-active auditd" in hcl
         assert "systemctl start auditd" in hcl
         assert "auditd START FAILED" in hcl
+        # v0.14.27: auditd active != rules loaded (ExecStartPost=augenrules --load
+        # can fail after the SELinux first-enable boot) — force a reload and
+        # surface the rule count / journal excerpt.
+        assert "augenrules --load" in hcl
+        assert "audit rules reloaded:" in hcl
+        assert "WARN: augenrules --load failed" in hcl
 
     def test_audit_min_score_configurable(self, valid_toml, tmp_path):
         """v0.14.24: [cis].min_score (default 85) renders into site-audit.yml;
