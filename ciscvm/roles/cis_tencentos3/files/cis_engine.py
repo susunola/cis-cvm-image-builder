@@ -3004,6 +3004,22 @@ def _norm_rule(r):
     r = r.replace("__UID_MIN__", str(uid_min()))
     r = re.sub(r"-F\s+auid!=(unset|4294967295|-1)", "-F auid!=-1", r)
     r = re.sub(r'["\']', "", r)
+    # v0.14.28: auditctl -l renders rules differently from rules.d input:
+    #   - path=/perm= rules gain a pseudo "-S all" filter
+    #   - the -S syscall list is re-sorted by syscall number
+    #   - -C euid!=uid is mirrored as -C uid!=euid
+    # Canonicalise both the expected rule and the running/ondisk pools the
+    # same way so _rule_present's string-set comparison still matches.
+    r = re.sub(r"-S all\b", "", r)  # drop injected -S all
+    r = re.sub(r"-S\s+([A-Za-z0-9_,]+)",
+               lambda m: "-S " + ",".join(sorted(set(m.group(1).split(",")))),
+               r)  # sort syscall list
+    r = re.sub(r"-C\s+(\w+)(!=|==)(\w+)",
+               lambda m: "-C %s%s%s" % (
+                   min(m.group(1), m.group(3)), m.group(2),
+                   max(m.group(1), m.group(3))),
+               r)  # canonicalise -C operand order (commutative ops only)
+    r = re.sub(r"\s+", " ", r.strip())
     return r
 
 
@@ -3026,26 +3042,50 @@ def _ondisk_rules(ctx):
     return ctx.cached("rulesd", load)
 
 
+def _rule_canon(w):
+    """Canonical token set of one audit rule, tolerant of every auditctl -l
+    rendering difference observed in the field:
+      - field order is arbitrary (-C before/after -S before/after -F)
+      - path=/perm= rules gain a pseudo '-S all'
+      - -w/-p/-k watch rules render as '-a always,exit -S all -F path=...'
+      - the -S syscall list is re-sorted by syscall number
+      - -C euid!=uid is mirrored as -C uid!=euid
+    Comparing these sets instead of raw strings makes _rule_present immune to
+    all of the above (v0.14.28: L2 4.1.3.x were all failing with
+    'not loaded in the running config' even though the rules were loaded)."""
+    w = _norm_rule(w)
+    toks = set()
+    for m in re.finditer(
+            r"-a\s+\S+|-S\s+\S+|-F\s+\S+|-C\s+\S+|-w\s+\S+|-p\s+\S+|-k\s+\S+", w):
+        tok = m.group(0)
+        if tok.startswith("-a ") or tok == "-S all":
+            continue
+        if tok.startswith("-S "):
+            toks.add("-S " + ",".join(sorted(set(tok[3:].split(",")))))
+        elif tok.startswith("-C "):
+            mm = re.match(r"-C\s+(\w+)(!=|==)(\w+)", tok)
+            toks.add("-C %s%s%s" % (min(mm.group(1), mm.group(3)),
+                                    mm.group(2),
+                                    max(mm.group(1), mm.group(3))) if mm else tok)
+        elif tok.startswith("-F key="):
+            toks.add("key=" + tok[len("-F key="):])
+        elif tok.startswith("-k "):
+            toks.add("key=" + tok[3:])
+        elif tok.startswith("-F "):
+            toks.add(tok[3:])
+        elif tok.startswith("-w "):
+            toks.add("path=" + tok[3:])
+        elif tok.startswith("-p "):
+            toks.add("perm=" + tok[3:])
+        else:
+            toks.add(tok)
+    return toks
+
+
 def _rule_present(want, pool):
-    w = _norm_rule(want)
-    if w in pool:
-        return True
-    # auditctl -l renders -w/-p as -a always,exit -F path=... -F perm=...
-    m = re.match(r"^-w\s+(\S+)\s+-p\s+(\S+)\s+-k\s+(\S+)$", w)
-    if m:
-        path, perm, key = m.groups()
-        for r in pool:
-            if ("-F path=%s" % path) in r and ("-F perm=%s" % perm) in r \
-                    and r.endswith("-F key=%s" % key):
-                return True
-        return False
-    # normalise -k vs -F key=
-    w2 = re.sub(r"\s-k\s+(\S+)$", r" -F key=\1", w)
-    if w2 in pool:
-        return True
-    wset = set(w2.split(" -F "))
+    wset = _rule_canon(want)
     for r in pool:
-        if set(r.split(" -F ")) == wset:
+        if _rule_canon(r) == wset:
             return True
     return False
 

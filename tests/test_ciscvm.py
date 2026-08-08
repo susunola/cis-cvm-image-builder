@@ -1879,3 +1879,45 @@ class TestIdempotencyAndSarif:
         assert out.exists()
         d = json.loads(out.read_text())
         assert d["runs"][0]["results"][0]["ruleId"] == "1.1.1.9"
+
+
+class TestAuditRuleMatching:
+    """v0.14.28: auditctl -l renders rules differently from rules.d input
+    (injects '-S all' on path= rules, re-sorts the -S syscall list by number,
+    mirrors -C operand order).  _norm_rule must canonicalise both sides so the
+    string-set comparison in _rule_present still matches."""
+
+    @staticmethod
+    def _engine():
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "cis_engine",
+            "ciscvm/roles/cis_tencentos4/files/cis_engine.py")
+        eng = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(eng)
+        return eng
+
+    def test_norm_rule_rendering_tolerance(self):
+        eng = self._engine()
+        cases = [
+            # (expected rule from rules.json, auditctl -l rendered form)
+            ("-a always,exit -F arch=b64 -C euid!=uid -F auid!=unset -S execve -k user_emulation",
+             "-a always,exit -F arch=b64 -S execve -C uid!=euid -F auid!=-1 -F key=user_emulation"),
+            ("-a always,exit -F path=/usr/bin/chsh -F perm=x -F auid>=1000 -F auid!=unset -k usermod",
+             "-a always,exit -S all -F path=/usr/bin/chsh -F perm=x -F auid>=1000 -F auid!=-1 -F key=usermod"),
+            ("-a always,exit -F arch=b64 -S creat,open,openat,truncate,ftruncate -F exit=-EACCES -F auid>=1000 -F auid!=unset -k access",
+             "-a always,exit -F arch=b64 -S ftruncate,truncate,openat,open,creat -F exit=-EACCES -F auid>=1000 -F auid!=-1 -F key=access"),
+            ("-a always,exit -F arch=b32 -S rename,unlink,unlinkat,renameat -F auid>=1000 -F auid!=unset -k delete",
+             "-a always,exit -F arch=b32 -S unlink,rename,unlinkat,renameat -F auid>=1000 -F auid!=-1 -F key=delete"),
+            ("-a always,exit -F arch=b64 -S init_module,finit_module,delete_module,create_module,query_module -F auid>=1000 -F auid!=unset -k kernel_modules",
+             "-a always,exit -F arch=b64 -S create_module,init_module,delete_module,query_module,finit_module -F auid>=1000 -F auid!=-1 -F key=kernel_modules"),
+            ("-w /etc/sudoers -p wa -k scope",
+             "-a always,exit -S all -F path=/etc/sudoers -F perm=wa -F key=scope"),
+            # v0.14.23 fix: __UID_MIN__ placeholder replaced on both sides
+            ("-a always,exit -F path=/usr/bin/chcon -F perm=x -F auid>=__UID_MIN__ -F auid!=unset -k perm_chcon",
+             "-a always,exit -S all -F path=/usr/bin/chcon -F perm=x -F auid>=1000 -F auid!=-1 -F key=perm_chcon"),
+        ]
+        for want, rendered in cases:
+            pool = [eng._norm_rule(rendered)]
+            assert eng._rule_present(want, pool), (
+                f"_rule_present failed on rendered form: {want!r} vs {rendered!r}")
