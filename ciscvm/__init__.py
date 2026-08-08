@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.26"
+VERSION = "0.14.27"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -980,6 +980,13 @@ build {
       "if ! sudo systemctl is-active --quiet auditd 2>/dev/null; then",
       "  sudo systemctl start auditd >/dev/null 2>&1 && echo '[ciscvm] auditd started OK' || { echo '[ciscvm] auditd START FAILED:'; sudo journalctl -u auditd -n 8 --no-pager 2>&1 | tail -8; }",
       "  echo \"[ciscvm] auditd after start: $(sudo systemctl is-active auditd 2>/dev/null)\"",
+      "fi",
+      "# auditd may be active yet its rules are not in the kernel: the service's",
+      "# ExecStartPost=augenrules --load can fail after the SELinux first-enable",
+      "# boot while the service still reports active.  Force a reload and echo",
+      "# the rule count so a missing ruleset is visible in the build log.",
+      "if sudo systemctl is-active --quiet auditd 2>/dev/null; then",
+      "  sudo augenrules --load >/dev/null 2>&1 && echo \"[ciscvm] audit rules reloaded: $(sudo auditctl -l 2>/dev/null | grep -c . ) rule(s)\" || { echo '[ciscvm] WARN: augenrules --load failed:'; sudo journalctl -u auditd -n 6 --no-pager 2>&1 | tail -6; }",
       "fi",
       "# Ensure hostname resolves BEFORE any sudo call.  CIS hardening may",
       "# leave /etc/hosts without the short hostname, which makes sudo PAM",
