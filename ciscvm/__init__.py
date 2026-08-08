@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.19"
+VERSION = "0.14.20"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -1111,8 +1111,12 @@ SMOKE_LINUX_BLOCK = r"""  provisioner "shell" {
       "sudo sshd -T >/dev/null 2>&1 || { echo '[ciscvm] SMOKE FAIL: sshd -T rejected config'; exit 1; }",
       "echo '[ciscvm] smoke test: sshd active'",
       "systemctl is-active --quiet sshd || { echo '[ciscvm] SMOKE FAIL: sshd not active'; exit 1; }",
-      "echo '[ciscvm] smoke test: auditd active'",
-      "systemctl is-active --quiet auditd || { echo '[ciscvm] SMOKE FAIL: auditd not active'; exit 1; }",
+      "echo '[ciscvm] smoke test: auditd active (if installed — L1 skips auditd)'",
+      "if systemctl list-unit-files auditd.service >/dev/null 2>&1; then",
+      "  systemctl is-active --quiet auditd || { echo '[ciscvm] SMOKE FAIL: auditd inactive'; exit 1; }",
+      "else",
+      "  echo '[ciscvm] smoke test: auditd not installed (L1) — skipped'",
+      "fi",
       "echo '[ciscvm] smoke test: /dev/shm noexec'",
       "awk '$2 == \"/dev/shm\" && $4 ~ /noexec/' /proc/mounts | grep -q . || { echo '[ciscvm] SMOKE FAIL: /dev/shm lacks noexec'; exit 1; }",
       "echo '[ciscvm] smoke test: no weak SSH crypto'",

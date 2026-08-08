@@ -1401,6 +1401,20 @@ class TestBuildGovernance:
         assert "smoke test: /dev/shm noexec" in hcl
         assert "SMOKE FAIL" in hcl
 
+    def test_smoke_auditd_conditional(self, valid_toml, tmp_path):
+        """Regression (v0.14.20): auditd is L2 (4.1.x excluded at L1) — the
+        smoke test must only require auditd active when it is installed, not
+        hard-fail an L1 image that legitimately has no auditd."""
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        assert "auditd active (if installed" in hcl
+        assert "list-unit-files auditd.service" in hcl
+        # the unconditional hard fail must be gone
+        assert "SMOKE FAIL: auditd not active" not in hcl
+        assert "auditd not installed (L1) — skipped" in hcl
+
     def test_smoke_disabled(self, valid_toml, tmp_path):
         valid_toml["meta"]["smoke_test"] = False
         r = resolve(valid_toml)
