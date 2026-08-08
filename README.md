@@ -145,6 +145,9 @@ ciscvm cleanup-images --apply             # actually delete (default = dry run)
 ciscvm verify --provenance <file>         # verify a SLSA provenance signature
 ciscvm verify --image <img-id>            # ... or locate provenance by image ID
 ciscvm verify-image --image <img-id>      # clean-boot verification of a produced image
+ciscvm drift --host <ip> [--image <id>]   # config drift on a running instance vs image baseline
+ciscvm drift --host <ip> --save-baseline  # save the current host scan as a drift baseline
+ciscvm check-source                       # vendor image refresh detection (rebuild needed?)
 ciscvm audit --tool oscap ...             # independent audit: OpenSCAP (RHEL-family SCAP content)
 ciscvm audit --tool inspec ...            # independent audit: Chef InSpec (dev-sec baselines)
 ciscvm audit --tool kitty --parse out.csv # independent audit: HardeningKitty (Windows) CSV
@@ -169,6 +172,7 @@ ciscvm clean                              # remove .ciscvm-build/
 | `--parse <csv>` | audit --tool kitty | HardeningKitty audit CSV export to parse |
 | `--older-than <days>` | cleanup-images | Retire builds older than N days (default `30`) |
 | `--keep-latest <n>` | cleanup-images | Always keep the newest N builds (default `1`) |
+| `--unused-since <days>` | cleanup-images | Only delete images NOT shared with other accounts (in-use guard; `0` = off) |
 | `--apply` | cleanup-images | Actually delete (default is a dry run) |
 
 ---
@@ -193,12 +197,14 @@ vpc_id              = "vpc-xxxxxxxx"
 subnet_id           = "subnet-xxxxxxxx"
 security_group_id   = "sg-xxxxxxxx"
 associate_public_ip = true
+# spot = true                             # use a spot instance for the build VM (up to ~90% cheaper)
 
 [image]
 name_prefix  = "tencentos3-cis"
 # name = "my-cis-image"                  # optional: fixed image name (empty = auto prefix-level-timestamp)
 copy_regions = ["ap-shanghai"]            # [] to disable cross-region copy
 # share_accounts = ["uin/1234567890"]    # optional: share the built image with other accounts
+# share_org_units = ["uin/1234567890"]   # optional: org-level sharing (same API)
 
 [cis]
 level = 1                                 # 1 or 2
@@ -225,6 +231,7 @@ secret_key_env = "TENCENTCLOUD_SECRET_KEY"
 # [notify]
 # webhook = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxx"
 # on      = "failure"        # always | success | failure
+# deploy_webhook = "https://ci.example.com/api/images"  # POST image metadata on success (EventBridge-style)
 
 # SLSA-style provenance signing (GPG). Empty = provenance unsigned.
 # [sign]
@@ -237,6 +244,7 @@ benchmark = "CIS-v1.0.0"
 # cve_scan   = false          # optional: trivy vulnerability gate before the snapshot
 # sbom       = false          # optional: emit an SBOM into the image + provenance
 # verify_boot = false         # optional: boot a probe from the produced image and re-audit
+# test_components = ["scripts/app-check.sh"]  # optional: user test scripts run before snapshot
 ```
 
 ### Full reference
@@ -252,10 +260,12 @@ benchmark = "CIS-v1.0.0"
 | | `subnet_id` | string | Subnet identifier |
 | | `security_group_id` | string | Must start with `sg-` |
 | | `associate_public_ip` | bool | Assign public IP |
+| | `spot` | bool | Use a spot instance for the build VM (`instance_charge_type=SPOTPAID`; up to ~90% cheaper, may be repossessed mid-build, default `false`) |
 | `[image]` | `name_prefix` | string | Output image name prefix |
 | | `name` | string | Fixed image name (empty = auto `prefix-level-timestamp`) |
 | | `copy_regions` | []string | Regions to replicate (empty = skip) |
 | | `share_accounts` | []string | Share the built image with other accounts (`uin/…`) after build (empty = off) |
+| | `share_org_units` | []string | Org-level sharing — same `ModifyImageSharePermission` API, merged with `share_accounts` (empty = off) |
 | `[cis]` | `level` | int | `1` (Level 1) or `2` (Level 2) |
 | | `min_score` | int | Post-reboot audit gate (default `85`; `0` disables) |
 | | `rules_include` | []string | Rule-ID filter — when set, ONLY these rules run (empty = all) |
@@ -277,8 +287,10 @@ benchmark = "CIS-v1.0.0"
 | | `cve_scan` | bool | Trivy CRITICAL-severity vulnerability gate before the snapshot (default `false`) |
 | | `sbom` | bool | Emit an SBOM (`/opt/ciscvm-SBOM.jsonl`) into the image, hash it and pin it in lineage + provenance (default `false`) |
 | | `verify_boot` | bool | After the snapshot, boot a probe instance from the produced image, re-audit on fresh boot and gate (Linux only, default `false`) |
+| | `test_components` | []string | User-defined test scripts run sequentially before the snapshot (Image Builder test-component style); non-zero exit aborts the build (empty = off) |
 | `[notify]` | `webhook` | string | WeCom group-robot webhook URL (empty = off) |
 | | `on` | string | `always` \| `success` \| `failure` (default `failure`) |
+| | `deploy_webhook` | string | POST `{image_id, score, profile}` on build success to trigger downstream CI/CD (EventBridge-style; empty = off) |
 | `[sign]` | `gpg_key` | string | GPG key id/fingerprint for provenance signing (empty = unsigned) |
 
 ---
@@ -623,6 +635,45 @@ distribute pipeline):
   Every audit can emit SARIF / XCCDF for GRC ingestion
   (`--sarif out.sarif --xccdf out.xml`).
 
+### Post-delivery lifecycle (drift / refresh / deploy trigger)
+
+- **Drift detection** — an image is correct at build time, but instances
+  launched from it drift (configs tweaked, packages patched, services
+  changed). `ciscvm drift` re-scans a LIVE instance over SSH and diffs the
+  result against the baseline — the audit result shipped inside the image
+  (`/opt/ciscvm-AUDIT-RESULT.json`) or a saved one:
+
+  ```bash
+  ciscvm drift --host 1.2.3.4 --image img-ekny61ig --min-score 85
+  # reports: new failing rules / recovered rules / score delta; exit 1 = drift
+  ciscvm drift --host 1.2.3.4 --save-baseline   # persist a custom baseline
+  ```
+
+- **Vendor image refresh** — when the upstream OS image is updated, the
+  golden image should be rebuilt. `ciscvm check-source` compares the
+  source image's `CreatedTime` against the last build's lineage record
+  (exit 0 = unchanged, 1 = refreshed); schedule it on a timer ahead of
+  `build --skip-if-unchanged`:
+
+  ```bash
+  ciscvm check-source && echo "source unchanged" || ciscvm build -y
+  ```
+
+- **Deploy trigger** — `[notify].deploy_webhook` POSTs
+  `{event: "image.ready", image_id, score, profile, region}` on build
+  success, so a new image automatically drives the downstream release
+  (ASG launch-template update, Terraform, CI pipeline) instead of waiting
+  for a human to read the WeCom message.
+
+- **Cost control** — `[build].spot = true` launches the ephemeral build VM
+  as a spot (竞价) instance (`instance_charge_type=SPOTPAID`, up to ~90%
+  cheaper); repossess risk is acceptable for a short-lived build machine.
+
+- **Safe cleanup** — `cleanup-images --unused-since N` only deletes images
+  that are NOT shared with other accounts (via
+  `DescribeImageSharePermission`), so an image still referenced downstream
+  is never accidentally retired. Fails open (keeps the image) on API errors.
+
 ---
 
 ## Troubleshooting
@@ -664,7 +715,16 @@ distribute pipeline):
 - [x] Cross-account image sharing (`[image].share_accounts`)
 - [x] SBOM pinning in provenance + lineage (SLSA L2-style evidence)
 - [x] Windows cross-check via HardeningKitty CSV (`audit --tool kitty`)
+- [x] Config drift detection (`ciscvm drift` vs the image baseline)
+- [x] User test components (`[meta].test_components`, Image Builder style)
+- [x] Deploy trigger webhook (`[notify].deploy_webhook`, EventBridge style)
+- [x] Spot-instance build VM (`[build].spot`, up to ~90% cheaper)
+- [x] Safe cleanup (`cleanup-images --unused-since`, shared images kept)
+- [x] Org-level sharing (`[image].share_org_units`)
+- [x] Rule-set versioning (`ciscvm list --versions`)
+- [x] Vendor image refresh detection (`ciscvm check-source`)
 - [ ] SLSA L2: fully reproducible builds (pinned build environment)
+- [ ] STIG benchmark profiles (same engine, DISA content — roadmap)
 
 ## Contributing
 
