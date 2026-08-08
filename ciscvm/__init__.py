@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.30"
+VERSION = "0.14.31"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -722,12 +722,14 @@ build {
   # 0. Version banner — makes it trivial to confirm which ciscvm code
   #    generated this template (no more guessing from pause_before values).
   provisioner "shell" {
+    remote_path = "/root/ciscvm-banner.sh"
     inline = ["echo '==> ciscvm version: __VERSION__'"]
   }
 
   # 1. Install ansible-core (roles uploaded by ciscvm — no galaxy needed)
   provisioner "shell" {
-    script = "packer/scripts/install-ansible.sh"
+    script       = "packer/scripts/install-ansible.sh"
+    remote_path  = "/root/ciscvm-install-ansible.sh"
   }
 
   # 2. CIS apply (gate disabled: fails don't block, re-audited after reboot)
@@ -1128,6 +1130,10 @@ IDEMPOTENCY_LINUX_BLOCK = r"""  provisioner "ansible-local" {
 # build → test → distribute pipeline (AWS Image Builder style).
 SMOKE_LINUX_BLOCK = r"""  provisioner "shell" {
     pause_before = "5s"
+    # v0.14.31: upload to /root, never /tmp — profiles where CIS 1.1.2.1
+    # actually mounts /tmp as a noexec tmpfs (e.g. TencentOS 3) make packer's
+    # default /tmp/script_XXXX.sh upload unexecutable (exit 126).
+    remote_path = "/root/ciscvm-smoke.sh"
     inline = [
       "echo '[ciscvm] smoke test: sshd config parses'",
       "sudo sshd -T >/dev/null 2>&1 || { echo '[ciscvm] SMOKE FAIL: sshd -T rejected config'; exit 1; }",

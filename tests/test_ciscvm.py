@@ -1948,3 +1948,34 @@ class TestAuditDedup:
         src = open("ciscvm/roles/cis_tencentos4/files/cis_engine.py").read()
         assert "6*-cis-privileged.rules" in src, "f_audit_rule lacks privileged dedup"
         assert "6[0-9]-cis-hardening.rules" in src, "f_audit_privileged lacks hardening dedup"
+
+
+class TestRemotePathCoverage:
+    """v0.14.31: every Linux shell provisioner must set remote_path (never the
+    packer default /tmp) — profiles whose CIS apply mounts /tmp as a noexec
+    tmpfs (TencentOS 3) make /tmp/script_XXXX.sh unexecutable (exit 126)."""
+
+    def test_all_shell_provisioners_have_remote_path(self):
+        src = open("ciscvm/__init__.py").read()
+        start = src.find("HCL_LINUX_TEMPLATE")
+        end = src.find("HCL_WIN_TEMPLATE")
+        hcl = src[start:end]
+        missing = []
+        for m in __import__("re").finditer(r'provisioner "shell" \{', hcl):
+            depth = 0; i = m.end() - 1; j = None
+            while i < len(hcl):
+                if hcl[i] == "{":
+                    depth += 1
+                elif hcl[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        j = i
+                        break
+                i += 1
+            if "remote_path" not in hcl[m.start():j + 1]:
+                missing.append(hcl[m.start():m.start() + 60])
+        assert not missing, f"shell provisioners missing remote_path: {missing}"
+
+    def test_smoke_upload_to_root(self):
+        assert 'remote_path = "/root/ciscvm-smoke.sh"' in \
+            open("ciscvm/__init__.py").read()
