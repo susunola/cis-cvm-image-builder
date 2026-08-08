@@ -1320,12 +1320,13 @@ class TestAllProfilesRender:
 
     @pytest.mark.parametrize("profile_name", list(PROFILES))
     def test_ssh_guard_nft_awk_and_reconnect_budget(self, profile_name, valid_toml, tmp_path):
-        """Regression (v0.14.16): the SSH guard's nftables table iteration must
-        read 'family name' as one token pair (while-read over `nft list tables`,
-        NOT a for-loop over $(awk ...) — word splitting would split 'inet
-        firewalld' into two bogus table names); and the post-reboot reconnect
-        provisioner must widen start_retry_timeout (the connect window), since
-        max_retries only retries command execution, not connection setup."""
+        """Regression (v0.14.16/v0.14.17): the SSH guard's nftables table
+        iteration must read 'family name' as one token pair (while-read over
+        `nft list tables`, NOT a for-loop over $(awk ...)); the post-reboot
+        reconnect provisioner must widen start_retry_timeout (the connect
+        window — max_retries only retries command execution); and the guard
+        must delete the stale /.autorelabel marker so a SELinux disabled ->
+        permissive boot does not stall on a boot-time relabel."""
         if PROFILES[profile_name].get("family") == "windows":
             data = _make_win_toml(profile_name)
         else:
@@ -1350,8 +1351,16 @@ class TestAllProfilesRender:
                 f"{profile_name}: old family-only nft iteration still present"
             )
             # post-reboot reconnect provisioner widens the CONNECT window
-            assert 'start_retry_timeout = "15m"' in hcl, (
+            assert 'start_retry_timeout = "25m"' in hcl, (
                 f"{profile_name}: post-reboot connect window not widened"
+            )
+            # stale SELinux autorelabel marker must be removed pre-reboot
+            assert "rm -f /.autorelabel" in hcl, (
+                f"{profile_name}: stale /.autorelabel not removed by guard"
+            )
+            # post-reboot evidence echo must exist
+            assert "post-reboot: autorelabel=" in hcl, (
+                f"{profile_name}: post-reboot state evidence missing"
             )
 
 
