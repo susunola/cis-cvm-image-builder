@@ -2184,7 +2184,7 @@ class TestShareImages:
             resolve(valid_toml)
 
     def test_share_calls_api_with_accounts(self, valid_toml, monkeypatch):
-        from ciscvm import _share_images
+        from ciscvm import _share_images, resolve
         calls = {}
         def fake_tc3(service, action, version, region, params, sid, skey, token):
             calls["action"] = action
@@ -2193,16 +2193,18 @@ class TestShareImages:
         monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
         monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
         monkeypatch.setattr("ciscvm._tc3_api", fake_tc3)
-        _share_images("ap-guangzhou", ["img-abc"], ["uin/1234567890"])
+        r = resolve(valid_toml)
+        _share_images(r, ["img-abc"], ["uin/1234567890"])
         assert calls["action"] == "ModifyImageSharePermission"
         assert calls["params"]["ImageIds"] == ["img-abc"]
         assert calls["params"]["AccountIds"] == ["uin/1234567890"]
 
     def test_share_warns_without_creds(self, valid_toml, monkeypatch, caplog):
-        from ciscvm import _share_images
+        from ciscvm import _share_images, resolve
         monkeypatch.delenv("TENCENTCLOUD_SECRET_ID", raising=False)
         monkeypatch.delenv("TENCENTCLOUD_SECRET_KEY", raising=False)
-        _share_images("ap-guangzhou", ["img-abc"], ["uin/1"])
+        r = resolve(valid_toml)
+        _share_images(r, ["img-abc"], ["uin/1"])
         assert "cannot share images" in caplog.text
 
 
@@ -2894,7 +2896,7 @@ class TestDrift:
         assert cmd_drift(args) == 1
 
     def test_save_baseline(self, valid_toml, monkeypatch, tmp_path):
-        from ciscvm import _lineage_path, cmd_save_baseline
+        from ciscvm import cmd_save_baseline
         r = resolve(valid_toml)
         r.ssh_username = "root"
         r.ssh_port = 22
@@ -2932,7 +2934,7 @@ class TestUnusedSince:
         return home
 
     def test_shared_images_kept(self, tmp_path, monkeypatch):
-        from ciscvm import _lineage_path, cmd_cleanup_images
+        from ciscvm import cmd_cleanup_images
         home = self._lineage(tmp_path)
         monkeypatch.setattr("ciscvm._lineage_path",
                             lambda: home / ".ciscvm" / "lineage.jsonl")
@@ -2943,7 +2945,7 @@ class TestUnusedSince:
         assert cmd_cleanup_images(args) == 0
 
     def test_unshared_images_deleted(self, tmp_path, monkeypatch):
-        from ciscvm import _lineage_path, cmd_cleanup_images
+        from ciscvm import cmd_cleanup_images
         home = self._lineage(tmp_path)
         monkeypatch.setattr("ciscvm._lineage_path",
                             lambda: home / ".ciscvm" / "lineage.jsonl")
@@ -2977,7 +2979,7 @@ class TestCheckSource:
     """#20 — vendor image refresh detection."""
 
     def test_source_created_recorded_in_lineage(self, valid_toml, tmp_path, monkeypatch):
-        from ciscvm import _lineage_path, _record_lineage, resolve
+        from ciscvm import _record_lineage, resolve
         r = resolve(valid_toml)
         home = tmp_path / "home"
         monkeypatch.setattr("ciscvm._lineage_path",
@@ -2990,7 +2992,7 @@ class TestCheckSource:
         assert rec["source_image_created"] == "2026-08-01T00:00:00Z"
 
     def test_check_source_unchanged(self, valid_toml, tmp_path, monkeypatch):
-        from ciscvm import _lineage_path, cmd_check_source, resolve
+        from ciscvm import cmd_check_source, resolve
         r = resolve(valid_toml)
         home = tmp_path / "home"
         (home / ".ciscvm").mkdir(parents=True)
@@ -3008,7 +3010,7 @@ class TestCheckSource:
         assert cmd_check_source(mock.MagicMock(config="c", workdir="w")) == 0
 
     def test_check_source_refreshed(self, valid_toml, tmp_path, monkeypatch):
-        from ciscvm import _lineage_path, cmd_check_source, resolve
+        from ciscvm import cmd_check_source, resolve
         r = resolve(valid_toml)
         home = tmp_path / "home"
         (home / ".ciscvm").mkdir(parents=True)
@@ -3041,3 +3043,204 @@ class TestListVersions:
         assert cmd_list(mock.MagicMock(versions=False)) == 0
         out = capsys.readouterr().out
         assert "benchmark" in out.splitlines()[0]
+
+
+# ===========================================================================
+# Regression tests for the 2026-08-09 review fixes (v0.16.1):
+# P0 test_components non-root /root path · verify_boot min_score fallback ·
+# probe/audit TimeoutExpired · cleanup per-image retired granularity ·
+# share_images custom env names · oscap status classification
+# ===========================================================================
+class TestTestComponentsNonRoot:
+    """P0 — test_components must upload to the ssh user's home, not /root."""
+
+    def test_ubuntu_renders_home_destination(self, valid_toml, tmp_path):
+        from ciscvm import render_all
+        valid_toml.setdefault("meta", {})["test_components"] = [str(tmp_path / "check.sh")]
+        (tmp_path / "check.sh").write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+        # ubuntu profile → ssh_username = ubuntu
+        valid_toml["build"]["profile"] = "ubuntu2204"
+        r = resolve(valid_toml)
+        wd = tmp_path / "w"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text(encoding="utf-8")
+        assert "/home/ubuntu/ciscvm-test-components/00-check.sh" in hcl
+        assert "/root/ciscvm-test-components/" not in hcl
+        # runner loop resolves __REMOTE_DIR__ to /home/ubuntu in the rendered HCL
+        assert "for t in /home/ubuntu/ciscvm-test-components/*" in hcl
+
+    def test_root_profile_keeps_root_destination(self, valid_toml, tmp_path):
+        from ciscvm import render_all
+        valid_toml.setdefault("meta", {})["test_components"] = [str(tmp_path / "check.sh")]
+        (tmp_path / "check.sh").write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+        r = resolve(valid_toml)  # default tencentos3 → root
+        wd = tmp_path / "w"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text(encoding="utf-8")
+        assert "/root/ciscvm-test-components/00-check.sh" in hcl
+
+    def test_runner_template_has_no_hardcoded_root(self):
+        with open("ciscvm/__init__.py", encoding="utf-8") as fh:
+            src = fh.read()
+        # the runner loop must use __REMOTE_DIR__, never a literal /root
+        assert "for t in __REMOTE_DIR__/ciscvm-test-components/*" in src
+        assert "for t in /root/ciscvm-test-components/*" not in src
+
+
+class TestVerifyImageMinScoreFallback:
+    """P1 — build-driven verify_boot must use [cis].min_score, not 85."""
+
+    def test_fallback_uses_config_min_score(self, valid_toml, monkeypatch, tmp_path):
+        import types
+
+        from ciscvm import cmd_verify_image
+        valid_toml.setdefault("cis", {})["min_score"] = 92
+        r = resolve(valid_toml)
+        monkeypatch.setattr("ciscvm._load_resolve_preflight", lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("ciscvm._probe_launch", lambda *a, **k: "ins-probe")
+        monkeypatch.setattr("ciscvm._probe_public_ip", lambda *a, **k: "1.2.3.4")
+        monkeypatch.setattr("ciscvm._probe_ssh_ready", lambda *a, **k: True)
+        monkeypatch.setattr("ciscvm._probe_scan",
+                            lambda *a, **k: {"summary": {"all": {"score": 90.0, "fail": 2}}})
+        monkeypatch.setattr("ciscvm._probe_terminate", lambda *a, **k: None)
+        # build-style args: NO min_score attribute → fall back to r.min_score=92.
+        # SimpleNamespace (not MagicMock) so getattr falls through to the default.
+        args = types.SimpleNamespace(config="c", workdir="w", image="")
+        assert cmd_verify_image(args, image_id="img-new") == 1  # 90 < 92
+
+    def test_probe_launch_failure_returns_cleanly(self, valid_toml, monkeypatch, tmp_path):
+        from ciscvm import cmd_verify_image
+        r = resolve(valid_toml)
+        monkeypatch.setattr("ciscvm._load_resolve_preflight", lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("ciscvm._probe_launch",
+                            lambda *a, **k: (_ for _ in ()).throw(ConfigError("no creds")))
+        terminated = []
+        monkeypatch.setattr("ciscvm._probe_terminate", lambda r_, i: terminated.append(i))
+        args = mock.MagicMock(config="c", workdir="w", image="img-new", min_score=85.0)
+        assert cmd_verify_image(args) == 1  # graceful fail, not a traceback
+        assert terminated == []  # instance never launched
+
+
+class TestProbeScanTimeout:
+    """P1 — SSH TimeoutExpired must surface as a scan error, not a crash."""
+
+    def test_timeout_returns_error_dict(self, valid_toml, monkeypatch):
+        from ciscvm import _probe_scan
+        r = resolve(valid_toml)
+
+        def boom(*a, **k):
+            raise subprocess.TimeoutExpired(cmd=["ssh"], timeout=900)
+
+        monkeypatch.setattr("ciscvm.subprocess.run", boom)
+        doc = _probe_scan(r, "1.2.3.4", 22, "root", 1)
+        assert "timed out" in doc.get("error", "")
+
+    def test_file_not_found_returns_error_dict(self, valid_toml, monkeypatch):
+        from ciscvm import _probe_scan
+        r = resolve(valid_toml)
+
+        def boom(*a, **k):
+            raise FileNotFoundError("ssh")
+
+        monkeypatch.setattr("ciscvm.subprocess.run", boom)
+        doc = _probe_scan(r, "1.2.3.4", 22, "root", 1)
+        assert "ssh not found" in doc.get("error", "")
+
+
+class TestCleanupRetiredGranularity:
+    """P1 — retiring one image of a multi-image record must not retire the rest."""
+
+    def _lineage_with_multi(self, tmp_path):
+        recs = [
+            {"ts": "2026-07-01T00:00:00Z", "status": "ok",
+             "profile": "tencentos3", "cis_level": 1, "region": "ap-guangzhou",
+             "image_ids": ["img-old-a", "img-old-b"]},  # cross-region copy pair
+            {"ts": "2026-08-01T00:00:00Z", "status": "ok",
+             "profile": "tencentos3", "cis_level": 1, "region": "ap-guangzhou",
+             "image_ids": ["img-new"]},
+        ]
+        home = tmp_path / "home"
+        (home / ".ciscvm").mkdir(parents=True)
+        (home / ".ciscvm" / "lineage.jsonl").write_text(
+            "\n".join(json.dumps(x) for x in recs) + "\n", encoding="utf-8")
+        return home
+
+    def test_partial_delete_keeps_survivor_active(self, tmp_path, monkeypatch):
+        from ciscvm import cmd_cleanup_images
+        home = self._lineage_with_multi(tmp_path)
+        monkeypatch.setattr("ciscvm._lineage_path",
+                            lambda: home / ".ciscvm" / "lineage.jsonl")
+        monkeypatch.setattr("ciscvm._images_exist", lambda region, ids: ids)
+        deleted = []
+        monkeypatch.setattr("ciscvm._delete_images", lambda r, ids: deleted.extend(ids))
+        # --unused-since keeps img-old-b (shared), deletes only img-old-a
+        args2 = mock.MagicMock(older_than=30, keep_latest=1, unused_since=1, apply=True)
+        monkeypatch.setattr(
+            "ciscvm._image_is_shared",
+            lambda region, img: img == "img-old-b")
+        assert cmd_cleanup_images(args2) == 0
+        assert "img-old-a" in deleted
+        assert "img-old-b" not in deleted
+        # lineage: img-old-a removed, img-old-b REMAINS in the active record
+        recs = [json.loads(x) for x in
+                (home / ".ciscvm" / "lineage.jsonl").read_text().splitlines() if x]
+        rec0 = next(x for x in recs
+                    if any("img-old" in i for i in (x.get("image_ids") or [])))
+        assert rec0.get("image_ids") == ["img-old-b"]
+        assert rec0.get("retired") is None  # record NOT retired
+
+
+class TestShareImagesCustomEnv:
+    """P1 — _share_images honours [cloud].secret_id_env custom names."""
+
+    def test_custom_env_names_used(self, valid_toml, monkeypatch):
+        from ciscvm import _share_images, resolve
+        valid_toml.setdefault("cloud", {})["secret_id_env"] = "MY_SECRET_ID"
+        valid_toml.setdefault("cloud", {})["secret_key_env"] = "MY_SECRET_KEY"
+        r = resolve(valid_toml)
+        monkeypatch.setenv("MY_SECRET_ID", "AKIDx")
+        monkeypatch.setenv("MY_SECRET_KEY", "key")
+        monkeypatch.delenv("TENCENTCLOUD_SECRET_ID", raising=False)
+        monkeypatch.delenv("TENCENTCLOUD_SECRET_KEY", raising=False)
+        called = {}
+        monkeypatch.setattr(
+            "ciscvm._tc3_api",
+            lambda *a, **k: called.setdefault("params", a[4]) or
+            {"Response": {"RequestId": "x"}})
+        _share_images(r, ["img-1"], ["uin/1"])
+        assert called["params"]["ImageIds"] == ["img-1"]
+
+    def test_warns_when_custom_env_missing(self, valid_toml, monkeypatch, caplog):
+        from ciscvm import _share_images, resolve
+        valid_toml.setdefault("cloud", {})["secret_id_env"] = "MY_SECRET_ID"
+        r = resolve(valid_toml)
+        monkeypatch.delenv("MY_SECRET_ID", raising=False)
+        _share_images(r, ["img-1"], ["uin/1"])
+        assert "cannot share images" in caplog.text
+
+
+class TestOscapStatusClassification:
+    """P2 — oscap fixed/unknown/notapplicable count as notselected, no dead code."""
+
+    def test_fixed_and_unknown_classified(self):
+        from ciscvm import _parse_oscap_arf
+        xml = """<?xml version="1.0"?>
+<arf xmlns="http://scap.nist.gov/schema/asset-reporting-format/1.1">
+  <report><content>
+    <TestResult xmlns="http://checklists.nist.gov/xccdf/1.2">
+      <score>0.5</score>
+      <rule-result idref="r_fixed"><result>fixed</result></rule-result>
+      <rule-result idref="r_unknown"><result>unknown</result></rule-result>
+      <rule-result idref="r_na"><result>notapplicable</result></rule-result>
+    </TestResult>
+  </content></report>
+</arf>"""
+        a = _parse_oscap_arf(xml)
+        assert a["pass"] == 0 and a["fail"] == 0
+        assert a["notselected"] == 3
+        assert a["error"] == 0
+
+    def test_no_noop_accumulator_in_parser(self):
+        with open("ciscvm/__init__.py", encoding="utf-8") as fh:
+            src = fh.read()
+        assert "+= 0" not in src  # dead no-op removed
