@@ -2683,32 +2683,26 @@ def f_selinux(ctx, p):
                        p.get("value") or "targeted", sep="=")
         return True, "set SELINUXTYPE in /etc/selinux/config (reboot required)"
     if kind in ("mode_not_disabled", "mode_enforcing"):
-        mode = "enforcing"
-        set_kv_in_file(ctx, "/etc/selinux/config", "SELINUX", mode, sep="=")
+        # L1 (mode_not_disabled) only needs "not disabled".  When the source
+        # image ships SELinux disabled (common on TencentOS cloud images),
+        # switching to *enforcing* forces systemd's autorelabel to run in
+        # early boot BEFORE network/sshd — many minutes where Packer's
+        # post-reboot SSH reconnect times out (observed: 10-min build
+        # failure, all 'i/o timeout').  disabled -> permissive needs NO
+        # relabel (permissive tolerates missing labels), so the L1 target
+        # is permissive.  L2 (mode_enforcing) is disruptive and skipped at
+        # L1 anyway; when it does run we still write enforcing.
+        target = "permissive" if kind == "mode_not_disabled" else "enforcing"
+        set_kv_in_file(ctx, "/etc/selinux/config", "SELINUX", target, sep="=")
         rc, cur, _ = sh(["getenforce"], 30)
-        if (cur or "").strip().lower() == "disabled":
-            # SELinux was DISABLED.  Switching to enforcing requires a full
-            # filesystem relabel.  If we leave it to the reboot, systemd's
-            # selinux-autorelabel runs in early boot BEFORE network/sshd,
-            # which takes many minutes and makes Packer's post-reboot SSH
-            # reconnect time out (observed: 10-min build failure, all
-            # 'i/o timeout').  Instead, relabel NOW while SSH is still up,
-            # so the reboot boots straight into enforcing with correct
-            # labels and sshd comes up immediately.
-            if have("fixfiles"):
-                rc2, o2, e2 = sh("fixfiles -F relabel >/dev/null 2>&1", 1800)
-                if rc2 != 0:
-                    return False, ("SELINUX=enforcing written but fixfiles "
-                                   "relabel failed: %s" % (e2 or o2)[:160])
-            else:
-                rc2, o2, e2 = sh("restorecon -R / >/dev/null 2>&1", 1800)
-                if rc2 != 0:
-                    return False, ("SELINUX=enforcing written but restorecon "
-                                   "failed: %s" % (e2 or o2)[:160])
-            return True, ("SELINUX=%s written and filesystem relabeled "
-                          "(reboot to enforce)" % mode)
-        sh(["setenforce", "1"], 30)
-        return True, "SELINUX=%s written and setenforce 1 applied" % mode
+        cur_l = (cur or "").strip().lower()
+        if cur_l == "disabled":
+            return True, ("SELINUX=%s written; reboot required "
+                          "(no relabel needed)" % target)
+        if target == "enforcing":
+            sh(["setenforce", "1"], 30)
+        return True, ("SELINUX=%s written and setenforce %s applied" %
+                      (target, "1" if target == "enforcing" else "0"))
     return False, "no automated remediation for %s" % kind
 
 
