@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.23"
+VERSION = "0.14.24"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -228,6 +228,7 @@ copy_regions = []                         # add regions (e.g. ["ap-shanghai"]) t
 
 [cis]
 level = 1                                 # 1 or 2
+# min_score = 85                          # post-reboot audit gate (0 disables; default 85)
 # Rule selection (optional) — rule IDs to run / skip. Empty = all rules.
 # rules_include = ["1.5.6", "5.4.3.2"]    # when set, ONLY these run
 # rules_exclude = ["1.1.2.2.4"]           # always wins over rules_include
@@ -311,6 +312,7 @@ class ResolvedConfig:
     image_os_tag: str
     image_benchmark: str
     level: int
+    min_score: int                      # [cis].min_score — post-reboot audit gate, 0 disables (default 85)
     role_dir: str
     smoke_test: bool                    # [meta].smoke_test — run instance-level smoke checks before snapshot (default true)
     rules_include: list[str]            # [cis].rules_include — rule-id filter (empty = all)
@@ -518,6 +520,9 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
             raise ConfigError(
                 f"[cis] rules_include and rules_exclude overlap: {overlap}")
 
+    # [cis].min_score — post-reboot audit gate (0 disables; default 85).
+    min_score = int(data.get("cis", {}).get("min_score", 85))
+
     return ResolvedConfig(
         profile_name=profile_name,
         profile=p,
@@ -553,6 +558,7 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         smoke_test=smoke_test,
         rules_include=rules_include,
         rules_exclude=rules_exclude,
+        min_score=min_score,
         notify_webhook=notify_webhook,
         notify_on=notify_on,
         sign_key=sign_key,
@@ -1303,7 +1309,7 @@ SITE_AUDIT_TEMPLATE = r"""---
     cis_platform: server
     cis_allow_disruptive: false
     cis_fail_on_findings: false
-    cis_min_score: 85
+    cis_min_score: __MIN_SCORE__
     cis_org_name: ""
   roles:
     - role: __ROLE_DIR__
@@ -1938,7 +1944,7 @@ def _yaml_list(items: list[str]) -> str:
     return "[" + ", ".join(json.dumps(x, ensure_ascii=False) for x in items) + "]"
 
 
-def render_site_audit(p: dict[str, Any], level: int) -> str:
+def render_site_audit(p: dict[str, Any], level: int, min_score: int = 85) -> str:
     """Generate ansible/site-audit.yml for post-reboot re-evaluation."""
     cis_level = f"L{level}"
     return (
@@ -1946,6 +1952,7 @@ def render_site_audit(p: dict[str, Any], level: int) -> str:
         .replace("__OS_NAME__", str(p["os_tag"]))
         .replace("__CIS_LEVEL__", cis_level)
         .replace("__ROLE_DIR__", str(p["role_dir"]))
+        .replace("__MIN_SCORE__", str(min_score))
     )
 
 
@@ -2102,7 +2109,7 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
     (workdir / "ansible" / "site.yml").write_text(site, encoding="utf-8")
 
     if family != "windows":
-        site_audit = render_site_audit(p, r.level)
+        site_audit = render_site_audit(p, r.level, r.min_score)
         _assert_no_markers(site_audit, "site-audit.yml")
         (workdir / "ansible" / "site-audit.yml").write_text(site_audit, encoding="utf-8")
 
