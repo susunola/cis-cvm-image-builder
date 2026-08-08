@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.16"
+VERSION = "0.14.17"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -853,6 +853,15 @@ build {
       "for z in $(sudo firewall-cmd --get-zones 2>/dev/null); do if sudo firewall-cmd --zone=$z --query-port=$SSH_PORT/tcp --permanent >/dev/null 2>&1; then echo \"[ssh-guard] VERIFY: zone $z permanent port $SSH_PORT: OK\"; else echo \"[ssh-guard] VERIFY: zone $z permanent port $SSH_PORT: MISSING\"; fi; done",
       "echo \"[ssh-guard] VERIFY: nftables.conf port rules=$(sudo grep -c \"dport $SSH_PORT accept\" /etc/sysconfig/nftables.conf 2>/dev/null || echo 0)\"",
       "echo \"[ssh-guard] VERIFY: iptables port rules=$(sudo grep -c \"dport $SSH_PORT -j ACCEPT\" /etc/sysconfig/iptables 2>/dev/null || echo 0)\"",
+      "# SELinux disabled->permissive: the currently-disabled boot left a stale",
+      "# /.autorelabel marker (selinux-autorelabel-mark).  On the next boot",
+      "# (SELinux now permissive) the autorelabel service consumes it and runs a",
+      "# full restorecon in EARLY boot, before network/sshd — observed as a",
+      "# multi-minute-to-infinite i/o timeout loop after reboot.  Remove the",
+      "# marker so the permissive boot needs NO relabel; with permissive the",
+      "# missing file labels are tolerated, and the mark service only recreates",
+      "# the marker during a SELinux-disabled boot (which this is no longer).",
+      "if [ -f /.autorelabel ]; then sudo rm -f /.autorelabel && echo \"[ssh-guard] removed stale /.autorelabel (boot relabel suppressed)\" || echo \"[ssh-guard] WARN: could not remove /.autorelabel\"; else echo \"[ssh-guard] no stale /.autorelabel present\"; fi",
       "echo \"[ssh-guard] VERIFY: selinux=$(sudo getenforce 2>/dev/null) config=$(sudo grep ^SELINUX= /etc/selinux/config 2>/dev/null) autorelabel=$([ -f /.autorelabel ] && echo PRESENT || echo absent)\"",
       "# Ensure key-based root login survives CIS hardening (PermitRootLogin no)",
       "if sudo sshd -T 2>/dev/null | grep -qi '^permitrootlogin no'; then",
@@ -904,8 +913,9 @@ build {
     # accepts.  The connect window is start_retry_timeout (default "a few
     # minutes" — observed ~5 min give-up of i/o timeout retries), NOT
     # max_retries (which only retries command execution).  Raise it so a
-    # slow-but-healthy boot no longer looks like a dead instance.
-    start_retry_timeout = "15m"
+    # slow-but-healthy boot no longer looks like a dead instance.  25m also
+    # covers an unexpected single SELinux autorelabel pass + its auto-reboot.
+    start_retry_timeout = "25m"
     max_retries         = 40
     # Upload to /opt (not /tmp): systemd-tmpfiles on the freshly rebooted
     # image may purge /tmp (tmp.conf D-type cleanup), which made the
@@ -924,6 +934,11 @@ build {
     remote_path  = "/opt/ciscvm-ansible/fix-logperms.sh"
     inline = [
       "set +e",
+      "# Post-reboot state evidence: if SELinux autorelabel ran at boot it would",
+      "# have consumed (deleted) /.autorelabel; if the marker is still here the",
+      "# boot skipped relabel entirely (desired).  sshd active confirms the",
+      "# instance is fully up.  Printed first so a failed build is attributable.",
+      "echo \"[ciscvm] post-reboot: autorelabel=$([ -f /.autorelabel ] && echo PRESENT || echo GONE) selinux=$(sudo getenforce 2>/dev/null) sshd=$(sudo systemctl is-active sshd 2>/dev/null)\"",
       "# Ensure hostname resolves BEFORE any sudo call.  CIS hardening may",
       "# leave /etc/hosts without the short hostname, which makes sudo PAM",
       "# hang on DNS (5-30s per call).  Packer runs as root: no sudo needed.",
