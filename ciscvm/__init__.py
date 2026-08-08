@@ -42,7 +42,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.15.0"
+VERSION = "0.16.0"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -222,12 +222,14 @@ vpc_id              = "vpc-xxxxxxxx"
 subnet_id           = "subnet-xxxxxxxx"
 security_group_id   = "sg-xxxxxxxx"
 associate_public_ip = false               # set to true only if a public IP is required
+# spot = true                             # use a spot instance for the build VM — up to ~90% cheaper, may be repossessed mid-build (default false)
 
 [image]
 name_prefix  = "tencentos3-cis"
 # name = "my-cis-image"                  # optional: fixed image name (empty = auto prefix-level-timestamp)
 copy_regions = []                         # add regions (e.g. ["ap-shanghai"]) to copy the image
 # share_accounts = ["uin/1234567890"]    # optional: share the built image with other accounts
+# share_org_units = ["uin/1234567890"]   # optional: org-level sharing (same ModifyImageSharePermission API as share_accounts)
 
 [cis]
 level = 1                                 # 1 or 2
@@ -262,6 +264,7 @@ secret_key_env = "TENCENTCLOUD_SECRET_KEY"
 # [notify]
 # webhook = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxx"
 # on      = "failure"
+# deploy_webhook = "https://ci.example.com/api/images"   # optional: POST {image_id, score, profile} on build success (EventBridge-style trigger)
 
 # SLSA-style provenance signing (GPG). Empty = provenance unsigned.
 # [sign]
@@ -273,6 +276,7 @@ benchmark = "CIS-v1.0.0"
 # smoke_test = true   # instance-level checks before the image snapshot
 # cve_scan   = false  # optional: run trivy vulnerability scan on the build VM before snapshot (gate)
 # sbom       = false  # optional: emit an SBOM (syft or native rpm/dpkg) into the image + provenance
+# test_components = ["scripts/app-check.sh"]   # optional: user-defined test scripts run before snapshot (Image Builder test-component style)
 """
 
 PROFILE_NAMES_HELP = ", ".join(PROFILES)
@@ -313,6 +317,8 @@ class ResolvedConfig:
     image_name_override: str            # [image].name — fixed image name ("" = auto)
     image_copy_regions: list[str]
     image_share_accounts: list[str]     # [image].share_accounts — share built image with other uins
+    image_share_org_units: list[str]    # [image].share_org_units — org-level sharing (same API as share_accounts)
+    spot: bool                          # [build].spot — use a spot instance for the build VM (default false)
     cis_level_tag: str
     secret_id_env: str
     secret_key_env: str
@@ -333,7 +339,9 @@ class ResolvedConfig:
     rules_overrides: dict[str, dict[str, Any]]    # [cis.overrides] — per-rule param deep-merge (rule_id -> {param: value})
     notify_webhook: str                 # [notify].webhook — WeCom group-robot webhook URL ("" = off)
     notify_on: str                      # [notify].on — "always" | "success" | "failure" (default "failure")
+    deploy_webhook: str                 # [notify].deploy_webhook — POST image metadata on build success ("" = off)
     sign_key: str                       # [sign].gpg_key — GPG key id/fingerprint for SLSA provenance signing ("" = off)
+    test_components: list[str]          # [meta].test_components — user-defined test scripts run before snapshot
     verify_boot: bool                   # [meta].verify_boot — boot a probe instance from the produced image and re-audit before declaring success (default false)
 
 
@@ -567,6 +575,20 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
                 f"[image].share_accounts entry {acc!r} is not a valid "
                 "Tencent Cloud account ID (expected \"uin/1234567890\").")
 
+    # [image].share_org_units — org-level sharing (same API as share_accounts).
+    share_org_units = [str(x).strip() for x in data.get("image", {}).get("share_org_units", []) if str(x).strip()]
+    for acc in share_org_units:
+        if not re.fullmatch(r"uin/[0-9]+", acc):
+            raise ConfigError(
+                f"[image].share_org_units entry {acc!r} is not a valid "
+                "Tencent Cloud account ID (expected \"uin/1234567890\").")
+
+    # [build].spot — spot instance for the build VM (up to ~90% cheaper).
+    spot = bool(data.get("build", {}).get("spot", False))
+
+    # [meta].test_components — user-defined test scripts run before snapshot.
+    test_components = [str(x).strip() for x in data.get("meta", {}).get("test_components", []) if str(x).strip()]
+
     # [meta].verify_boot — clean-boot verification after the snapshot.
     verify_boot = bool(data.get("meta", {}).get("verify_boot", False))
 
@@ -595,6 +617,8 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         image_name_override=image_name_override,
         image_copy_regions=copy_regions,
         image_share_accounts=share_accounts,
+        image_share_org_units=share_org_units,
+        spot=spot,
         cis_level_tag=f"level{level}-server",
         secret_id_env=str(data["cloud"]["secret_id_env"]),
         secret_key_env=str(data["cloud"]["secret_key_env"]),
@@ -615,7 +639,9 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         min_score=min_score,
         notify_webhook=notify_webhook,
         notify_on=notify_on,
+        deploy_webhook=str(data.get("notify", {}).get("deploy_webhook", "")).strip(),
         sign_key=sign_key,
+        test_components=test_components,
         verify_boot=verify_boot,
     )
 
@@ -801,6 +827,7 @@ __ASSUME_ROLE_BLOCK__
   subnet_id                   = var.subnet_id
   security_group_id           = var.security_group_id
   associate_public_ip_address = var.associate_public_ip_address
+__SPOT_BLOCK__
   image_copy_regions          = var.image_copy_regions
   image_tags = {
     cis_level  = local.level_short
@@ -1199,7 +1226,7 @@ build {
       "fi"
     ]
   }
-__IDEMPOTENCY_BLOCK____SMOKE_TEST_BLOCK____SUPPLY_CHAIN_BLOCK__
+__IDEMPOTENCY_BLOCK____SMOKE_TEST_BLOCK____SUPPLY_CHAIN_BLOCK____TEST_COMPONENTS_BLOCK__
 }
 """
 
@@ -1273,6 +1300,34 @@ SMOKE_LINUX_BLOCK = r"""  provisioner "shell" {
   }
 """
 
+# ── User test components (Linux) — [meta].test_components ──
+# EC2 Image Builder "test component" style: after the built-in smoke test
+# and supply-chain gates, run the user's own validation scripts (e.g.
+# "agent installed and port reachable").  Scripts are uploaded from the
+# controller and executed sequentially; any non-zero exit aborts the build
+# before the snapshot.  #13 of the round-2 borrow list.
+TEST_COMPONENTS_LINUX_BLOCK = r"""  provisioner "shell" {
+    pause_before = "3s"
+    remote_path = "__REMOTE_DIR__/ciscvm-user-tests.sh"
+    inline = [
+      "set +e",
+      "echo '[ciscvm] user test components: running'",
+      "for t in /root/ciscvm-test-components/*; do",
+      "  [ -f \"$t\" ] || continue",
+      "  echo \"[ciscvm] user-test: running $(basename \"$t\")\"",
+      "  bash \"$t\"",
+      "  RC=$?",
+      "  if [ \"$RC\" != \"0\" ]; then",
+      "    echo \"[ciscvm] USER TEST FAIL: $(basename \"$t\") exited $RC — image not produced\"",
+      "    exit 1",
+      "  fi",
+      "  echo \"[ciscvm] user-test: PASS $(basename \"$t\")\"",
+      "done",
+      "echo '[ciscvm] user test components: all passed'"
+    ]
+  }
+"""
+
 # ── CVE scan gate (Linux) — [meta].cve_scan=true ──
 # Trivy filesystem scan of the hardened rootfs, CRITICAL-severity findings
 # abort the build (no image produced).  P1#6 of the benchmark borrow list:
@@ -1336,6 +1391,22 @@ SMOKE_WIN_BLOCK = r"""  provisioner "powershell" {
     inline = [
       "if ((Get-Service -Name mpssvc -ErrorAction SilentlyContinue).Status -ne 'Running') { Write-Error '[ciscvm] SMOKE FAIL: Windows firewall inactive'; exit 1 }",
       "Write-Host '[ciscvm] smoke test PASSED - image is buildable'"
+    ]
+  }
+"""
+
+# ── User test components (Windows) — [meta].test_components ──
+# PowerShell scripts run sequentially before the snapshot; a non-zero exit
+# aborts the build (#13).
+TEST_COMPONENTS_WIN_BLOCK = r"""  provisioner "powershell" {
+    inline = [
+      "Get-ChildItem 'C:/ciscvm-test-components/*.ps1' -ErrorAction SilentlyContinue | ForEach-Object {",
+      "  Write-Host ('[ciscvm] user-test: running ' + $_.Name)",
+      "  & $_.FullName",
+      "  if ($LASTEXITCODE -ne 0) { Write-Error ('[ciscvm] USER TEST FAIL: ' + $_.Name + ' exited ' + $LASTEXITCODE); exit 1 }",
+      "  Write-Host ('[ciscvm] user-test: PASS ' + $_.Name)",
+      "}",
+      "Write-Host '[ciscvm] user test components: all passed'"
     ]
   }
 """
@@ -1426,6 +1497,7 @@ __ASSUME_ROLE_BLOCK__
   subnet_id                   = var.subnet_id
   security_group_id           = var.security_group_id
   associate_public_ip_address = var.associate_public_ip_address
+__SPOT_BLOCK__
   image_copy_regions          = var.image_copy_regions
   image_tags = {
     cis_level  = local.level_short
@@ -1454,7 +1526,7 @@ build {
       "-e", "ansible_winrm_transport=basic"
     ]
   }
-__SMOKE_TEST_BLOCK__
+__SMOKE_TEST_BLOCK____TEST_COMPONENTS_BLOCK__
 }
 """
 
@@ -2250,8 +2322,50 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
         if r.sbom:
             supply_block += SBOM_LINUX_BLOCK + "\n"
 
+    # User test components ([meta].test_components) — build mode only.
+    # Copy each script into the workdir (packer/scripts/test-components/),
+    # upload via file provisioners, then run them sequentially.  A non-zero
+    # exit aborts the build before the snapshot (#13).
+    test_block = ""
+    if not scan and r.test_components:
+        tc_dir = workdir / "packer" / "scripts" / "test-components"
+        tc_dir.mkdir(parents=True, exist_ok=True)
+        uploads: list[str] = []
+        for i, script in enumerate(r.test_components):
+            src = Path(script)
+            if not src.is_file():
+                raise ConfigError(
+                    f"[meta].test_components: script not found: {script}")
+            # keep the basename; prefix with an index so ordering survives
+            # the copy and the packer file-upload naming.
+            dest_name = f"{i:02d}-{src.name}"
+            shutil.copyfile(src, tc_dir / dest_name)
+            if family == "windows":
+                uploads.append(
+                    f'  provisioner "file" {{\n'
+                    f'    source      = "packer/scripts/test-components/{dest_name}"\n'
+                    f'    destination = "C:/ciscvm-test-components/{dest_name}"\n'
+                    f'  }}\n')
+            else:
+                uploads.append(
+                    f'  provisioner "file" {{\n'
+                    f'    source      = "packer/scripts/test-components/{dest_name}"\n'
+                    f'    destination = "/root/ciscvm-test-components/{dest_name}"\n'
+                    f'  }}\n')
+        test_uploads = "".join(uploads)
+        runner = TEST_COMPONENTS_WIN_BLOCK if family == "windows" else TEST_COMPONENTS_LINUX_BLOCK
+        test_block = test_uploads + runner
+        info(f"User test components: {len(r.test_components)} script(s) will "
+             f"run before the snapshot")
+
     # Idempotency verification (Linux only): re-run apply, fail if it changes.
     idempotency_block = IDEMPOTENCY_LINUX_BLOCK if (idempotency and family != "windows") else ""
+
+    # [build].spot — use a spot instance for the ephemeral build VM.  The
+    # build machine is short-lived and disposable, so the repossess risk is
+    # acceptable and the cost saving (up to ~90% vs on-demand) is real (#15).
+    # Packer's tencentcloud plugin accepts instance_charge_type = "SPOTPAID".
+    spot_block = '  instance_charge_type = "SPOTPAID"\n' if r.spot else ""
 
     if family == "windows":
         if r.ssh_debug_password:
@@ -2264,6 +2378,8 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
                .replace("__SECRET_KEY_ENV__", r.secret_key_env)
                .replace("__SECURITY_TOKEN_ENV__", r.security_token_env)
                .replace("__SMOKE_TEST_BLOCK__", smoke_block)
+               .replace("__TEST_COMPONENTS_BLOCK__", test_block)
+               .replace("__SPOT_BLOCK__", spot_block)
                .replace("__ASSUME_ROLE_BLOCK__", assume_role_block))
     else:
         # Substitute the build's actual metadata into the finalize provisioner
@@ -2285,6 +2401,8 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
                .replace("__IDEMPOTENCY_BLOCK__", idempotency_block)
                .replace("__SMOKE_TEST_BLOCK__", smoke_block)
                .replace("__SUPPLY_CHAIN_BLOCK__", supply_block)
+               .replace("__TEST_COMPONENTS_BLOCK__", test_block)
+               .replace("__SPOT_BLOCK__", spot_block)
                .replace("__ASSUME_ROLE_BLOCK__", assume_role_block)
                # must run AFTER the smoke block is spliced in — the block
                # itself carries __REMOTE_DIR__ placeholders (v0.14.33)
@@ -2725,8 +2843,12 @@ def cmd_build(args: argparse.Namespace) -> int:
         if prov:
             info(f"Provenance written -> {prov}")
         # P2#9 — cross-account image sharing (never fails the build).
-        if r.image_share_accounts and image_ids:
-            _share_images(r.region, image_ids, r.image_share_accounts)
+        # [image].share_org_units (#17) merges into the same call — org
+        # sharing uses the identical ModifyImageSharePermission API.
+        share_targets = list(dict.fromkeys(
+            r.image_share_accounts + r.image_share_org_units))
+        if share_targets and image_ids:
+            _share_images(r.region, image_ids, share_targets)
         # P0#3 — clean-boot verification (build → test → distribute).
         # Boot a probe from the produced image and re-audit on fresh boot.
         if r.verify_boot and image_ids:
@@ -2840,6 +2962,9 @@ def _record_lineage(r: ResolvedConfig, image_ids: list[str], image_name: str,
             # changed, and the benchmark name/version anchors the audit.
             "benchmark": r.image_benchmark,
             "fingerprint": _build_fingerprint(r),
+            # #20 — the source image's CreatedTime at build time, so
+            # 'ciscvm check-source' can detect a vendor image refresh.
+            "source_image_created": _source_image_created(r),
         }
         # P2#10 — SBOM pinning: hash + package count of the emitted SBOM.
         if sbom_sha:
@@ -3068,6 +3193,101 @@ def _delete_images(region: str, image_ids: list[str]) -> None:
         raise ConfigError(f"DeleteImages failed: {resp['Response']['Error']}")
 
 
+def _image_is_shared(region: str, image_id: str) -> bool:
+    """Return True when *image_id* is shared with other accounts (#16).
+
+    Uses cvm:DescribeImageSharePermission.  Fails OPEN (returns True, i.e.
+    "keep the image") when credentials/API are unavailable so cleanup
+    never deletes an image it cannot prove is unused.
+    """
+    sid, skey, tok = (os.environ.get("TENCENTCLOUD_SECRET_ID", ""),
+                      os.environ.get("TENCENTCLOUD_SECRET_KEY", ""),
+                      os.environ.get("TENCENTCLOUD_SECURITY_TOKEN", ""))
+    if not sid or not skey:
+        return True  # can't prove it's unused → keep
+    try:
+        resp = _tc3_api("cvm", "DescribeImageSharePermission", "2017-03-12",
+                        region, {"ImageId": image_id}, sid, skey, tok or None)
+    except Exception as exc:
+        warn(f"DescribeImageSharePermission failed for {image_id}: {exc} "
+             f"— keeping image")
+        return True
+    r = resp.get("Response", {})
+    if "Error" in r:
+        return True  # API error → keep
+    shares = (r.get("SharePermissionSet") or []) + (r.get("AccountSet") or [])
+    return bool(shares)
+
+
+def _source_image_created(r: ResolvedConfig) -> str:
+    """Query the source image's CreatedTime ("" when unavailable)."""
+    sid, skey, tok = (os.environ.get(r.secret_id_env, ""),
+                      os.environ.get(r.secret_key_env, ""),
+                      os.environ.get(r.security_token_env, ""))
+    if not sid or not skey:
+        return ""
+    try:
+        resp = _tc3_api("cvm", "DescribeImages", "2017-03-12", r.region,
+                        {"ImageIds": [r.source_image_id]}, sid, skey, tok or None)
+    except Exception:
+        return ""
+    imgs = resp.get("Response", {}).get("ImageSet") or []
+    if not imgs:
+        return ""
+    return str(imgs[0].get("CreatedTime", ""))
+
+
+def cmd_check_source(args: argparse.Namespace) -> int:
+    """ciscvm check-source — vendor image refresh detection (#20).
+
+    Queries the source image's CreatedTime and compares it with the last
+    build's lineage record.  Exit 0 = source unchanged (no rebuild needed);
+    exit 1 = source image has been refreshed → rebuild the golden image.
+    Schedule it on a timer alongside 'build --skip-if-unchanged' so a
+    vendor OS image update automatically triggers a rebuild.
+    """
+    prep = _load_resolve_preflight(args.config, args.workdir)
+    if prep is None:
+        return 1
+    r, _workdir = prep
+    now_created = _source_image_created(r)
+    if not now_created:
+        warn("Could not query the source image's CreatedTime — cannot "
+             "detect a vendor refresh (check credentials/API access)")
+        return 0  # fail open: don't force a rebuild on a transient API issue
+
+    prev: str | None = None
+    path = _lineage_path()
+    if path.exists():
+        with open(path, encoding="utf-8") as fh:
+            for ln in fh:
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    rec = json.loads(ln)
+                except json.JSONDecodeError:
+                    continue
+                if (rec.get("status") == "ok"
+                        and rec.get("profile") == r.profile_name
+                        and rec.get("region") == r.region):
+                    prev = rec.get("source_image_created") or None
+
+    banner("check-source")
+    info(f"source image : {r.source_image_id}")
+    info(f"current      : created {now_created}")
+    if prev is None:
+        info("no previous build record — rebuild required")
+        return 1
+    info(f"last build   : created {prev}")
+    if prev == now_created:
+        ok("source image unchanged since last build — no rebuild needed")
+        return 0
+    warn("source image has been refreshed — rebuild the golden image "
+         "(run 'ciscvm build')")
+    return 1
+
+
 # ── Clean-boot verification (P0#3) ──────────────────────────────────────────
 # AWS EC2 Image Builder's test phase runs on the OUTPUT image, not the build
 # instance — issues like SELinux autorelabel stalls, first-boot services and
@@ -3262,8 +3482,207 @@ def cmd_verify_image(args: argparse.Namespace, image_id: str | None = None) -> i
             _probe_terminate(r, instance_id)
 
 
+# ── Drift detection (round-2 #12, Red Hat Insights Drift style) ─────────────
+# A golden image is correct at build time, but instances launched from it
+# drift: admins tweak configs, packages get patched, services change.
+# `ciscvm drift` re-scans a LIVE instance over SSH and diffs the result
+# against a baseline (the audit result shipped inside the image, or a
+# saved one) — reporting what changed since the image was built.
+def _extract_rule_statuses(doc: dict[str, Any]) -> dict[str, str]:
+    """Flatten an engine result doc into {rule_id: status}."""
+    out: dict[str, str] = {}
+    for r in doc.get("results") or []:
+        rid = r.get("id")
+        if rid:
+            out[str(rid)] = str(r.get("status", "?"))
+    return out
+
+
+def _drift_diff(baseline: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    """Compare two engine result docs; return the drift summary.
+
+    *new_failures* — rules passing (or absent) in the baseline that now fail.
+    *recovered*    — rules failing in the baseline that now pass.
+    *status_changed* — any other pass/fail flip.
+    """
+    b = _extract_rule_statuses(baseline)
+    c = _extract_rule_statuses(current)
+    all_ids = sorted(set(b) | set(c))
+    new_failures: list[str] = []
+    recovered: list[str] = []
+    status_changed: list[str] = []
+    for rid in all_ids:
+        bst, cst = b.get(rid, "absent"), c.get(rid, "absent")
+        if cst == "fail" and bst in ("pass", "absent", "manual", "notapplicable"):
+            new_failures.append(rid)
+        elif cst in ("pass", "manual", "notapplicable") and bst == "fail":
+            recovered.append(rid)
+        elif cst != bst and cst not in ("fail",) and bst not in ("fail",):
+            status_changed.append(rid)
+    bs = (baseline.get("summary") or {}).get("all", {})
+    cs = (current.get("summary") or {}).get("all", {})
+    return {
+        "baseline_score": bs.get("score"),
+        "current_score": cs.get("score"),
+        "new_failures": new_failures,
+        "recovered": recovered,
+        "status_changed": status_changed,
+    }
+
+
+def _fetch_baseline(r: ResolvedConfig, image_id: str) -> dict[str, Any] | None:
+    """Locate the baseline audit result for *image_id*.
+
+    1) a locally saved baseline in ~/.ciscvm/baselines/<image>.json
+    2) the audit result shipped inside the image (/opt/ciscvm-AUDIT-RESULT.json)
+    """
+    local = _lineage_path().parent / "baselines" / f"{image_id}.json"
+    if local.exists():
+        try:
+            return cast("dict[str, Any]", json.loads(local.read_text(encoding="utf-8")))
+        except json.JSONDecodeError:
+            warn(f"Baseline file {local} is corrupt — ignoring")
+    return None  # caller fetches the in-image one over SSH
+
+
+def cmd_drift(args: argparse.Namespace) -> int:
+    """ciscvm drift — detect configuration drift on a running instance.
+
+    Scans a LIVE instance (--host) with the bundled engine and diffs the
+    result against the baseline: the audit result shipped inside the
+    producing image (--image), or a locally saved baseline.  Reports
+    new failures / recovered rules / score delta.  Exit 0 = no drift.
+    """
+    if getattr(args, "save_baseline", False):
+        return cmd_save_baseline(args)
+    prep = _load_resolve_preflight(args.config, args.workdir)
+    if prep is None:
+        return 1
+    r, _workdir = prep
+    host = args.host
+    if not host:
+        fail("--host <ip> is required (the running instance to check for drift)")
+        return 1
+    ssh_user = getattr(args, "ssh_user", "") or r.ssh_username or "root"
+    ssh_port = int(getattr(args, "ssh_port", 0) or r.ssh_port or 22)
+
+    # 1. Run a live scan on the instance (reuse the same SSH scan as
+    #    verify-image — the engine ships inside the image).
+    banner("drift")
+    info(f"Scanning live instance {host} (profile {r.profile_name} L{r.level}) …")
+    current = _probe_scan(r, host, ssh_port, ssh_user, r.level)
+    if "error" in current and "summary" not in current:
+        fail(f"Live scan failed: {current.get('error', 'unknown error')}")
+        return 1
+    cs = (current.get("summary") or {}).get("all", {})
+    info(f"Live score: {cs.get('score', '?')}%  "
+         f"(fail {cs.get('fail', 0)}, pass {cs.get('pass', 0)})")
+
+    # 2. Baseline: local saved file, or fetch from the producing image.
+    baseline: dict[str, Any] | None = None
+    image_id = getattr(args, "image", "") or ""
+    if image_id:
+        baseline = _fetch_baseline(r, image_id)
+        if baseline is None:
+            info("Fetching baseline from the instance's shipped audit "
+                 "(/opt/ciscvm-AUDIT-RESULT.json, written at build time) …")
+            remote = "sudo cat /opt/ciscvm-AUDIT-RESULT.json 2>/dev/null"
+            cp = subprocess.run(
+                ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
+                 "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=15",
+                 "-p", str(ssh_port), f"{ssh_user}@{host}", remote],
+                capture_output=True, text=True, timeout=60)
+            try:
+                baseline = cast("dict[str, Any]", json.loads(cp.stdout))
+            except json.JSONDecodeError:
+                baseline = None
+        if baseline is None:
+            warn("No baseline found — try saving one with "
+                 "'ciscvm drift --save-baseline' or pass --baseline <file>")
+
+    # --baseline <file> overrides everything.
+    bl_path = getattr(args, "baseline", "") or ""
+    if bl_path and Path(bl_path).exists():
+        try:
+            baseline = cast("dict[str, Any]",
+                            json.loads(Path(bl_path).read_text(encoding="utf-8")))
+        except json.JSONDecodeError:
+            warn(f"Could not parse baseline file {bl_path}")
+            baseline = None
+
+    if baseline is None:
+        fail("No baseline to compare against — pass --image <id>, "
+             "--baseline <file>, or run 'ciscvm drift --save-baseline' first")
+        return 1
+
+    # 3. Diff + report.
+    diff = _drift_diff(baseline, current)
+    bs = (baseline.get("summary") or {}).get("all", {})
+    bscore = diff["baseline_score"] or bs.get("score")
+    cscore = diff["current_score"] or cs.get("score")
+    if bscore is not None:
+        info(f"Baseline score: {bscore:g}%")
+    delta = ""
+    if bscore is not None and cscore is not None:
+        d = round(float(cscore) - float(bscore), 1)
+        delta = f"  ({'+' if d > 0 else ''}{d:g} pts)"
+        info(f"Score delta: {delta}")
+    if diff["new_failures"]:
+        warn(f"DRIFT: {len(diff['new_failures'])} rule(s) now failing that "
+             f"were not before:")
+        for rid in diff["new_failures"]:
+            fail(f"  ✗ {rid}")
+    else:
+        ok("No new failing rules")
+    if diff["recovered"]:
+        ok(f"Recovered: {len(diff['recovered'])} rule(s) now passing")
+        for rid in diff["recovered"][:10]:
+            ok(f"  ✓ {rid}")
+
+    # 4. Gate: exit 1 when there is real drift (new failures).
+    if diff["new_failures"]:
+        fail(f"DRIFT DETECTED — {len(diff['new_failures'])} new failing "
+             f"rule(s) on {host}")
+        return 1
+    ok(f"No drift detected on {host}")
+    return 0
+
+
+def cmd_save_baseline(args: argparse.Namespace) -> int:
+    """ciscvm drift --save-baseline — persist the current host scan as a baseline."""
+    prep = _load_resolve_preflight(args.config, args.workdir)
+    if prep is None:
+        return 1
+    r, _workdir = prep
+    host = args.host
+    if not host:
+        fail("--host <ip> is required to save a baseline")
+        return 1
+    ssh_user = getattr(args, "ssh_user", "") or r.ssh_username or "root"
+    ssh_port = int(getattr(args, "ssh_port", 0) or r.ssh_port or 22)
+    doc = _probe_scan(r, host, ssh_port, ssh_user, r.level)
+    if "error" in doc and "summary" not in doc:
+        fail(f"Scan failed: {doc.get('error', 'unknown error')}")
+        return 1
+    image_id = getattr(args, "image", "") or "current"
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", image_id) or "current"
+    out = _lineage_path().parent / "baselines" / f"{safe}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n",
+                   encoding="utf-8")
+    ok(f"Baseline saved -> {out}")
+    return 0
+
+
 def cmd_cleanup_images(args: argparse.Namespace) -> int:
-    """Retire old golden images by lineage age. Dry-run by default."""
+    """Retire old golden images by lineage age. Dry-run by default.
+
+    *--unused-since N* (#16): additionally require the image to be
+    UNshared (cvm:DescribeImageSharePermission returns no shares) — an
+    image shared with other accounts is presumed in use downstream and is
+    skipped, so cleanup never breaks a running consumer.  Fails open
+    (keeps the image) when the share query errors.
+    """
     from datetime import datetime
 
     path = _lineage_path()
@@ -3287,6 +3706,7 @@ def cmd_cleanup_images(args: argparse.Namespace) -> int:
 
     keep = max(0, int(getattr(args, "keep_latest", 1)))
     older_than = max(1, int(getattr(args, "older_than", 30)))
+    unused_since = max(0, int(getattr(args, "unused_since", 0)))
     cutoff = datetime.now(UTC).timestamp() - older_than * 86400
 
     candidates: list[tuple[dict[str, Any], str]] = []  # (record, image_id)
@@ -3301,6 +3721,21 @@ def cmd_cleanup_images(args: argparse.Namespace) -> int:
             continue
         for img in rec.get("image_ids", []):
             candidates.append((rec, img))
+
+    # --unused-since: drop candidates whose image is still shared (in use).
+    if unused_since:
+        kept_shared = 0
+        filtered: list[tuple[dict[str, Any], str]] = []
+        for rec, img in candidates:
+            if _image_is_shared(rec.get("region", ""), img):
+                kept_shared += 1
+                info(f"  {rec.get('region', '?')}: {img} is still shared "
+                     "(in use downstream) — kept")
+            else:
+                filtered.append((rec, img))
+        candidates = filtered
+        if kept_shared:
+            info(f"{kept_shared} shared image(s) kept (--unused-since)")
 
     if not candidates:
         ok(f"No images older than {older_than} days to retire (keeping {keep} latest).")
@@ -3897,6 +4332,13 @@ def _send_notification(r: ResolvedConfig, ok: bool, image_ids: list[str],
                        score: float | None, image_name: str) -> None:
     if not isinstance(r, ResolvedConfig):
         return
+    # [notify].deploy_webhook — EventBridge-style downstream trigger (#14).
+    # On SUCCESS, POST the image metadata to the customer's CI/CD so the
+    # "new image is ready" event drives the deployment, not a human reading
+    # the WeCom message.  Independent of the WeCom notification (fires even
+    # when [notify].webhook is unset); never fails the build.
+    if ok and r.deploy_webhook:
+        _trigger_deploy_webhook(r, image_ids, score, image_name)
     if not r.notify_webhook:
         return
     if r.notify_on == "success" and not ok:
@@ -3927,6 +4369,34 @@ def _send_notification(r: ResolvedConfig, ok: bool, image_ids: list[str],
                 warn(f"Notification webhook returned HTTP {resp.status}")
     except Exception as exc:  # notifications must never fail the build
         warn(f"Notification webhook failed: {exc}")
+
+
+def _trigger_deploy_webhook(r: ResolvedConfig, image_ids: list[str],
+                            score: float | None, image_name: str) -> None:
+    """POST image metadata to [notify].deploy_webhook on build success."""
+    payload = json.dumps({
+        "event": "image.ready",
+        "image_id": (image_ids[0] if image_ids else ""),
+        "image_ids": image_ids,
+        "image_name": image_name,
+        "profile": r.profile_name,
+        "cis_level": r.level,
+        "region": r.region,
+        "benchmark": r.image_benchmark,
+        "score": score,
+        "ciscvm_version": VERSION,
+    }, ensure_ascii=False).encode("utf-8")
+    try:
+        req = urllib.request.Request(
+            r.deploy_webhook, data=payload,
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status < 300:
+                ok(f"Deploy webhook triggered ({resp.status})")
+            else:
+                warn(f"Deploy webhook returned HTTP {resp.status}")
+    except Exception as exc:  # must never fail the build
+        warn(f"Deploy webhook failed: {exc}")
 
 
 # ── SLSA-style provenance + signing ─────────────────────────────────────────
@@ -4015,7 +4485,21 @@ def _write_provenance(r: ResolvedConfig, image_ids: list[str], image_name: str,
 
 
 def cmd_list(args: argparse.Namespace) -> int:
-    """Enumerate available profiles with metadata (P1#4: benchmark shown)."""
+    """Enumerate available profiles with metadata (P1#4: benchmark shown).
+
+    *--versions* (#19): additionally show the bundled rule-catalog sha256
+    and the ciscvm version, so an audit can pin "this image was hardened
+    with exactly this rule set".
+    """
+    show_versions = bool(getattr(args, "versions", False))
+    if show_versions:
+        print(f"{'profile':<12} {'benchmark':<14} {'rules_sha256':<18} engine")
+        for name, meta in sorted(PROFILES.items()):
+            role = str(meta.get("role_dir", ""))
+            bm = str(meta.get("benchmark", ""))
+            rh = _bundled_rules_hash(role)[:16] if role else "-"
+            print(f"{name:<12} {bm:<14} {rh:<18} {VERSION}")
+        return 0
     print(f"{'profile':<12} {'family':<8} {'os':<12} {'comm':<6} {'benchmark':<14} user")
     for name, meta in sorted(PROFILES.items()):
         family = "windows" if meta.get("family") == "windows" else "linux"
@@ -4280,6 +4764,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_vrf.set_defaults(func=cmd_verify)
 
     p_lst = sub.add_parser("list", help="Enumerate available profiles with metadata")
+    p_lst.add_argument("--versions", action="store_true",
+                       help="Show rule-catalog sha256 + engine version per profile (#19)")
     p_lst.set_defaults(func=cmd_list)
 
     p_scn = sub.add_parser("scan", parents=[common], help="Audit-only build (no remediation) with score gate")
@@ -4332,6 +4818,28 @@ def build_parser() -> argparse.ArgumentParser:
                            help="Gate threshold in percent (default 85)")
     p_vrf_img.set_defaults(func=cmd_verify_image)
 
+    p_drift = sub.add_parser(
+        "drift", parents=[common],
+        help="Detect configuration drift on a running instance vs the "
+             "image baseline (round-2 #12)")
+    p_drift.add_argument("--host", required=True,
+                         help="IP of the running instance to check for drift")
+    p_drift.add_argument("--image", default="",
+                         help="Producing image ID (baseline from its shipped audit; optional)")
+    p_drift.add_argument("--baseline", default="",
+                         help="Path to a saved baseline JSON (overrides --image)")
+    p_drift.add_argument("--ssh-user", default="", help="SSH user (default: profile's)")
+    p_drift.add_argument("--ssh-port", type=int, default=0, help="SSH port (default: profile's)")
+    p_drift.add_argument("--save-baseline", action="store_true",
+                         help="Save the current host scan as a baseline and exit")
+    p_drift.set_defaults(func=cmd_drift)
+
+    p_src = sub.add_parser(
+        "check-source", parents=[common],
+        help="Vendor image refresh detection — is the source image newer "
+             "than the last build? (round-2 #20)")
+    p_src.set_defaults(func=cmd_check_source)
+
     p_tst = sub.add_parser("test", parents=[common], help="Test the build pipeline")
     p_tst.add_argument("--quiet", action="store_true",
                        help="Suppress packer output (show only the ciscvm summary)")
@@ -4348,6 +4856,9 @@ def build_parser() -> argparse.ArgumentParser:
                           help="Delete builds older than N days (default 30)")
     p_clnimg.add_argument("--keep-latest", type=int, default=1,
                           help="Keep the newest N builds (default 1)")
+    p_clnimg.add_argument("--unused-since", type=int, default=0,
+                          help="Only delete images NOT shared with other "
+                               "accounts (in-use guard, round-2 #16); 0 = off")
     p_clnimg.add_argument("--apply", action="store_true",
                           help="Actually delete images (default is a dry run)")
     p_clnimg.set_defaults(func=cmd_cleanup_images)
