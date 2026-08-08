@@ -648,6 +648,23 @@ class TestRenderAll:
         assert reconnect_idx < logfix_idx < reaudit_idx, \
             f"expected reconnect({reconnect_idx}) < fix-logperms({logfix_idx}) < re-audit({reaudit_idx})"
 
+    def test_audit_min_score_configurable(self, valid_toml, tmp_path):
+        """v0.14.24: [cis].min_score (default 85) renders into site-audit.yml;
+        0 disables the post-reboot audit gate so a full fail list is produced."""
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        audit = (wd / "ansible" / "site-audit.yml").read_text()
+        assert "cis_min_score: 85" in audit
+        assert "__MIN_SCORE__" not in audit
+
+        valid_toml["cis"]["min_score"] = 0
+        r = resolve(valid_toml)
+        wd2 = tmp_path / "build2"
+        render_all(wd2, r)
+        audit2 = (wd2 / "ansible" / "site-audit.yml").read_text()
+        assert "cis_min_score: 0" in audit2
+
     def test_windows_renders_correctly(self, tmp_path):
         r = resolve(_make_win_toml("win2022"))
         wd = tmp_path / "build"
