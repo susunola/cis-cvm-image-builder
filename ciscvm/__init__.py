@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.15"
+VERSION = "0.14.16"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -778,10 +778,12 @@ build {
       "  sudo firewall-cmd --reload >/dev/null 2>&1 || echo \"[ssh-guard] WARN: firewalld reload failed\"",
       "fi",
       "# nftables: open the port in EVERY table's input chain.  'nft list tables'",
-      "# prints 'table <family> <name>', so the table argument needs BOTH fields.",
+      "# prints 'table <family> <name>' — read both fields so the table arg is",
+      "# 'family name'.  A 'for t in $(...)' loop would split them on the space.",
       "if command -v nft >/dev/null 2>&1 && sudo systemctl is-active nftables >/dev/null 2>&1; then",
-      "  for t in $(sudo nft list tables 2>/dev/null | awk '{print $2, $3}'); do",
-      "    sudo nft add rule $t input tcp dport $SSH_PORT accept >/dev/null 2>&1 && echo \"[ssh-guard] nft allow added to table '$t'\" || echo \"[ssh-guard] WARN: nft add failed for table '$t'\"",
+      "  sudo nft list tables 2>/dev/null | while read -r _ fam name; do",
+      "    [ -n \"$name\" ] || continue",
+      "    sudo nft add rule \"$fam $name\" input tcp dport $SSH_PORT accept >/dev/null 2>&1 && echo \"[ssh-guard] nft allow added to table '$fam $name'\" || echo \"[ssh-guard] WARN: nft add failed for table '$fam $name'\"",
       "  done",
       "  sudo nft list ruleset > /etc/sysconfig/nftables.conf 2>/dev/null && echo \"[ssh-guard] nftables ruleset persisted ($(sudo grep -c \"dport $SSH_PORT accept\" /etc/sysconfig/nftables.conf 2>/dev/null || echo 0) port rule(s))\" || echo \"[ssh-guard] WARN: nftables ruleset save failed\"",
       "fi",
@@ -828,8 +830,9 @@ build {
       "  echo \"[ssh-guard-boot] firewalld active=$(systemctl is-active firewalld 2>/dev/null)\"",
       "fi",
       "if command -v nft >/dev/null 2>&1; then",
-      "  for t in $(nft list tables 2>/dev/null | awk '{print $2, $3}'); do",
-      "    nft add rule $t input tcp dport $SSH_PORT accept >/dev/null 2>&1 && echo \"[ssh-guard-boot] nft allow added to '$t'\" || echo \"[ssh-guard-boot] WARN: nft add failed for '$t'\"",
+      "  nft list tables 2>/dev/null | while read -r _ fam name; do",
+      "    [ -n \"$name\" ] || continue",
+      "    nft add rule \"$fam $name\" input tcp dport $SSH_PORT accept >/dev/null 2>&1 && echo \"[ssh-guard-boot] nft allow added to '$fam $name'\" || echo \"[ssh-guard-boot] WARN: nft add failed for '$fam $name'\"",
       "  done",
       "  nft list ruleset > /etc/sysconfig/nftables.conf 2>/dev/null || echo \"[ssh-guard-boot] WARN: ruleset save failed\"",
       "fi",
@@ -898,9 +901,12 @@ build {
     expect_disconnect = true
     # A freshly hardened TOS4 may take several minutes to finish its first
     # post-enable boot (SELinux relabel / firewalld cold start) before sshd
-    # accepts.  Default retries give up after ~5 min of i/o timeout; raise
-    # the budget so a slow-but-healthy boot no longer looks like a failure.
-    max_retries       = 40
+    # accepts.  The connect window is start_retry_timeout (default "a few
+    # minutes" — observed ~5 min give-up of i/o timeout retries), NOT
+    # max_retries (which only retries command execution).  Raise it so a
+    # slow-but-healthy boot no longer looks like a dead instance.
+    start_retry_timeout = "15m"
+    max_retries         = 40
     # Upload to /opt (not /tmp): systemd-tmpfiles on the freshly rebooted
     # image may purge /tmp (tmp.conf D-type cleanup), which made the
     # reconnect probe fail with 'bash: script: Permission denied' (126).
