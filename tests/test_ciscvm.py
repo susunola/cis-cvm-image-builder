@@ -647,6 +647,11 @@ class TestRenderAll:
         reaudit_idx = hcl.find("site-audit.yml")
         assert reconnect_idx < logfix_idx < reaudit_idx, \
             f"expected reconnect({reconnect_idx}) < fix-logperms({logfix_idx}) < re-audit({reaudit_idx})"
+        # v0.14.26: L2 auditd can come up inactive after reboot; the logfix
+        # step must diagnose + force-start it before the re-audit gate.
+        assert "auditd: active=$(sudo systemctl is-active auditd" in hcl
+        assert "systemctl start auditd" in hcl
+        assert "auditd START FAILED" in hcl
 
     def test_audit_min_score_configurable(self, valid_toml, tmp_path):
         """v0.14.24: [cis].min_score (default 85) renders into site-audit.yml;
