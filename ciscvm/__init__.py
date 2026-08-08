@@ -25,6 +25,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
 import os
@@ -37,10 +38,11 @@ import threading
 import tomllib
 import urllib.request
 from dataclasses import dataclass, field
+from datetime import UTC
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-VERSION = "0.14.33"
+VERSION = "0.15.0"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -115,7 +117,7 @@ def banner(title: str) -> None:
 #   os_tag         CVM source image OS tag
 #   benchmark      CIS benchmark version
 # ── Profile factory functions (deduplicate ~100 lines of boilerplate) ──
-def _ubuntu_profile(role_dir: str, os_tag: str, **kw) -> dict[str, Any]:
+def _ubuntu_profile(role_dir: str, os_tag: str, **kw: Any) -> dict[str, Any]:
     return {
         "role_dir": role_dir, "ssh_username": "ubuntu", "os_tag": os_tag,
         "benchmark": "CIS-v1.0.0",
@@ -127,7 +129,7 @@ def _ubuntu_profile(role_dir: str, os_tag: str, **kw) -> dict[str, Any]:
         "clean_cmd": "sudo apt-get clean", **kw,
     }
 
-def _rhel_profile(role_dir: str, os_tag: str, **kw) -> dict[str, Any]:
+def _rhel_profile(role_dir: str, os_tag: str, **kw: Any) -> dict[str, Any]:
     return {
         "role_dir": role_dir, "ssh_username": "root", "os_tag": os_tag,
         "benchmark": "CIS-v1.0.0",
@@ -137,7 +139,7 @@ def _rhel_profile(role_dir: str, os_tag: str, **kw) -> dict[str, Any]:
         "clean_cmd": "sudo dnf clean all", **kw,
     }
 
-def _tlinux_profile(role_dir: str, os_tag: str, **kw) -> dict[str, Any]:
+def _tlinux_profile(role_dir: str, os_tag: str, **kw: Any) -> dict[str, Any]:
     return {
         "role_dir": role_dir, "ssh_username": "root", "ssh_port": 36000,
         "os_tag": os_tag, "benchmark": "CIS-v1.0.0",
@@ -148,7 +150,7 @@ def _tlinux_profile(role_dir: str, os_tag: str, **kw) -> dict[str, Any]:
         "clean_cmd": "sudo dnf clean all", **kw,
     }
 
-def _sles_profile(role_dir: str, os_tag: str, **kw) -> dict[str, Any]:
+def _sles_profile(role_dir: str, os_tag: str, **kw: Any) -> dict[str, Any]:
     return {
         "role_dir": role_dir, "ssh_username": "root", "os_tag": os_tag,
         "benchmark": "CIS-v1.0.0",
@@ -225,6 +227,7 @@ associate_public_ip = false               # set to true only if a public IP is r
 name_prefix  = "tencentos3-cis"
 # name = "my-cis-image"                  # optional: fixed image name (empty = auto prefix-level-timestamp)
 copy_regions = []                         # add regions (e.g. ["ap-shanghai"]) to copy the image
+# share_accounts = ["uin/1234567890"]    # optional: share the built image with other accounts
 
 [cis]
 level = 1                                 # 1 or 2
@@ -232,6 +235,11 @@ level = 1                                 # 1 or 2
 # Rule selection (optional) — rule IDs to run / skip. Empty = all rules.
 # rules_include = ["1.5.6", "5.4.3.2"]    # when set, ONLY these run
 # rules_exclude = ["1.1.2.2.4"]           # always wins over rules_include
+# Control-level overrides (optional) — tune individual rule parameters
+# without editing the bundled catalog. Key = CIS rule ID, value = params to
+# deep-merge into that rule (mirrors ansible-lockdown's per-control vars).
+# [cis.overrides."5.2.2"]
+# ssh_max_auth_tries = 4                  # example: tighten LoginGraceTime/MaxAuthTries
 
 [cloud]
 secret_id_env  = "TENCENTCLOUD_SECRET_ID"
@@ -263,6 +271,8 @@ secret_key_env = "TENCENTCLOUD_SECRET_KEY"
 os_tag    = "tencentos-3"
 benchmark = "CIS-v1.0.0"
 # smoke_test = true   # instance-level checks before the image snapshot
+# cve_scan   = false  # optional: run trivy vulnerability scan on the build VM before snapshot (gate)
+# sbom       = false  # optional: emit an SBOM (syft or native rpm/dpkg) into the image + provenance
 """
 
 PROFILE_NAMES_HELP = ", ".join(PROFILES)
@@ -302,6 +312,7 @@ class ResolvedConfig:
     image_name_prefix: str
     image_name_override: str            # [image].name — fixed image name ("" = auto)
     image_copy_regions: list[str]
+    image_share_accounts: list[str]     # [image].share_accounts — share built image with other uins
     cis_level_tag: str
     secret_id_env: str
     secret_key_env: str
@@ -315,11 +326,15 @@ class ResolvedConfig:
     min_score: int                      # [cis].min_score — post-reboot audit gate, 0 disables (default 85)
     role_dir: str
     smoke_test: bool                    # [meta].smoke_test — run instance-level smoke checks before snapshot (default true)
+    cve_scan: bool                      # [meta].cve_scan — trivy vulnerability scan gate before snapshot (default false)
+    sbom: bool                          # [meta].sbom — emit SBOM into image + provenance (default false)
     rules_include: list[str]            # [cis].rules_include — rule-id filter (empty = all)
     rules_exclude: list[str]            # [cis].rules_exclude — rule-id filter (wins over include)
+    rules_overrides: dict[str, dict[str, Any]]    # [cis.overrides] — per-rule param deep-merge (rule_id -> {param: value})
     notify_webhook: str                 # [notify].webhook — WeCom group-robot webhook URL ("" = off)
     notify_on: str                      # [notify].on — "always" | "success" | "failure" (default "failure")
     sign_key: str                       # [sign].gpg_key — GPG key id/fingerprint for SLSA provenance signing ("" = off)
+    verify_boot: bool                   # [meta].verify_boot — boot a probe instance from the produced image and re-audit before declaring success (default false)
 
 
 # ---------------------------------------------------------------------------
@@ -483,12 +498,11 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
     # When set, Packer assumes the target account's CAM role with the local
     # AK/SK before launching the build instance.
     assume_role_arn = str(data.get("cloud", {}).get("assume_role_arn", "")).strip()
-    if assume_role_arn:
-        if not re.fullmatch(r"[A-Za-z0-9:_/-]+", assume_role_arn):
-            raise ConfigError(
-                f"[cloud].assume_role_arn contains invalid characters: "
-                f"{assume_role_arn!r}. Expected a CAM role ARN like "
-                "qcs::cam::uin/12345:roleName/CrossAccountBuilder")
+    if assume_role_arn and not re.fullmatch(r"[A-Za-z0-9:_/-]+", assume_role_arn):
+        raise ConfigError(
+            f"[cloud].assume_role_arn contains invalid characters: "
+            f"{assume_role_arn!r}. Expected a CAM role ARN like "
+            "qcs::cam::uin/12345:roleName/CrossAccountBuilder")
     assume_role_session = str(data.get("cloud", {}).get("assume_role_session", "ciscvm")).strip()
     if not re.fullmatch(r"[A-Za-z0-9_=,.@-]+", assume_role_session):
         raise ConfigError(
@@ -520,6 +534,42 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
             raise ConfigError(
                 f"[cis] rules_include and rules_exclude overlap: {overlap}")
 
+    # [cis.overrides] — per-rule parameter deep-merge (rule_id -> {param: value}).
+    # Mirrors ansible-lockdown's per-control vars: tune a rule's parameters
+    # without editing the bundled catalog.  Keys must be dotted rule IDs.
+    overrides_raw = data.get("cis", {}).get("overrides", {})
+    if not isinstance(overrides_raw, dict):
+        raise ConfigError(
+            f"[cis].overrides must be a table of rule_id -> params, got "
+            f"{type(overrides_raw).__name__}.")
+    rules_overrides: dict[str, dict[str, Any]] = {}
+    for rid, params in overrides_raw.items():
+        rid = str(rid).strip()
+        if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)+", rid):
+            raise ConfigError(
+                f"[cis].overrides key {rid!r} is not a dotted CIS rule ID "
+                "(e.g. \"5.2.2\").")
+        if not isinstance(params, dict):
+            raise ConfigError(
+                f"[cis].overrides.{rid} must be a table of parameter values, "
+                f"got {type(params).__name__}.")
+        rules_overrides[rid] = {str(k): v for k, v in params.items()}
+
+    # [meta].cve_scan / [meta].sbom — optional supply-chain gates.
+    cve_scan = bool(data.get("meta", {}).get("cve_scan", False))
+    sbom = bool(data.get("meta", {}).get("sbom", False))
+
+    # [image].share_accounts — cross-account image sharing (empty = off).
+    share_accounts = [str(x).strip() for x in data.get("image", {}).get("share_accounts", []) if str(x).strip()]
+    for acc in share_accounts:
+        if not re.fullmatch(r"uin/[0-9]+", acc):
+            raise ConfigError(
+                f"[image].share_accounts entry {acc!r} is not a valid "
+                "Tencent Cloud account ID (expected \"uin/1234567890\").")
+
+    # [meta].verify_boot — clean-boot verification after the snapshot.
+    verify_boot = bool(data.get("meta", {}).get("verify_boot", False))
+
     # [cis].min_score — post-reboot audit gate (0 disables; default 85).
     min_score = int(data.get("cis", {}).get("min_score", 85))
 
@@ -544,6 +594,7 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         image_name_prefix=str(data["image"]["name_prefix"]),
         image_name_override=image_name_override,
         image_copy_regions=copy_regions,
+        image_share_accounts=share_accounts,
         cis_level_tag=f"level{level}-server",
         secret_id_env=str(data["cloud"]["secret_id_env"]),
         secret_key_env=str(data["cloud"]["secret_key_env"]),
@@ -556,12 +607,16 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         level=level,
         role_dir=str(p["role_dir"]),
         smoke_test=smoke_test,
+        cve_scan=cve_scan,
+        sbom=sbom,
         rules_include=rules_include,
         rules_exclude=rules_exclude,
+        rules_overrides=rules_overrides,
         min_score=min_score,
         notify_webhook=notify_webhook,
         notify_on=notify_on,
         sign_key=sign_key,
+        verify_boot=verify_boot,
     )
 
 
@@ -578,10 +633,10 @@ def _bundle_role(workdir: Path, role_dir: str) -> None:
     roles_root = (project_root / "roles").resolve()
     try:
         src.relative_to(roles_root)
-    except ValueError:
+    except ValueError as exc:
         raise ConfigError(
             f"Role directory resolves outside of {roles_root}: {src}. "
-            "Refusing to bundle — check the profile's role_dir.")
+            "Refusing to bundle — check the profile's role_dir.") from exc
 
     if not src.is_dir():
         raise ConfigError(
@@ -603,6 +658,50 @@ def _check_bundled_role(role_dir: str) -> bool:
     except ValueError:
         return False
     return src.is_dir()
+
+
+def _apply_rule_overrides(workdir: Path, role_dir: str,
+                          overrides: dict[str, dict[str, Any]]) -> None:
+    """Deep-merge [cis].overrides into the WORKSPACE copy of rules.json.
+
+    *overrides* maps CIS rule IDs (e.g. "5.2.2") to a dict of parameter
+    values.  Each rule's `params` dict is updated in place — the bundled
+    catalog file under ciscvm/roles/ is never modified.  Rule IDs that
+    don't exist in the catalog are rejected loudly (typo = fail fast).
+    """
+    rules_path = workdir / "ansible" / "roles" / role_dir / "files" / "rules.json"
+    try:
+        rules = json.loads(rules_path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ConfigError(
+            f"[cis].overrides: cannot read bundled rules.json for {role_dir}: "
+            f"{exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ConfigError(
+            f"[cis].overrides: bundled rules.json for {role_dir} is invalid: "
+            f"{exc}") from exc
+
+    by_id: dict[str, dict[str, Any]] = {str(r.get("id", "")): r for r in rules}
+    missing = [rid for rid in overrides if rid not in by_id]
+    if missing:
+        raise ConfigError(
+            f"[cis].overrides references unknown rule ID(s): {missing}. "
+            f"Valid IDs start with e.g. '1.1.1.1' — run 'ciscvm list' and "
+            f"check the catalog for the exact ID.")
+
+    changed: list[str] = []
+    for rid, params in overrides.items():
+        rule = by_id[rid]
+        cur = rule.get("params")
+        if not isinstance(cur, dict):
+            rule["params"] = {}
+            cur = rule["params"]
+        cur.update(params)
+        changed.append(rid)
+    rules_path.write_text(json.dumps(rules, ensure_ascii=False, indent=1) + "\n",
+                          encoding="utf-8")
+    info(f"Applied [cis].overrides to {len(changed)} rule(s): "
+         f"{', '.join(sorted(changed))}")
 
 
 # ---------------------------------------------------------------------------
@@ -1100,7 +1199,7 @@ build {
       "fi"
     ]
   }
-__IDEMPOTENCY_BLOCK____SMOKE_TEST_BLOCK__
+__IDEMPOTENCY_BLOCK____SMOKE_TEST_BLOCK____SUPPLY_CHAIN_BLOCK__
 }
 """
 
@@ -1128,6 +1227,8 @@ IDEMPOTENCY_LINUX_BLOCK = r"""  provisioner "ansible-local" {
 # BEFORE Packer snapshots the image.  Any failure exits non-zero → Packer
 # aborts → no image is produced.  This is the "Test" leg of the
 # build → test → distribute pipeline (AWS Image Builder style).
+# [meta].cve_scan=true appends a trivy gate before the smoke test ends;
+# [meta].sbom=true emits an SBOM into the image for provenance.
 SMOKE_LINUX_BLOCK = r"""  provisioner "shell" {
     pause_before = "5s"
     # v0.14.31: upload to /root, never /tmp — profiles where CIS 1.1.2.1
@@ -1168,6 +1269,64 @@ SMOKE_LINUX_BLOCK = r"""  provisioner "shell" {
       "  echo '[ciscvm] smoke test: journal-upload not enabled — skipped'",
       "fi",
       "echo '[ciscvm] smoke test PASSED — image is buildable'"
+    ]
+  }
+"""
+
+# ── CVE scan gate (Linux) — [meta].cve_scan=true ──
+# Trivy filesystem scan of the hardened rootfs, CRITICAL-severity findings
+# abort the build (no image produced).  P1#6 of the benchmark borrow list:
+# a vulnerability scan before the snapshot, AWS Inspector-style.  Trivy is
+# installed on the build VM if missing (pinned release, no network drift).
+CVE_SCAN_LINUX_BLOCK = r"""  provisioner "shell" {
+    pause_before = "5s"
+    remote_path = "__REMOTE_DIR__/ciscvm-cve-scan.sh"
+    inline = [
+      "set +e",
+      "if ! command -v trivy >/dev/null 2>&1; then",
+      "  echo '[ciscvm] cve-scan: installing trivy (pinned v0.57.1)'",
+      "  sudo dnf install -y wget >/dev/null 2>&1 || sudo apt-get install -y wget >/dev/null 2>&1 || sudo zypper --non-interactive install -y wget >/dev/null 2>&1 || true",
+      "  TARCH=$(uname -m | sed -e 's/x86_64/64bit/' -e 's/aarch64/ARM64/' -e 's/arm64/ARM64/')",
+      "  curl -fsSL \"https://github.com/aquasecurity/trivy/releases/download/v0.57.1/trivy_0.57.1_Linux-${TARCH}.tar.gz\" -o /tmp/trivy.tgz 2>/dev/null && sudo tar -C /usr/local/bin -xzf /tmp/trivy.tgz trivy 2>/dev/null && rm -f /tmp/trivy.tgz",
+      "fi",
+      "if ! command -v trivy >/dev/null 2>&1; then",
+      "  echo '[ciscvm] cve-scan: WARNING trivy unavailable — skipping CVE gate (build continues)'",
+      "else",
+      "  echo '[ciscvm] cve-scan: trivy $(trivy --version 2>/dev/null | head -1) — scanning / (CRITICAL only)'",
+      "  sudo trivy fs --quiet --severity CRITICAL --exit-code 1 --no-progress / >/tmp/ciscvm-trivy.log 2>&1",
+      "  RC=$?",
+      "  tail -20 /tmp/ciscvm-trivy.log",
+      "  if [ \"$RC\" = \"1\" ]; then",
+      "    echo '[ciscvm] CVE GATE FAIL: CRITICAL vulnerabilities found — image not produced'",
+      "    exit 1",
+      "  fi",
+      "  echo '[ciscvm] cve-scan: PASSED (no CRITICAL findings)'",
+      "fi"
+    ]
+  }
+"""
+
+# ── SBOM emission (Linux) — [meta].sbom=true ──
+# Zero-dependency SBOM written into the image (native package query — no
+# external scanner needed, works offline) and referenced from provenance.
+# Also captured on the build log so the controller can hash it (P2#10).
+SBOM_LINUX_BLOCK = r"""  provisioner "shell" {
+    pause_before = "5s"
+    remote_path = "__REMOTE_DIR__/ciscvm-sbom.sh"
+    inline = [
+      "set +e",
+      "echo '[ciscvm] sbom: generating native package SBOM'",
+      "if command -v rpm >/dev/null 2>&1; then",
+      "  sudo rpm -qa --qf '{\"name\":\"%{NAME}\",\"version\":\"%{VERSION}-%{RELEASE}\",\"arch\":\"%{ARCH}\",\"epoch\":\"%{EPOCHNUM}\"}\\n' 2>/dev/null | sudo tee /opt/ciscvm-SBOM.jsonl >/dev/null",
+      "elif command -v dpkg-query >/dev/null 2>&1; then",
+      "  sudo dpkg-query -W -f='{\"name\":\"${Package}\",\"version\":\"${Version}\",\"arch\":\"${Architecture}\"}\\n' 2>/dev/null | sudo tee /opt/ciscvm-SBOM.jsonl >/dev/null",
+      "else",
+      "  echo '[ciscvm] sbom: WARNING no rpm/dpkg-query — SBOM empty'",
+      "  sudo touch /opt/ciscvm-SBOM.jsonl",
+      "fi",
+      "sudo chmod 0644 /opt/ciscvm-SBOM.jsonl",
+      "echo \"[ciscvm] sbom: $(sudo wc -l < /opt/ciscvm-SBOM.jsonl 2>/dev/null || echo 0) packages -> /opt/ciscvm-SBOM.jsonl\"",
+      "echo \"[ciscvm] SBOM_SHA256=$(sudo sha256sum /opt/ciscvm-SBOM.jsonl 2>/dev/null | awk '{print $1}')\""
     ]
   }
 """
@@ -1881,8 +2040,8 @@ def _image_name(r: ResolvedConfig) -> str:
     """
     if r.image_name_override:
         return r.image_name_override
-    from datetime import datetime, timezone
-    snap_ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    from datetime import datetime
+    snap_ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     level_short = r.cis_level_tag.replace("-server", "")
     return f"{r.image_name_prefix}-{level_short}-{snap_ts}"
 
@@ -2033,6 +2192,13 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
     # 1. Copy bundled role into workspace
     _bundle_role(workdir, r.role_dir)
 
+    # P1#5 — [cis].overrides: deep-merge per-rule parameter overrides into
+    # the WORKSPACE copy of rules.json (the bundled catalog is never
+    # mutated).  Mirrors ansible-lockdown's per-control vars without
+    # touching the engine or shipping a second catalog.
+    if r.rules_overrides:
+        _apply_rule_overrides(workdir, r.role_dir, r.rules_overrides)
+
     # Computed once — pkrvars, HCL finalize args and the finalize script
     # itself all share this exact image name.
     image_name = _image_name(r)
@@ -2075,6 +2241,15 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
     else:
         smoke_block = ""
 
+    # Supply-chain gates (Linux only, build mode): CVE scan + SBOM.
+    # Spliced right after the smoke test, before the snapshot.
+    supply_block = ""
+    if not scan and family != "windows":
+        if r.cve_scan:
+            supply_block += CVE_SCAN_LINUX_BLOCK + "\n"
+        if r.sbom:
+            supply_block += SBOM_LINUX_BLOCK + "\n"
+
     # Idempotency verification (Linux only): re-run apply, fail if it changes.
     idempotency_block = IDEMPOTENCY_LINUX_BLOCK if (idempotency and family != "windows") else ""
 
@@ -2109,6 +2284,7 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
                .replace("__SECURITY_TOKEN_ENV__", r.security_token_env)
                .replace("__IDEMPOTENCY_BLOCK__", idempotency_block)
                .replace("__SMOKE_TEST_BLOCK__", smoke_block)
+               .replace("__SUPPLY_CHAIN_BLOCK__", supply_block)
                .replace("__ASSUME_ROLE_BLOCK__", assume_role_block)
                # must run AFTER the smoke block is spliced in — the block
                # itself carries __REMOTE_DIR__ placeholders (v0.14.33)
@@ -2252,17 +2428,18 @@ def run_packer(
 
             def _reader() -> None:
                 assert proc.stdout is not None
-                log_fh = open(log_file, "a", encoding="utf-8") if log_file else None
-                try:
+                if log_file:
+                    with open(log_file, "a", encoding="utf-8") as log_fh:
+                        for line in proc.stdout:
+                            if not quiet:
+                                print(line, end="", file=sys.stderr)
+                            log_fh.write(line)
+                            lines.append(line.rstrip("\n"))
+                else:
                     for line in proc.stdout:
                         if not quiet:
                             print(line, end="", file=sys.stderr)
-                        if log_fh:
-                            log_fh.write(line)
                         lines.append(line.rstrip("\n"))
-                finally:
-                    if log_fh:
-                        log_fh.close()
 
             reader = threading.Thread(target=_reader, daemon=True)
             reader.start()
@@ -2348,6 +2525,21 @@ def run_preflight(r: ResolvedConfig) -> bool:
             all_ok = False
 
     ok(f"profile={r.profile_name} (CIS Level {r.level}, {'winrm' if family == 'windows' else 'ssh'})")
+
+    # P1#4 — benchmark pinning: warn when [meta].benchmark diverges from the
+    # profile's default.  The value is embedded in image tags, the report,
+    # lineage and provenance — a mismatch silently mislabels the audit.
+    profile_bm = str(r.profile.get("benchmark", ""))
+    if r.image_benchmark and profile_bm and r.image_benchmark != profile_bm:
+        warn(f"[meta].benchmark '{r.image_benchmark}' differs from profile "
+             f"default '{profile_bm}' — image tags will carry the override")
+    elif not r.image_benchmark:
+        warn("[meta].benchmark is empty — image tags/report will not name "
+             "the CIS benchmark edition")
+
+    if r.verify_boot and family == "windows":
+        warn("[meta].verify_boot is Linux-only — it will be ignored for "
+             "Windows builds")
 
     if all_ok:
         info("All pre-flight checks passed.")
@@ -2452,6 +2644,17 @@ def cmd_build(args: argparse.Namespace) -> int:
         return 1
     r, workdir = prep
 
+    # P1#7 — change detection: identical inputs + previous image still
+    # exists → skip the rebuild entirely (scheduled-rebuild cost saver).
+    if args.skip_if_unchanged:
+        prev_fp, prev_images = _last_successful_fingerprint(r)
+        if prev_fp is not None and prev_fp == _build_fingerprint(r):
+            if _image_ids_still_exist(r.region, prev_images):
+                ok(f"inputs unchanged since last build — skipping rebuild "
+                   f"(images {', '.join(prev_images) or 'n/a'} still exist)")
+                return 0
+            warn("inputs unchanged but no prior image still exists — rebuilding")
+
     render_all(workdir, r)
 
     # Confirmation prompt (skip with -y or in non-interactive mode)
@@ -2497,6 +2700,8 @@ def cmd_build(args: argparse.Namespace) -> int:
     # lines to extract the resulting image ID (do not re-print them).
     image_ids = _extract_image_ids(result.stdout_lines)
     score = _extract_score(result.stdout_lines)
+    sbom_sha = _extract_sbom_sha(result.stdout_lines)
+    sbom_count = _extract_sbom_count(result.stdout_lines)
     image_name = _image_name(r)
     success = result.exit_code == 0
 
@@ -2508,16 +2713,40 @@ def cmd_build(args: argparse.Namespace) -> int:
             info("Could not parse image ID from output — check the Tencent Cloud console.")
         if score is not None:
             ok(f"Re-audit score: {score:g}%")
+        if sbom_sha:
+            ok(f"SBOM: {sbom_count or '?'} packages, sha256 {sbom_sha[:16]}…")
         # Build → test → distribute: record lineage + signed provenance
-        lin = _record_lineage(r, image_ids, image_name, score, ok=True)
+        lin = _record_lineage(r, image_ids, image_name, score, ok=True,
+                              sbom_sha=sbom_sha, sbom_count=sbom_count)
         if lin:
             info(f"Lineage recorded -> {lin}")
-        prov = _write_provenance(r, image_ids, image_name, score)
+        prov = _write_provenance(r, image_ids, image_name, score,
+                                 sbom_sha=sbom_sha, sbom_count=sbom_count)
         if prov:
             info(f"Provenance written -> {prov}")
+        # P2#9 — cross-account image sharing (never fails the build).
+        if r.image_share_accounts and image_ids:
+            _share_images(r.region, image_ids, r.image_share_accounts)
+        # P0#3 — clean-boot verification (build → test → distribute).
+        # Boot a probe from the produced image and re-audit on fresh boot.
+        if r.verify_boot and image_ids:
+            if r.family == "windows":
+                warn("[meta].verify_boot is Linux-only — skipping "
+                     "clean-boot verification for Windows")
+            else:
+                ok("Clean-boot verification: booting probe instance from "
+                   f"{image_ids[0]} …")
+                vrc = cmd_verify_image(args, image_id=image_ids[0])
+                if vrc != 0:
+                    fail("clean-boot verification FAILED — image not approved")
+                    _record_lineage(r, image_ids, image_name, score, ok=False,
+                                    sbom_sha=sbom_sha, sbom_count=sbom_count)
+                    _send_notification(r, False, image_ids, score, image_name)
+                    return vrc
     else:
         fail("packer build failed (see output above)")
-        _record_lineage(r, image_ids, image_name, score, ok=False)
+        _record_lineage(r, image_ids, image_name, score, ok=False,
+                        sbom_sha=sbom_sha, sbom_count=sbom_count)
 
     # [notify] — WeCom webhook; never affects the exit code.
     _send_notification(r, success, image_ids, score, image_name)
@@ -2558,6 +2787,22 @@ def _extract_score(stdout_lines: list[str]) -> float | None:
     return None
 
 
+def _extract_sbom_sha(stdout_lines: list[str]) -> str | None:
+    """Extract the SBOM sha256 echoed by the SBOM provisioner (P2#10)."""
+    for line in stdout_lines:
+        if m := re.search(r"SBOM_SHA256=([0-9a-f]{64})", line):
+            return m.group(1)
+    return None
+
+
+def _extract_sbom_count(stdout_lines: list[str]) -> int | None:
+    """Extract the SBOM package count echoed by the SBOM provisioner."""
+    for line in stdout_lines:
+        if m := re.search(r"sbom:\s*(\d+)\s+package", line):
+            return int(m.group(1))
+    return None
+
+
 # ── Image lineage ────────────────────────────────────────────────────────────
 # Every successful build appends a record to ~/.ciscvm/lineage.jsonl, so
 # downstream tools (Terraform, ASG, scripts) can resolve "latest approved
@@ -2568,16 +2813,18 @@ def _lineage_path() -> Path:
 
 
 def _record_lineage(r: ResolvedConfig, image_ids: list[str], image_name: str,
-                    score: float | None, ok: bool) -> Path | None:
+                    score: float | None, ok: bool,
+                    sbom_sha: str | None = None,
+                    sbom_count: int | None = None) -> Path | None:
     """Append one lineage record. Returns the file path, or None on failure."""
     if not isinstance(r, ResolvedConfig):
         return None  # defensive: only real resolved configs are recorded
     try:
         path = _lineage_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        from datetime import datetime, timezone
+        from datetime import datetime
         rec = {
-            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "ts": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "status": "ok" if ok else "failed",
             "ciscvm_version": VERSION,
             "profile": r.profile_name,
@@ -2588,12 +2835,115 @@ def _record_lineage(r: ResolvedConfig, image_ids: list[str], image_name: str,
             "image_name": image_name,
             "image_ids": image_ids,
             "score": score,
+            # P1#4/#7 — benchmark pinning + change detection: the fingerprint
+            # lets 'build --skip-if-unchanged' skip rebuilds when nothing
+            # changed, and the benchmark name/version anchors the audit.
+            "benchmark": r.image_benchmark,
+            "fingerprint": _build_fingerprint(r),
         }
+        # P2#10 — SBOM pinning: hash + package count of the emitted SBOM.
+        if sbom_sha:
+            rec["sbom_sha256"] = sbom_sha
+        if sbom_count is not None:
+            rec["sbom_packages"] = sbom_count
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
         return path
     except OSError:
         return None
+
+
+# ── Change detection (P1#7) ─────────────────────────────────────────────────
+# A build is "unchanged" when every input that could affect the produced
+# image is identical: source image, profile, level, benchmark, rule catalog
+# (hashed from the bundled rules.json), rule filters and the builder itself.
+# EC2 Image Builder skips scheduled rebuilds on such change detection — we
+# expose the same as `ciscvm build --skip-if-unchanged` / `ciscvm pending`.
+def _bundled_rules_hash(role_dir: str) -> str:
+    """SHA-256 of the bundled rules.json for *role_dir* ("" if unavailable)."""
+    import hashlib
+    project_root = Path(__file__).parent.resolve()
+    p = (project_root / "roles" / role_dir / "files" / "rules.json").resolve()
+    try:
+        p.relative_to((project_root / "roles").resolve())
+    except ValueError:
+        return ""
+    try:
+        return hashlib.sha256(p.read_bytes()).hexdigest()
+    except OSError:
+        return ""
+
+
+def _build_fingerprint(r: ResolvedConfig) -> str:
+    """Deterministic fingerprint of every build input that affects the image.
+
+    Includes the source image ID (rebuilds after a vendor image refresh are
+    NOT skipped), the rule catalog hash, benchmark, level, rule filters and
+    the builder version.  Stable across runs of the same inputs.
+    """
+    import hashlib
+    if not isinstance(r, ResolvedConfig):
+        return ""
+    parts = [
+        "ciscvm", VERSION,
+        "profile", r.profile_name,
+        "level", str(r.level),
+        "region", r.region,
+        "zone", r.zone,
+        "source", r.source_image_id,
+        "instance", r.instance_type,
+        "benchmark", r.image_benchmark,
+        "os", r.image_os_tag,
+        "rules", _bundled_rules_hash(r.role_dir),
+        "include", ",".join(r.rules_include),
+        "exclude", ",".join(r.rules_exclude),
+        "overrides", json.dumps(r.rules_overrides, sort_keys=True, ensure_ascii=False),
+    ]
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+def _last_successful_fingerprint(r: ResolvedConfig) -> tuple[str | None, list[str]]:
+    """Most recent 'ok' lineage record matching profile/level/region.
+
+    Returns (fingerprint, image_ids) — None fingerprint when no match.
+    Used by change detection to skip rebuilds with identical inputs.
+    """
+    path = _lineage_path()
+    if not path.exists():
+        return None, []
+    match: dict[str, Any] | None = None
+    with open(path, encoding="utf-8") as fh:
+        for ln in fh:
+            ln = ln.strip()
+            if not ln:
+                continue
+            try:
+                rec = json.loads(ln)
+            except json.JSONDecodeError:
+                continue
+            if (rec.get("status") == "ok"
+                    and rec.get("profile") == r.profile_name
+                    and rec.get("cis_level") == r.level
+                    and rec.get("region") == r.region
+                    and not rec.get("retired")):
+                match = rec  # last matching record wins (file is append-only)
+    if not match:
+        return None, []
+    return match.get("fingerprint"), list(match.get("image_ids") or [])
+
+
+def _image_ids_still_exist(region: str, image_ids: list[str]) -> bool:
+    """Best-effort: True when *any* of *image_ids* still exists in *region*.
+
+    Fails open (returns True) on missing credentials/API errors so change
+    detection never *blocks* a rebuild due to a transient API problem.
+    """
+    if not image_ids:
+        return False
+    try:
+        return bool(_images_exist(region, image_ids[:5]))
+    except Exception:
+        return True  # fail open — let the rebuild proceed
 
 
 def cmd_images(args: argparse.Namespace) -> int:
@@ -2602,7 +2952,7 @@ def cmd_images(args: argparse.Namespace) -> int:
     if not path.exists():
         info(f"No lineage records yet at {path} — run a build first.")
         return 0
-    records: list[dict] = []
+    records: list[dict[str, Any]] = []
     with open(path, encoding="utf-8") as fh:
         for ln in fh:
             ln = ln.strip()
@@ -2639,17 +2989,17 @@ def cmd_images(args: argparse.Namespace) -> int:
 # --apply performs the deletion.  Credentials come from the standard env
 # vars (TENCENTCLOUD_SECRET_ID/KEY[/TOKEN]).
 def _tc3_api(service: str, action: str, version: str, region: str,
-             params: dict, secret_id: str, secret_key: str,
-             token: str | None = None) -> dict:
+             params: dict[str, Any], secret_id: str, secret_key: str,
+             token: str | None = None) -> dict[str, Any]:
     """Call a Tencent Cloud API v3 endpoint with TC3-HMAC-SHA256 signing."""
     import hashlib
     import hmac
     import time
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     host = f"{service}.tencentcloudapi.com"
     timestamp = int(time.time())
-    date = datetime.fromtimestamp(timestamp, timezone.utc).strftime("%Y-%m-%d")
+    date = datetime.fromtimestamp(timestamp, UTC).strftime("%Y-%m-%d")
     payload = json.dumps(params, separators=(",", ":"))
     ct = "application/json; charset=utf-8"
     canonical_headers = (f"content-type:{ct}\n"
@@ -2686,7 +3036,7 @@ def _tc3_api(service: str, action: str, version: str, region: str,
     req = urllib.request.Request(f"https://{host}", data=payload.encode("utf-8"),
                                  headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+        return cast("dict[str, Any]", json.loads(resp.read().decode("utf-8")))
 
 
 def _images_exist(region: str, image_ids: list[str]) -> list[str]:
@@ -2718,16 +3068,210 @@ def _delete_images(region: str, image_ids: list[str]) -> None:
         raise ConfigError(f"DeleteImages failed: {resp['Response']['Error']}")
 
 
+# ── Clean-boot verification (P0#3) ──────────────────────────────────────────
+# AWS EC2 Image Builder's test phase runs on the OUTPUT image, not the build
+# instance — issues like SELinux autorelabel stalls, first-boot services and
+# cloud-init reconfiguration only appear on a fresh boot.  ciscvm
+# verify-image boots a probe instance from the produced image, runs the
+# bundled engine in scan mode (or an independent audit), and terminates it.
+def _probe_launch(r: ResolvedConfig, image_id: str, instance_name: str) -> str:
+    """Launch a probe instance from *image_id*; return instance-id."""
+    sid, skey, tok = (os.environ.get(r.secret_id_env, ""),
+                      os.environ.get(r.secret_key_env, ""),
+                      os.environ.get(r.security_token_env, ""))
+    if not sid or not skey:
+        raise ConfigError(
+            f"{r.secret_id_env} / {r.secret_key_env} not set — "
+            "cannot launch verification instance")
+    # TencentCloud RunInstances — the built image may be a custom image of
+    # any family; we launch with the SAME placement as the build itself.
+    resp = _tc3_api(
+        "cvm", "RunInstances", "2017-03-12", r.region,
+        {"ImageId": image_id,
+         "InstanceType": r.instance_type,
+         "InstanceChargeType": "POSTPAID_BY_HOUR",
+         "InstanceName": instance_name,
+         "VpcId": r.vpc_id,
+         "SubnetId": r.subnet_id,
+         "SecurityGroupIds": [r.security_group_id],
+         "AssociatePublicIp": r.associate_public_ip,
+         "InstanceCount": 1,
+         "TagSpecification": [{"ResourceType": "instance",
+                               "Tags": [{"Key": "purpose", "Value": "ciscvm-verify"},
+                                        {"Key": "ephemeral", "Value": "true"}]}]},
+        sid, skey, tok or None)
+    resp_r = resp.get("Response", {})
+    if "Error" in resp_r:
+        raise ConfigError(f"RunInstances failed: {resp_r['Error']}")
+    ids = resp_r.get("InstanceIdSet") or []
+    if not ids:
+        raise ConfigError("RunInstances returned no InstanceId")
+    return cast(str, ids[0])
+
+
+def _probe_public_ip(r: ResolvedConfig, instance_id: str) -> str:
+    """Poll DescribeInstancesStatus/DescribeInstances for a public IP.
+
+    Returns the public IP once the instance is RUNNING and reachable, or
+    "" when the timeout (default ~15 min) expires.
+    """
+    import time as _time
+    sid, skey, tok = (os.environ.get(r.secret_id_env, ""),
+                      os.environ.get(r.secret_key_env, ""),
+                      os.environ.get(r.security_token_env, ""))
+    deadline = _time.time() + 900
+    while _time.time() < deadline:
+        try:
+            resp = _tc3_api("cvm", "DescribeInstances", "2017-03-12", r.region,
+                            {"InstanceIds": [instance_id]}, sid, skey, tok or None)
+            insts = resp.get("Response", {}).get("InstanceSet") or []
+            if not insts:
+                _time.sleep(10)
+                continue
+            inst = insts[0]
+            state = inst.get("InstanceState", {}).get("State", "")
+            if state == "RUNNING":
+                pub = ""
+                for nic in inst.get("NetworkInterfaceSet") or []:
+                    pub = nic.get("PublicIpAddresses", [""])[0] or pub
+                if not pub:
+                    pub = inst.get("PublicIpAddresses", [""])[0] or ""
+                if pub:
+                    return pub
+        except Exception:
+            pass
+        _time.sleep(10)
+    return ""
+
+
+def _probe_terminate(r: ResolvedConfig, instance_id: str) -> None:
+    sid, skey, tok = (os.environ.get(r.secret_id_env, ""),
+                      os.environ.get(r.secret_key_env, ""),
+                      os.environ.get(r.security_token_env, ""))
+    try:
+        _tc3_api("cvm", "TerminateInstances", "2017-03-12", r.region,
+                 {"InstanceIds": [instance_id]}, sid, skey, tok or None)
+        ok(f"Verification instance terminated: {instance_id}")
+    except Exception as exc:
+        warn(f"Could not terminate verification instance {instance_id}: {exc}")
+
+
+def _probe_ssh_ready(ip: str, ssh_port: int, ssh_user: str,
+                     timeout_s: int = 600) -> bool:
+    """Wait for SSH on the probe instance (best-effort BatchMode probe)."""
+    import time as _time
+    deadline = _time.time() + timeout_s
+    while _time.time() < deadline:
+        try:
+            cp = subprocess.run(
+                ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
+                 "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
+                 "-p", str(ssh_port), f"{ssh_user}@{ip}",
+                 "true"],
+                capture_output=True, text=True, timeout=20)
+            if cp.returncode == 0:
+                return True
+        except Exception:
+            pass
+        _time.sleep(10)
+    return False
+
+
+def _probe_scan(r: ResolvedConfig, ip: str, ssh_port: int, ssh_user: str,
+                level: int) -> dict[str, Any]:
+    """Run the bundled engine in scan mode on the probe instance over SSH.
+
+    The produced image ships the engine + catalog under
+    /opt/ciscvm-ansible/roles/<role>/files (cleanup.sh keeps them), so a
+    fresh-boot scan needs no uploads.  Returns the parsed engine result doc.
+    """
+    profile = f"L{level}"
+    remote = (
+        "ENG=$(ls -d /opt/ciscvm-ansible/roles/cis_*/files 2>/dev/null | head -1); "
+        "if [ -n \"$ENG\" ] && [ -f \"$ENG/cis_engine.py\" ]; then "
+        "sudo /opt/ciscvm-ansible/bin/python \"$ENG/cis_engine.py\" "
+        f"--catalog \"$ENG/rules.json\" --mode scan --profile {profile} "
+        "--out /tmp/ciscvm-verify.json >/dev/null 2>&1 && "
+        "cat /tmp/ciscvm-verify.json; fi"
+    )
+    cp = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
+         "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=15",
+         "-p", str(ssh_port), f"{ssh_user}@{ip}", remote],
+        capture_output=True, text=True, timeout=900)
+    try:
+        return cast("dict[str, Any]", json.loads(cp.stdout))
+    except json.JSONDecodeError:
+        return {"error": cp.stdout[:300] or cp.stderr[:300]}
+
+
+def cmd_verify_image(args: argparse.Namespace, image_id: str | None = None) -> int:
+    """ciscvm verify-image — clean-boot verification of a produced image.
+
+    Boots a probe instance from *image_id*, runs the bundled engine in
+    scan mode (fresh boot — NOT the build instance), gates on --min-score,
+    and always terminates the probe instance (even on gate failure).
+    When called from cmd_build, *image_id* is passed explicitly.
+    """
+    prep = _load_resolve_preflight(args.config, args.workdir)
+    if prep is None:
+        return 1
+    r, _workdir = prep
+    image_id = image_id or getattr(args, "image", "") or ""
+    min_score = float(getattr(args, "min_score", 85))
+    if not image_id:
+        fail("--image <img-xxx> is required")
+        return 1
+    info(f"Launching verification instance from {image_id} "
+         f"({r.profile_name} L{r.level}, {r.region}) …")
+    instance_id = None
+    try:
+        instance_id = _probe_launch(r, image_id, f"ciscvm-verify-{image_id}")
+        ok(f"Probe instance: {instance_id}")
+        ip = _probe_public_ip(r, instance_id)
+        if not ip:
+            fail("Could not get a public IP for the probe instance (timeout)")
+            return 1
+        ok(f"Probe public IP: {ip}")
+        ssh_user = r.ssh_username or "root"
+        ssh_port = r.ssh_port or 22
+        if not _probe_ssh_ready(ip, ssh_port, ssh_user):
+            fail("SSH did not come up on the probe instance (timeout) — "
+                 "clean-boot verification failed")
+            return 1
+        ok("SSH ready on fresh boot")
+        doc = _probe_scan(r, ip, ssh_port, ssh_user, r.level)
+        if "error" in doc and "summary" not in doc:
+            fail(f"Fresh-boot scan failed: {doc.get('error', 'unknown error')}")
+            return 1
+        score = (doc.get("summary") or {}).get("all", {}).get("score")
+        fails = (doc.get("summary") or {}).get("all", {}).get("fail", 0)
+        banner("verify-image")
+        if score is not None:
+            info(f"Fresh-boot scan score: {score:g}% (gate >= {min_score:g}%)")
+        info(f"Fresh-boot failing rules: {fails}")
+        gate_ok = score is not None and score >= min_score
+        if gate_ok:
+            ok("clean-boot verification PASSED")
+            return 0
+        shown = f"{score:g}%" if score is not None else "unknown"
+        fail(f"clean-boot verification FAILED: score {shown} < {min_score:g}%")
+        return 1
+    finally:
+        if instance_id:
+            _probe_terminate(r, instance_id)
+
+
 def cmd_cleanup_images(args: argparse.Namespace) -> int:
     """Retire old golden images by lineage age. Dry-run by default."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     path = _lineage_path()
     if not path.exists():
         info(f"No lineage records at {path} — nothing to clean.")
         return 0
 
-    records: list[dict] = []
+    records: list[dict[str, Any]] = []
     with open(path, encoding="utf-8") as fh:
         for ln in fh:
             ln = ln.strip()
@@ -2743,14 +3287,14 @@ def cmd_cleanup_images(args: argparse.Namespace) -> int:
 
     keep = max(0, int(getattr(args, "keep_latest", 1)))
     older_than = max(1, int(getattr(args, "older_than", 30)))
-    cutoff = datetime.now(timezone.utc).timestamp() - older_than * 86400
+    cutoff = datetime.now(UTC).timestamp() - older_than * 86400
 
-    candidates: list[tuple[dict, str]] = []  # (record, image_id)
+    candidates: list[tuple[dict[str, Any], str]] = []  # (record, image_id)
     for i, rec in enumerate(ok_recs):
         if len(ok_recs) - i <= keep:
             continue  # keep the newest N builds
         try:
-            ts = datetime.strptime(rec.get("ts", ""), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+            ts = datetime.strptime(rec.get("ts", ""), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC).timestamp()
         except ValueError:
             continue
         if ts > cutoff:
@@ -2790,7 +3334,7 @@ def cmd_cleanup_images(args: argparse.Namespace) -> int:
     if args.apply:
         retired_ids = {img for _, img in candidates}
         lines: list[str] = []
-        retired_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        retired_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         with open(path, encoding="utf-8") as fh:
             for ln in fh:
                 ln = ln.strip()
@@ -2855,14 +3399,19 @@ def cmd_test(args: argparse.Namespace) -> int:
         fail(f"idempotency FAILED: second apply made {applied} change(s), "
              f"{pending or 0} pending — the image drifts on rebuild")
         return 1
-    ok(f"idempotency OK — second apply made 0 changes (no drift)")
+    ok("idempotency OK — second apply made 0 changes (no drift)")
     return 0
 
 
-def _build_sarif(stdout_lines: list[str]) -> str:
-    """Build a SARIF 2.1.0 document from the engine's 'List failed rules' output."""
-    rules: list[dict] = []
-    results: list[dict] = []
+def _build_sarif(stdout_lines: list[str], benchmark: str = "") -> str:
+    """Build a SARIF 2.1.0 document from the engine's 'List failed rules' output.
+
+    *benchmark* (P0#2) — official benchmark reference (e.g. "CIS TencentOS
+    Linux 4 Benchmark v1.0.0") carried in the driver so GRC tooling can
+    cross-reference the rule IDs against CIS-CAT / SCAP content.
+    """
+    rules: list[dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
     seen: set[str] = set()
     for i, line in enumerate(stdout_lines):
         m = re.match(r"\s*✗\s+([0-9][0-9.]+)\s*\|\s*(.*?)\s*$", line)
@@ -2873,38 +3422,471 @@ def _build_sarif(stdout_lines: list[str]) -> str:
             continue
         seen.add(rid)
         detail = stdout_lines[i + 1].strip() if i + 1 < len(stdout_lines) else ""
-        rules.append({"id": rid, "shortDescription": {"text": title}})
+        rule_obj: dict[str, Any] = {"id": rid, "shortDescription": {"text": title}}
+        if benchmark:
+            rule_obj["properties"] = {"benchmark": benchmark}
+        rules.append(rule_obj)
         results.append({
             "ruleId": rid,
             "level": "error",
             "message": {"text": detail or title},
         })
+    driver: dict[str, Any] = {
+        "name": "ciscvm",
+        "version": VERSION,
+        "informationUri": "https://github.com/susunola/cis-cvm-image-builder",
+        "rules": rules,
+    }
+    if benchmark:
+        driver["properties"] = {"benchmark": benchmark}
     sarif = {
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
         "version": "2.1.0",
         "runs": [{
-            "tool": {
-                "driver": {
-                    "name": "ciscvm",
-                    "version": VERSION,
-                    "informationUri": "https://github.com/susunola/cis-cvm-image-builder",
-                    "rules": rules,
-                }
-            },
+            "tool": {"driver": driver},
             "results": results,
         }],
     }
     return json.dumps(sarif, ensure_ascii=False, indent=1)
 
 
-def _write_sarif(args, stdout_lines: list[str]) -> None:
+def _write_sarif(args: argparse.Namespace, stdout_lines: list[str], benchmark: str = "") -> None:
     if not getattr(args, "sarif", None):
         return
     try:
-        Path(args.sarif).write_text(_build_sarif(stdout_lines), encoding="utf-8")
+        Path(args.sarif).write_text(
+            _build_sarif(stdout_lines, benchmark), encoding="utf-8")
         ok(f"SARIF report written -> {args.sarif}")
     except OSError as exc:
         warn(f"Could not write SARIF report: {exc}")
+
+
+# ── XCCDF report (P2#8) ─────────────────────────────────────────────────────
+# `ciscvm scan --xccdf out.xml` exports the engine's findings as an XCCDF
+# 1.2 TestResult so enterprise GRC/compliance platforms (which consume
+# SCAP/XCCDF natively) can ingest ciscvm results without a custom parser.
+def _build_xccdf(stdout_lines: list[str], benchmark: str = "") -> str:
+    """Build a minimal XCCDF 1.2 TestResult document from the engine output.
+
+    Each failing rule becomes a <rule-result>; the benchmark reference is
+    carried in the TestResult so the export ties back to the CIS edition.
+    """
+    from datetime import datetime
+    from xml.sax.saxutils import escape
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = []
+    seen: set[str] = set()
+    for line in stdout_lines:
+        m = re.match(r"\s*✗\s+([0-9][0-9.]+)\s*\|\s*(.*?)\s*$", line)
+        if not m:
+            continue
+        rid = m.group(1)
+        if rid in seen:
+            continue
+        seen.add(rid)
+        rows.append(
+            f'  <rule-result idref="xccdf_org.ciscvm.content_rule_{rid}">\n'
+            f'    <result>fail</result>\n'
+            f'    <message>{escape((m.group(2) or "").strip()[:200])}</message>\n'
+            f'  </rule-result>')
+    bm = escape(benchmark) if benchmark else "ciscvm"
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<Benchmark xmlns="http://checklists.nist.gov/xccdf/1.2" '
+        f'id="ciscvm-{escape(benchmark) if benchmark else "benchmark"}">\n'
+        f'  <TestResult id="ciscvm-scan" start-time="{now}" end-time="{now}" '
+        f'benchmark-reference="{bm}">\n'
+        f'    <score max="100">{100.0:.6f}</score>\n'
+        + "\n".join(rows) + "\n"
+        '  </TestResult>\n</Benchmark>\n')
+
+
+def _write_xccdf(args: argparse.Namespace, stdout_lines: list[str], benchmark: str = "") -> None:
+    if not getattr(args, "xccdf", None):
+        return
+    try:
+        Path(args.xccdf).write_text(
+            _build_xccdf(stdout_lines, benchmark), encoding="utf-8")
+        ok(f"XCCDF report written -> {args.xccdf}")
+    except OSError as exc:
+        warn(f"Could not write XCCDF report: {exc}")
+
+
+# ── Build notifications (WeCom group robot) ─────────────────────────────────
+# [notify].webhook + [notify].on ("always"|"success"|"failure", default
+# "failure").  Combined with an external cron / systemd timer this turns
+# ciscvm build into a scheduled, self-reporting rebuild pipeline.
+def cmd_pending(args: argparse.Namespace) -> int:
+    """Change detection: report whether a rebuild is needed (P1#7).
+
+    Exit 0 = build inputs unchanged since the last successful build
+    (no rebuild needed).  Exit 1 = something changed or no record exists.
+    The check is input-only; 'build --skip-if-unchanged' additionally
+    verifies the previous image still exists before skipping.
+    """
+    prep = _load_resolve_preflight(args.config, args.workdir)
+    if prep is None:
+        return 1
+    r, _workdir = prep
+    fp = _build_fingerprint(r)
+    prev_fp, prev_images = _last_successful_fingerprint(r)
+    info(f"profile={r.profile_name} L{r.level} region={r.region}")
+    info(f"current fingerprint  = {fp}")
+    if prev_fp is None:
+        fail("no previous successful build for this profile/level/region "
+             "— rebuild required")
+        return 1
+    info(f"last build fingerprint = {prev_fp}")
+    if prev_fp == fp:
+        ok("inputs unchanged since last successful build — rebuild not required")
+        if prev_images:
+            ok(f"last images: {', '.join(prev_images)}")
+        return 0
+    warn("inputs changed — rebuild required")
+    return 1
+
+
+def _share_images(region: str, image_ids: list[str], accounts: list[str]) -> None:
+    """Share built images with other Tencent Cloud accounts (P2#9).
+
+    Uses cvm:ModifyImageSharePermission with the configured AccountIds
+    (uin/… strings).  Credentials come from the standard env vars.
+    """
+    if not image_ids or not accounts:
+        return
+    sid, skey, tok = (os.environ.get("TENCENTCLOUD_SECRET_ID", ""),
+                      os.environ.get("TENCENTCLOUD_SECRET_KEY", ""),
+                      os.environ.get("TENCENTCLOUD_SECURITY_TOKEN", ""))
+    if not sid or not skey:
+        warn("TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY not set — "
+             "cannot share images")
+        return
+    try:
+        resp = _tc3_api("cvm", "ModifyImageSharePermission", "2017-03-12",
+                        region,
+                        {"ImageIds": image_ids, "AccountIds": accounts},
+                        sid, skey, tok or None)
+        if "Error" in resp.get("Response", {}):
+            raise ConfigError(
+                f"ModifyImageSharePermission failed: "
+                f"{resp['Response']['Error']}")
+        ok(f"Shared {len(image_ids)} image(s) with {len(accounts)} account(s) "
+           f"({', '.join(accounts)})")
+    except ConfigError as exc:
+        warn(str(exc))
+    except Exception as exc:
+        warn(f"ModifyImageSharePermission failed: {exc}")
+
+
+# ── Independent audit tool (P0#1) ───────────────────────────────────────────
+# ciscvm audit runs a THIRD-PARTY audit tool (OpenSCAP oscap or Chef InSpec)
+# against a target host and gates on the score.  This is the "independent
+# verification" that dev-sec (InSpec baselines) / RHEL (oscap + SCAP content)
+# / ansible-lockdown (Goss profiles) all ship — the score is no longer
+# self-reported by the same engine that applied the hardening.
+#
+#   oscap : oscap xccdf eval --profile <cis> --results-arf - <datastream>
+#           (RHEL-family: scap-security-guide ships ssg-*ds.xml datastreams)
+#   inspec: inspec exec <baseline> -t ssh://user@host --reporter json
+#
+# Runs over SSH (stdlib-only: shells out to `ssh`), parses the machine-
+# readable result (ARF XML for oscap, JSON for inspec) and gates on
+# --min-score like the engine gate.  Also emits SARIF / XCCDF when asked.
+def _audit_ssh_args(host: str, ssh_user: str, ssh_port: int,
+                    ssh_key: str | None = None) -> list[str]:
+    args = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=15"]
+    if ssh_port:
+        args += ["-p", str(ssh_port)]
+    if ssh_key:
+        args += ["-i", ssh_key]
+    args += [f"{ssh_user}@{host}"]
+    return args
+
+
+def _audit_oscap(host: str, ssh_user: str, ssh_port: int, ssh_key: str | None,
+                 profile: str, datastream: str, timeout: int = 900) -> str:
+    """Run oscap over SSH, return the ARF XML document ("" on failure)."""
+    remote = (f"oscap xccdf eval --profile {profile} --results-arf - {datastream} 2>/dev/null"
+              )
+    cp = subprocess.run(_audit_ssh_args(host, ssh_user, ssh_port, ssh_key) + [remote],
+                        capture_output=True, text=True, timeout=timeout)
+    return cp.stdout
+
+
+def _audit_inspec(host: str, ssh_user: str, ssh_port: int, ssh_key: str | None,
+                  baseline: str, timeout: int = 900) -> dict[str, Any] | None:
+    """Run InSpec over SSH, return the parsed JSON report (None on failure)."""
+    target = f"ssh://{ssh_user}@{host}"
+    if ssh_port:
+        target += f":{ssh_port}"
+    cmd = ["inspec", "exec", baseline, "-t", target, "--reporter", "json"]
+    try:
+        cp = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError:
+        warn("inspec not found in PATH — install from https://chef.io/products/chef-inspec")
+        return None
+    except subprocess.TimeoutExpired:
+        warn(f"inspec timed out after {timeout}s")
+        return None
+    try:
+        return cast("dict[str, Any]", json.loads(cp.stdout))
+    except json.JSONDecodeError:
+        warn("inspec produced no JSON report (does the target reachable?)")
+        return None
+
+
+def _parse_oscap_arf(xml_text: str) -> dict[str, Any]:
+    """Parse an OpenSCAP ARF XML into {score, pass, fail, results[]}.
+
+    ARF = OVAL + XCCDF results; the XCCDF TestResult holds the profile
+    score and per-rule results.  stdlib xml.etree only.
+    """
+    import xml.etree.ElementTree as ET
+    out: dict[str, Any] = {"score": None, "pass": 0, "fail": 0, "notselected": 0,
+                          "error": 0, "results": [], "tool": "oscap"}
+    if not xml_text.strip():
+        return out
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        out["error"] = 1
+        out["results"] = [{"id": "_parse_error_", "status": "error",
+                           "detail": str(exc)}]
+        return out
+    ns = {"x": "http://checklists.nist.gov/xccdf/1.2",
+          "arf": "http://scap.nist.gov/schema/asset-reporting-format/1.1",
+          "oval": "http://oval.mitre.org/XMLSchema/oval-definitions-5"}
+    # XCCDF TestResult is nested under arf:report-request/report
+    test_results = root.findall(".//x:TestResult", ns)
+    tr = test_results[-1] if test_results else None
+    if tr is None:
+        out["results"] = [{"id": "_no_result_", "status": "error",
+                           "detail": "no XCCDF TestResult in ARF"}]
+        return out
+    score_node = tr.find("x:score", ns)
+    if score_node is not None and score_node.text:
+        with contextlib.suppress(ValueError):
+            out["score"] = round(float(score_node.text) * 100, 1)
+    for rule in tr.findall("x:rule-result", ns):
+        rid = rule.get("idref", "?")
+        _res_node = rule.find("x:result", ns)
+        status = (_res_node.text or "notselected") if _res_node is not None else "notselected"
+        st = status.lower()
+        if st in ("pass", "fail", "error", "notselected", "notapplicable",
+                  "informational", "fixed", "unknown"):
+            out[st if st in ("pass", "fail", "error", "notselected") else "pass"] += 0
+        if st == "pass":
+            out["pass"] += 1
+        elif st == "fail":
+            out["fail"] += 1
+        elif st in ("notselected", "notapplicable", "informational"):
+            out["notselected"] += 1
+        elif st == "error":
+            out["error"] += 1
+        out["results"].append({
+            "id": rid, "status": st,
+            "title": rid.rsplit("_", 1)[-1].replace("_", " "),
+        })
+    return out
+
+
+def _parse_inspec_json(data: dict[str, Any] | None) -> dict[str, Any]:
+    """Parse an InSpec JSON report into the same {score, pass, fail, results} shape."""
+    out: dict[str, Any] = {"score": None, "pass": 0, "fail": 0, "notselected": 0,
+                          "error": 0, "results": [], "tool": "inspec"}
+    if not data:
+        out["error"] = 1
+        out["results"] = [{"id": "_no_data_", "status": "error",
+                           "detail": "no InSpec JSON report"}]
+        return out
+    controls = data.get("controls") or []
+    for c in controls:
+        rid = c.get("id", "?")
+        status = c.get("status", "skipped")
+        st = status.lower()
+        if st == "passed":
+            out["pass"] += 1
+            st = "pass"
+        elif st in ("failed", "error"):
+            out["fail"] += 1
+            st = "fail" if st == "failed" else "error"
+        else:
+            out["notselected"] += 1
+            st = "notselected"
+        detail = "; ".join(
+            (r.get("message") or "") for r in (c.get("results") or [])
+            if r.get("status") != "passed") or (c.get("title") or "")
+        out["results"].append({"id": rid, "status": st, "detail": detail[:160]})
+    scored = out["pass"] + out["fail"]
+    if scored:
+        out["score"] = round(100.0 * out["pass"] / scored, 1)
+    return out
+
+
+def _audit_render(audit: dict[str, Any], min_score: float) -> int:
+    """Print an audit summary; return exit code (0 = gate passed)."""
+    banner("audit")
+    info(f"tool       : {audit.get('tool', '?')}")
+    info(f"rules      : {audit['pass'] + audit['fail'] + audit['notselected'] + audit['error']} "
+         f"(pass {audit['pass']}, fail {audit['fail']}, "
+         f"notselected {audit['notselected']}, error {audit['error']})")
+    if audit.get("score") is not None:
+        info(f"score      : {audit['score']:g}% (gate >= {min_score:g}%)")
+    for r in audit["results"]:
+        if r["status"] in ("fail", "error"):
+            fail(f"{r['id']:s} | {r.get('detail') or r.get('title') or r['status']}")
+    gate_ok = audit.get("score") is not None and audit["score"] >= min_score
+    if gate_ok:
+        ok(f"audit gate PASSED ({audit['score']:g}% >= {min_score:g}%)")
+        return 0
+    shown = f"{audit['score']:g}%" if audit.get("score") is not None else "unknown"
+    fail(f"audit gate FAILED: score {shown} < {min_score:g}%")
+    return 1
+
+
+def _audit_results_sarif(audit: dict[str, Any]) -> str:
+    """SARIF 2.1.0 document from an independent audit's findings."""
+    rules, results = [], []
+    seen: set[str] = set()
+    for r in audit["results"]:
+        if r["status"] not in ("fail", "error"):
+            continue
+        rid = r["id"]
+        if rid in seen:
+            continue
+        seen.add(rid)
+        rules.append({"id": rid, "shortDescription": {"text": r.get("title") or rid}})
+        results.append({"ruleId": rid, "level": "error",
+                        "message": {"text": r.get("detail") or rid}})
+    return json.dumps({
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {"driver": {
+                "name": f"ciscvm-audit-{audit.get('tool', '?')}",
+                "version": VERSION,
+                "informationUri": "https://github.com/susunola/cis-cvm-image-builder",
+                "rules": rules}},
+            "results": results,
+        }],
+    }, ensure_ascii=False, indent=1)
+
+
+def cmd_audit(args: argparse.Namespace) -> int:
+    """ciscvm audit — independent third-party audit (oscap / inspec / kitty)."""
+    if args.tool not in ("oscap", "inspec", "kitty"):
+        fail(f"Unknown audit tool: {args.tool}. Use oscap, inspec or kitty.")
+        return 1
+    if args.tool == "kitty":
+        # HardeningKitty runs ON the Windows host (no winrm client in the
+        # stdlib-only CLI); ciscvm consumes its CSV export and gates.
+        if not args.parse:
+            fail("--parse <kitty-audit.csv> is required for the kitty tool "
+                 "(run HardeningKitty on the Windows host, export CSV, then "
+                 "parse it here)")
+            return 1
+        try:
+            csv_text = Path(args.parse).read_text(encoding="utf-8-sig")
+        except OSError as exc:
+            fail(f"Could not read HardeningKitty CSV {args.parse}: {exc}")
+            return 1
+        audit = _parse_kitty_csv(csv_text)
+    elif not args.host:
+        fail("--host is required (the target instance to audit)")
+        return 1
+    elif args.tool == "oscap":
+        if not args.datastream:
+            fail("--datastream is required for oscap (e.g. "
+                 "/usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml)")
+            return 1
+        info(f"Running oscap xccdf eval (profile={args.profile}) on {args.host} …")
+        xml_text = _audit_oscap(args.host, args.ssh_user, args.ssh_port,
+                                args.ssh_key, args.profile, args.datastream)
+        audit = _parse_oscap_arf(xml_text)
+    else:
+        baseline = args.baseline or "dev-sec/linux-baseline"
+        info(f"Running InSpec ({baseline}) against {args.host} …")
+        audit = _parse_inspec_json(_audit_inspec(
+            args.host, args.ssh_user, args.ssh_port, args.ssh_key, baseline))
+    if getattr(args, "sarif", None):
+        try:
+            Path(args.sarif).write_text(_audit_results_sarif(audit), encoding="utf-8")
+            ok(f"SARIF report written -> {args.sarif}")
+        except OSError as exc:
+            warn(f"Could not write SARIF report: {exc}")
+    if getattr(args, "xccdf", None):
+        try:
+            Path(args.xccdf).write_text(_audit_results_xccdf(audit), encoding="utf-8")
+            ok(f"XCCDF report written -> {args.xccdf}")
+        except OSError as exc:
+            warn(f"Could not write XCCDF report: {exc}")
+    return _audit_render(audit, args.min_score)
+
+
+def _audit_results_xccdf(audit: dict[str, Any]) -> str:
+    """Minimal XCCDF 1.2 TestResult document from an independent audit."""
+    from xml.sax.saxutils import escape
+    rows = []
+    for r in audit["results"]:
+        rid = escape(r["id"])
+        status = {"pass": "pass", "fail": "fail", "error": "error"}.get(
+            r["status"], "notselected")
+        rows.append(
+            f'  <rule-result idref="{rid}"><result>{status}</result></rule-result>')
+    score = audit.get("score")
+    score_f = cast(float, score)
+    score_xml = f"  <score>{score_f / 100.0:.6f}</score>" if score is not None else ""
+    tool_name = str(audit.get("tool", "audit"))
+    now = __import__("datetime").datetime.utcnow().isoformat()
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<Benchmark xmlns="http://checklists.nist.gov/xccdf/1.2" '
+        'id="ciscvm-audit">\n'
+        f'  <TestResult id="ciscvm-{tool_name}" '
+        f'start-time="{now}Z" end-time="{now}Z">\n'
+        f'{score_xml}\n' + "\n".join(rows) + "\n"
+        "  </TestResult>\n</Benchmark>\n")
+
+
+# ── HardeningKitty CSV parser (P2#11, Windows cross-check) ──────────────────
+# HardeningKitty (scaledagility) is the de-facto Windows CIS/STIG audit
+# script.  `ciscvm audit --tool kitty --parse file.csv` consumes its audit
+# CSV export and gates on the score — independent verification for the
+# Windows profiles (which today only have the bundled PS1 engine).
+def _parse_kitty_csv(csv_text: str) -> dict[str, Any]:
+    out: dict[str, Any] = {"score": None, "pass": 0, "fail": 0, "notselected": 0,
+                          "error": 0, "results": [], "tool": "kitty"}
+    import csv as _csv
+    import io as _io
+    reader = _csv.DictReader(_io.StringIO(csv_text))
+    if not reader.fieldnames:
+        out["error"] = 1
+        out["results"] = [{"id": "_no_header_", "status": "error",
+                           "detail": "empty HardeningKitty CSV"}]
+        return out
+    for _row_no, row in enumerate(reader, start=1):
+        rid = (row.get("RuleId") or row.get("Id") or row.get("Rule") or "?")
+        status = (row.get("Compliant") or row.get("Status") or row.get("Result") or "").lower()
+        # HardeningKitty reports "True"/"False"/"-"/"Not Applicable"
+        if status in ("true", "pass", "passed", "ok", "compliant"):
+            out["pass"] += 1
+            st = "pass"
+        elif status in ("false", "fail", "failed", "not compliant"):
+            out["fail"] += 1
+            st = "fail"
+        elif status in ("", "-", "n/a", "not applicable", "skip", "skipped"):
+            out["notselected"] += 1
+            st = "notselected"
+        else:
+            out["error"] += 1
+            st = "error"
+        out["results"].append({"id": rid, "status": st,
+                               "detail": (row.get("Finding") or row.get("Message") or "")[:160]})
+    scored = out["pass"] + out["fail"]
+    if scored:
+        out["score"] = round(100.0 * out["pass"] / scored, 1)
+    return out
 
 
 # ── Build notifications (WeCom group robot) ─────────────────────────────────
@@ -2940,7 +3922,7 @@ def _send_notification(r: ResolvedConfig, ok: bool, image_ids: list[str],
             headers={"Content-Type": "application/json"}, method="POST")
         with urllib.request.urlopen(req, timeout=10) as resp:
             if resp.status == 200:
-                info(f"Notification sent to WeCom webhook")
+                info("Notification sent to WeCom webhook")
             else:
                 warn(f"Notification webhook returned HTTP {resp.status}")
     except Exception as exc:  # notifications must never fail the build
@@ -2954,17 +3936,19 @@ def _send_notification(r: ResolvedConfig, ok: bool, image_ids: list[str],
 # key is configured, detach-sign it.  That gives an auditable, signed
 # record of exactly what produced the image (SLSA L1 + signed provenance).
 def _write_provenance(r: ResolvedConfig, image_ids: list[str], image_name: str,
-                      score: float | None) -> Path | None:
+                      score: float | None,
+                      sbom_sha: str | None = None,
+                      sbom_count: int | None = None) -> Path | None:
     if not isinstance(r, ResolvedConfig):
         return None
     try:
-        from datetime import datetime, timezone
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        from datetime import datetime
+        ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         dirp = _lineage_path().parent / "provenance"
         dirp.mkdir(parents=True, exist_ok=True)
         safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", image_name) or "image"
         prov_path = dirp / f"{safe_name}.{ts.replace(':', '').replace('-', '').replace('T', '-')}.provenance.json"
-        prov = {
+        prov: dict[str, Any] = {
             "_type": "https://in-toto.io/Statement/v1",
             "predicateType": "https://slsa.dev/provenance/v1",
             "subject": [{"name": i, "digest": {"sha256": "n/a"}} for i in image_ids],
@@ -2979,6 +3963,11 @@ def _write_provenance(r: ResolvedConfig, image_ids: list[str], image_name: str,
                         "source_image_id": r.source_image_id,
                         "instance_type": r.instance_type,
                         "benchmark": r.image_benchmark,
+                        # P1#4 — pin the exact rule catalog version that was
+                        # applied, so the provenance is auditable against the
+                        # benchmark edition (ansible-lockdown pins per-benchmark).
+                        "rules_sha256": _bundled_rules_hash(r.role_dir),
+                        "fingerprint": _build_fingerprint(r),
                     },
                     "internalParameters": {"ciscvm_version": VERSION},
                 },
@@ -2994,6 +3983,13 @@ def _write_provenance(r: ResolvedConfig, image_ids: list[str], image_name: str,
         }
         if score is not None:
             prov["predicate"]["runDetails"]["metadata"]["reAuditScore"] = score
+        # P2#10 — SBOM pinning: the provenance now references the emitted
+        # SBOM (hash + package count), closing the SLSA L2-style gap of
+        # "what exactly shipped inside the image".
+        if sbom_sha:
+            prov["predicate"]["runDetails"]["metadata"]["sbomSha256"] = sbom_sha
+        if sbom_count is not None:
+            prov["predicate"]["runDetails"]["metadata"]["sbomPackageCount"] = sbom_count
         prov_path.write_text(json.dumps(prov, ensure_ascii=False, indent=1) + "\n",
                              encoding="utf-8")
         if r.sign_key:
@@ -3019,13 +4015,15 @@ def _write_provenance(r: ResolvedConfig, image_ids: list[str], image_name: str,
 
 
 def cmd_list(args: argparse.Namespace) -> int:
-    """Enumerate available profiles with metadata."""
-    print(f"{'profile':<12} {'family':<8} {'os':<12} {'comm':<6} user")
+    """Enumerate available profiles with metadata (P1#4: benchmark shown)."""
+    print(f"{'profile':<12} {'family':<8} {'os':<12} {'comm':<6} {'benchmark':<14} user")
     for name, meta in sorted(PROFILES.items()):
         family = "windows" if meta.get("family") == "windows" else "linux"
         comm = "winrm" if family == "windows" else "ssh"
         user = meta.get("ssh_username", "") or meta.get("winrm_username", "") or "-"
-        print(f"{name:<12} {family:<8} {str(meta.get('os_tag', '')):<12} {comm:<6} {user}")
+        bm = str(meta.get("benchmark", ""))
+        print(f"{name:<12} {family:<8} {str(meta.get('os_tag', '')):<12} "
+              f"{comm:<6} {bm:<14} {user}")
     return 0
 
 
@@ -3053,8 +4051,11 @@ def cmd_scan(args: argparse.Namespace) -> int:
     image_name = _image_name(r)
 
     # SARIF report (if requested) — written regardless of gate outcome so CI
-    # can archive failures.
-    _write_sarif(args, result.stdout_lines)
+    # can archive failures.  P0#2: carry the benchmark reference so rule IDs
+    # cross-reference the official CIS/SCAP numbering.
+    _write_sarif(args, result.stdout_lines, benchmark=r.image_benchmark)
+    # XCCDF 1.2 export (if requested) — P2#8, for enterprise GRC ingestion.
+    _write_xccdf(args, result.stdout_lines, benchmark=r.image_benchmark)
 
     if result.exit_code != 0:
         fail("packer build failed during scan")
@@ -3256,6 +4257,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_bld.add_argument("-y", "--yes", action="store_true", help="Skip confirmation prompt")
     p_bld.add_argument("--log-file", default=None,
                        help="Write full build log to file (in addition to stderr)")
+    p_bld.add_argument("--skip-if-unchanged", action="store_true",
+                       help="Skip the rebuild when inputs (source image, rules, "
+                            "benchmark, level) are unchanged since the last "
+                            "successful build (change detection, P1#7)")
     p_bld.set_defaults(func=cmd_build)
 
     p_cln = sub.add_parser("clean", parents=[common], help="Remove working directory")
@@ -3286,7 +4291,46 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Gate threshold in percent (default 85)")
     p_scn.add_argument("--sarif", default=None,
                        help="Write a SARIF 2.1.0 report of failed rules to PATH")
+    p_scn.add_argument("--xccdf", default=None,
+                       help="Write an XCCDF 1.2 TestResult report of failed rules to PATH (P2#8)")
     p_scn.set_defaults(func=cmd_scan)
+
+    p_pnd = sub.add_parser("pending", parents=[common],
+                           help="Change detection: report whether a rebuild is needed (P1#7)")
+    p_pnd.set_defaults(func=cmd_pending)
+
+    p_aud = sub.add_parser(
+        "audit",
+        help="Independent third-party audit (oscap / inspec / kitty) with a score gate (P0#1)")
+    p_aud.add_argument("--tool", choices=["oscap", "inspec", "kitty"], required=True,
+                       help="Audit tool: oscap (SCAP content) | inspec (dev-sec baseline) | kitty (Windows CSV)")
+    p_aud.add_argument("--host", default=None, help="Target host to audit (required for oscap/inspec)")
+    p_aud.add_argument("--ssh-user", default="root", help="SSH user for oscap/inspec (default root)")
+    p_aud.add_argument("--ssh-port", type=int, default=22, help="SSH port (default 22)")
+    p_aud.add_argument("--ssh-key", default=None, help="SSH private key path (default: agent/keys)")
+    p_aud.add_argument("--profile", default="xccdf_org.ssgproject.content_profile_cis",
+                       help="oscap profile id (default: CIS profile in scap-security-guide)")
+    p_aud.add_argument("--datastream", default=None,
+                       help="oscap SCAP datastream path on the target (e.g. /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml)")
+    p_aud.add_argument("--baseline", default=None,
+                       help="inspec baseline (default dev-sec/linux-baseline)")
+    p_aud.add_argument("--parse", default=None,
+                       help="kitty: path to a HardeningKitty audit CSV export to parse (P2#11)")
+    p_aud.add_argument("--min-score", type=float, default=85.0,
+                       help="Gate threshold in percent (default 85)")
+    p_aud.add_argument("--sarif", default=None, help="Write findings as SARIF 2.1.0 to PATH")
+    p_aud.add_argument("--xccdf", default=None, help="Write findings as XCCDF 1.2 to PATH")
+    p_aud.set_defaults(func=cmd_audit)
+
+    p_vrf_img = sub.add_parser(
+        "verify-image", parents=[common],
+        help="Clean-boot verification: boot a probe from a produced image, "
+             "re-audit on fresh boot, terminate (P0#3)")
+    p_vrf_img.add_argument("--image", required=True,
+                           help="Image ID to verify (e.g. img-xxxx)")
+    p_vrf_img.add_argument("--min-score", type=float, default=85.0,
+                           help="Gate threshold in percent (default 85)")
+    p_vrf_img.set_defaults(func=cmd_verify_image)
 
     p_tst = sub.add_parser("test", parents=[common], help="Test the build pipeline")
     p_tst.add_argument("--quiet", action="store_true",

@@ -132,15 +132,22 @@ ciscvm init                               # generate ciscvm.toml
 ciscvm preflight                          # validate config, credentials, prerequisites
 ciscvm validate                           # render templates + packer validate
 ciscvm build                              # render + packer build → custom image
+ciscvm build --skip-if-unchanged          # ... skip when inputs are unchanged (change detection)
 ciscvm scan [--min-score 85]              # audit-only build (no remediation) + score gate
 ciscvm scan --sarif out.sarif             # ... plus a SARIF 2.1.0 failure report
+ciscvm scan --xccdf out.xml               # ... plus an XCCDF 1.2 TestResult (GRC ingestion)
 ciscvm test --idempotency                 # re-run apply, fail if 2nd pass changes anything
 ciscvm list                               # enumerate available profiles with metadata
 ciscvm images [--latest] [-n N]           # list recorded builds (lineage)
+ciscvm pending                            # change detection: is a rebuild required? (exit 0/1)
 ciscvm cleanup-images [--older-than 30]   # retire old images by lineage age
 ciscvm cleanup-images --apply             # actually delete (default = dry run)
 ciscvm verify --provenance <file>         # verify a SLSA provenance signature
 ciscvm verify --image <img-id>            # ... or locate provenance by image ID
+ciscvm verify-image --image <img-id>      # clean-boot verification of a produced image
+ciscvm audit --tool oscap ...             # independent audit: OpenSCAP (RHEL-family SCAP content)
+ciscvm audit --tool inspec ...            # independent audit: Chef InSpec (dev-sec baselines)
+ciscvm audit --tool kitty --parse out.csv # independent audit: HardeningKitty (Windows) CSV
 ciscvm clean                              # remove .ciscvm-build/
 ```
 
@@ -152,7 +159,14 @@ ciscvm clean                              # remove .ciscvm-build/
 | `--debug` | validate, build, scan | Enable `PACKER_LOG=1` |
 | `-y` / `--yes` | build | Skip confirmation prompt |
 | `--log-file <path>` | build | Write full build log to file |
-| `--min-score <pct>` | scan | Gate threshold (default `85`; below it → exit 1) |
+| `--skip-if-unchanged` | build | Skip when inputs (source image, rules, benchmark, level) are unchanged |
+| `--min-score <pct>` | scan, audit, verify-image | Gate threshold (default `85`; below it → exit 1) |
+| `--sarif <path>` | scan, audit | Write findings as SARIF 2.1.0 |
+| `--xccdf <path>` | scan, audit | Write findings as XCCDF 1.2 (enterprise GRC ingestion) |
+| `--host <ip>` | audit | Target host to audit (oscap/inspec) |
+| `--datastream <path>` | audit | oscap SCAP datastream on the target (e.g. `/usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml`) |
+| `--baseline <name>` | audit | inspec baseline (default `dev-sec/linux-baseline`) |
+| `--parse <csv>` | audit --tool kitty | HardeningKitty audit CSV export to parse |
 | `--older-than <days>` | cleanup-images | Retire builds older than N days (default `30`) |
 | `--keep-latest <n>` | cleanup-images | Always keep the newest N builds (default `1`) |
 | `--apply` | cleanup-images | Actually delete (default is a dry run) |
@@ -184,9 +198,16 @@ associate_public_ip = true
 name_prefix  = "tencentos3-cis"
 # name = "my-cis-image"                  # optional: fixed image name (empty = auto prefix-level-timestamp)
 copy_regions = ["ap-shanghai"]            # [] to disable cross-region copy
+# share_accounts = ["uin/1234567890"]    # optional: share the built image with other accounts
 
 [cis]
 level = 1                                 # 1 or 2
+# min_score = 85                          # post-reboot audit gate (0 disables; default 85)
+# rules_include = ["1.5.6"]               # run only these rules
+# rules_exclude = ["1.1.2.2.4"]           # always wins over rules_include
+# Per-control parameter overrides (deep-merged into the catalog at render):
+# [cis.overrides."5.2.2"]
+# ssh_max_auth_tries = 4
 
 [cloud]
 secret_id_env  = "TENCENTCLOUD_SECRET_ID"
@@ -212,6 +233,10 @@ secret_key_env = "TENCENTCLOUD_SECRET_KEY"
 [meta]
 os_tag    = "tencentos-3"
 benchmark = "CIS-v1.0.0"
+# smoke_test = true           # instance-level checks before the image snapshot
+# cve_scan   = false          # optional: trivy vulnerability gate before the snapshot
+# sbom       = false          # optional: emit an SBOM into the image + provenance
+# verify_boot = false         # optional: boot a probe from the produced image and re-audit
 ```
 
 ### Full reference
@@ -230,9 +255,12 @@ benchmark = "CIS-v1.0.0"
 | `[image]` | `name_prefix` | string | Output image name prefix |
 | | `name` | string | Fixed image name (empty = auto `prefix-level-timestamp`) |
 | | `copy_regions` | []string | Regions to replicate (empty = skip) |
+| | `share_accounts` | []string | Share the built image with other accounts (`uin/…`) after build (empty = off) |
 | `[cis]` | `level` | int | `1` (Level 1) or `2` (Level 2) |
+| | `min_score` | int | Post-reboot audit gate (default `85`; `0` disables) |
 | | `rules_include` | []string | Rule-ID filter — when set, ONLY these rules run (empty = all) |
 | | `rules_exclude` | []string | Rule-ID filter — always wins over `rules_include` |
+| | `overrides` | table | Per-control parameter overrides, keyed by rule ID — deep-merged into the catalog at render time (e.g. `[cis.overrides."5.2.2"]`) |
 | `[cloud]` | `secret_id_env` | string | Env var for Secret ID |
 | | `secret_key_env` | string | Env var for Secret Key |
 | | `security_token_env` | string | STS session-token env var (default `TENCENTCLOUD_SECURITY_TOKEN`; used with OIDC/STS credentials) |
@@ -241,11 +269,14 @@ benchmark = "CIS-v1.0.0"
 | | `assume_role_session` | string | AssumeRole session name (default `ciscvm`) |
 | | `assume_role_duration` | int | Session seconds, 0-43200 (default 7200) |
 | `[meta]` | `os_tag` | string | Tag value for output image |
-| | `benchmark` | string | CIS benchmark version tag |
+| | `benchmark` | string | CIS benchmark version tag (pinned in lineage/provenance for auditability) |
 | | `ssh_port` | int | SSH port (default `22`; TencentOS: `36000`) |
 | | `ssh_timeout` | string | Packer SSH timeout (default `"15m"`) |
 | | `ssh_debug_password` | string | Root password for VNC debug (default empty) |
 | | `smoke_test` | bool | Instance-level checks before snapshot (default `true`) |
+| | `cve_scan` | bool | Trivy CRITICAL-severity vulnerability gate before the snapshot (default `false`) |
+| | `sbom` | bool | Emit an SBOM (`/opt/ciscvm-SBOM.jsonl`) into the image, hash it and pin it in lineage + provenance (default `false`) |
+| | `verify_boot` | bool | After the snapshot, boot a probe instance from the produced image, re-audit on fresh boot and gate (Linux only, default `false`) |
 | `[notify]` | `webhook` | string | WeCom group-robot webhook URL (empty = off) |
 | | `on` | string | `always` \| `success` \| `failure` (default `failure`) |
 | `[sign]` | `gpg_key` | string | GPG key id/fingerprint for provenance signing (empty = unsigned) |
@@ -542,6 +573,56 @@ distribute pipeline):
   version, re-audit score, and the GPG signature status (VALID / INVALID /
   NONE). Exit code is non-zero when the signature is missing or invalid.
 
+- **SBOM + change detection (supply chain)** — with `[meta].sbom = true` the
+  build emits a zero-dependency SBOM (`/opt/ciscvm-SBOM.jsonl`, native
+  rpm/dpkg query) into the image, and its SHA-256 + package count are pinned
+  in lineage and the provenance statement (`sbomSha256` /
+  `sbomPackageCount`) — SLSA L2-style evidence of what exactly shipped.
+  `ciscvm build --skip-if-unchanged` / `ciscvm pending` compare a
+  deterministic input fingerprint (source image, rule catalog hash,
+  benchmark, level, filters) against the last successful lineage record and
+  skip the rebuild when nothing changed — a scheduled-pipeline cost saver.
+
+  ```bash
+  ciscvm build --skip-if-unchanged    # skip if inputs unchanged
+  ciscvm pending                      # exit 0 = no rebuild needed, 1 = rebuild
+  ```
+
+- **Clean-boot verification (`verify-image`)** — AWS Image Builder runs its
+  test phase on the *output* image, not the build instance. `ciscvm
+  verify-image --image img-xxx` boots a probe instance from the produced
+  image, runs the bundled engine in scan mode on the FRESH boot (catching
+  SELinux relabel stalls, first-boot services, cloud-init reconfiguration),
+  gates on the score, and always terminates the probe. `[meta].verify_boot
+  = true` chains it automatically after every successful build (Linux only).
+
+  ```bash
+  ciscvm verify-image --image img-ekny61ig --min-score 85
+  ```
+
+- **Independent audit (`audit`)** — the score is no longer only self-
+  reported by the engine that applied the hardening. `ciscvm audit` runs a
+  third-party tool and gates on the result, exactly like dev-sec (InSpec) /
+  RHEL (oscap + SCAP content) / ansible-lockdown (Goss):
+
+  ```bash
+  # OpenSCAP — RHEL-family: use the scap-security-guide datastream on target
+  ciscvm audit --tool oscap --host 1.2.3.4 --ssh-user root \
+    --datastream /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml \
+    --profile xccdf_org.ssgproject.content_profile_cis --min-score 85
+
+  # Chef InSpec — dev-sec baselines (Linux)
+  ciscvm audit --tool inspec --host 1.2.3.4 --ssh-user root \
+    --baseline dev-sec/linux-baseline --min-score 85
+
+  # HardeningKitty — Windows cross-check (audit runs on the Windows host,
+  # export the CSV, parse it here)
+  ciscvm audit --tool kitty --parse kitty-audit.csv --min-score 85
+  ```
+
+  Every audit can emit SARIF / XCCDF for GRC ingestion
+  (`--sarif out.sarif --xccdf out.xml`).
+
 ---
 
 ## Troubleshooting
@@ -573,7 +654,17 @@ distribute pipeline):
 - [x] Custom rule selection (`rules_include` / `rules_exclude` in `ciscvm.toml`)
 - [x] PyPI package (`pip install ciscvm`) — publish workflow included
 - [x] Automatic image cleanup (retire old images by lineage age)
-- [ ] SLSA L2: reproducible builds (pinned build environment)
+- [x] Independent audit tool (`ciscvm audit` — oscap / inspec / kitty)
+- [x] Benchmark-pinned rule IDs in engine output + SARIF (CIS-CAT cross-reference)
+- [x] Clean-boot verification (`ciscvm verify-image` / `[meta].verify_boot`)
+- [x] Per-control overrides (`[cis].overrides` in `ciscvm.toml`)
+- [x] CVE scan gate + SBOM emission (`[meta].cve_scan` / `[meta].sbom`)
+- [x] Change detection (`ciscvm pending` / `build --skip-if-unchanged`)
+- [x] XCCDF 1.2 report export (`scan --xccdf`, audit `--xccdf`)
+- [x] Cross-account image sharing (`[image].share_accounts`)
+- [x] SBOM pinning in provenance + lineage (SLSA L2-style evidence)
+- [x] Windows cross-check via HardeningKitty CSV (`audit --tool kitty`)
+- [ ] SLSA L2: fully reproducible builds (pinned build environment)
 
 ## Contributing
 
