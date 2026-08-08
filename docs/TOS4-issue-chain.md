@@ -19,6 +19,7 @@
 | v0.14.20 | smoke `SMOKE FAIL: auditd not active` | auditd 是 L2（4.1.x），L1 不装；断言按「unit 文件存在」判断而 TOS4 自带 unit | 改 `is-enabled` 判断（启用才要求 active） |
 | v0.14.21 | smoke 继续 FAIL（auditd/shm/journal 三个） | 「unit/文件存在 ≠ 应运行」：/dev/shm noexec（1.1.8.2 L1-disruptive 未应用）、journal-upload unit 所有 systemd 都有 | auditd/journal 改 `is-enabled`；/dev/shm 改「fstab 已写 noexec 才断言 live」 |
 | v0.14.22 | smoke `SMOKE FAIL: weak SSH crypto present` | smoke 黑名单把 CIS 1.6.5/1.6.6 **允许**的 hmac-sha1/umac-64/chacha20/aes\*-cbc 当弱算法 | 只查 CIS 真禁算法（md5/3des/rc4/blowfish/cast/salsa20），与 engine 允许列表同源 |
+| v0.14.23 | L2 audit 分数暴跌 26%（gate 85% 失败） | rules.json 里 8 条 audit 规则（4.1.3.15-19/21-23）以**裸 `-F` 结尾被截断**（缺 `auid!=unset -k <key>`），augenrules 报 `Option -F on line 43 is invalid`，整个 audit 规则集未加载 → L2 的 4.1.3.x 二十多条全挂 | 补全 8 条规则尾部 `-F auid!=unset -k <key>`（key 对齐 CIS RHEL9） |
 
 **主根因（v0.14.17-19）**：TOS4 源镜像 SELinux **disabled**，首次启用（即使 permissive）触发
 ① boot-time autorelabel ② systemd-remount-fs 失败导致根 fs ro。两者都会在 sshd 起来之前/同时
