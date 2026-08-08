@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.24"
+VERSION = "0.14.25"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -2160,6 +2160,14 @@ def run_packer(
 
     hcl_path = "packer/main.pkr.hcl"
     varfile_path = "packer/auto.pkrvars.hcl"
+
+    # Use an ABSOLUTE cwd for every packer subprocess.  A relative cwd is
+    # resolved against the parent process's cwd at spawn time; if that cwd is
+    # ever removed/recreated mid-build (e.g. rebuild.sh rm -rf + clone), packer
+    # inherits a stale cwd and its ansible-local prepare fails with
+    # 'stat ansible/site-audit.yml: no such file or directory' even though the
+    # file exists in the rendered workdir.
+    workdir = Path(workdir).resolve()
 
     # 1. packer init
     # Plugin downloads can be tens of MB on a slow/proxied link; 60s was
