@@ -5,6 +5,43 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
+## [0.16.1] — 2026-08-09
+
+Post-review hardening — bugs found in a systematic review of v0.15.0/v0.16.0.
+
+### Fixed
+- **P0 — `test_components` broke non-root profiles (ubuntu)**: the file
+  upload destination and the runner loop were hardcoded to `/root` — the
+  same class of bug v0.14.33 fixed for the smoke test.  Uploads now go to
+  the ssh user's home (`/root` for root, `/home/<user>` otherwise) and the
+  runner loop uses `__REMOTE_DIR__`.
+- **verify-image gate ignored `[cis].min_score`**: `build`-driven
+  `verify_boot` fell back to a hardcoded 85 instead of the configured gate.
+- **`cmd_verify_image` crashed on `ConfigError`** (e.g. missing credentials
+  with `verify_boot` on) — now a clean `fail()` + exit 1.
+- **SSH `TimeoutExpired` / `FileNotFoundError` uncaught** in `_probe_scan`,
+  `_audit_oscap` and the drift baseline fetch — surfaced as scan errors
+  instead of tracebacks.
+- **cleanup-images retired whole multi-image records**: removing one image
+  of a cross-region copy pair marked the whole record retired, permanently
+  dropping the surviving copies from cleanup.  Now removes per-image and
+  only retires when the record has no images left.
+- **log FileHandler leaked** on the `verify_boot` failure path in
+  `cmd_build`.
+- **`_share_images` used hardcoded `TENCENTCLOUD_*` env names**, ignoring
+  custom `[cloud].secret_id_env` — now honours the config's env names like
+  the probe/verify paths.
+
+### Changed
+- oscap ARF parser: dead no-op accumulator removed; `fixed`/`unknown`/
+  `notapplicable` are now consistently counted as `notselected`.
+- trivy CVE gate now skips `/proc,/sys,/dev,/run,/tmp` (kernel pseudo-fs
+  findings are unfixable noise and slow the gate down).
+- `_probe_public_ip` no longer trips an IndexError on empty
+  `PublicIpAddresses` lists.
+
+Tests: 287 → 299 (12 new regression tests).
+
 ## [0.16.0] — 2026-08-08
 
 Round-2 borrows — the "post-delivery lifecycle" layer.  Benchmarked against
