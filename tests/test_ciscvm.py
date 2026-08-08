@@ -1921,3 +1921,30 @@ class TestAuditRuleMatching:
             pool = [eng._norm_rule(rendered)]
             assert eng._rule_present(want, pool), (
                 f"_rule_present failed on rendered form: {want!r} vs {rendered!r}")
+
+
+class TestAuditDedup:
+    """v0.14.30: 4.1.3.24 (pam_timestamp_check) must not collide with the
+    4.1.3.6 privileged-command ruleset (both use path=... -k).  A duplicate
+    line made augenrules --load abort with 'Rule exists' and drop every rule
+    after it — including the -e 2 immutable marker."""
+
+    def test_4_1_3_24_key_not_privileged(self):
+        import json
+        d = json.load(open("ciscvm/roles/cis_tencentos4/files/rules.json"))
+        rules = d if isinstance(d, list) else d.get("rules", [])
+        for r in rules:
+            if r.get("id") == "4.1.3.24":
+                for ln in r["params"]["rules"]:
+                    assert "pam_timestamp" in ln, f"4.1.3.24 still collides: {ln}"
+                    assert not ln.rstrip().endswith("-F"), f"4.1.3.24 truncated: {ln}"
+                break
+        else:
+            raise AssertionError("4.1.3.24 not found")
+
+    def test_engine_cross_file_dedup(self):
+        """f_audit_rule / f_audit_privileged must both skip rules already in
+        the sibling ruleset so augenrules --load never sees a duplicate."""
+        src = open("ciscvm/roles/cis_tencentos4/files/cis_engine.py").read()
+        assert "6*-cis-privileged.rules" in src, "f_audit_rule lacks privileged dedup"
+        assert "6[0-9]-cis-hardening.rules" in src, "f_audit_privileged lacks hardening dedup"
