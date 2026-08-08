@@ -1318,6 +1318,38 @@ class TestAllProfilesRender:
                     f"{prev[:80]!r}"
                 )
 
+    @pytest.mark.parametrize("profile_name", list(PROFILES))
+    def test_ssh_guard_nft_awk_and_reconnect_budget(self, profile_name, valid_toml, tmp_path):
+        """Regression (v0.14.15): the SSH guard's nftables table iteration must
+        use 'family name' (awk '$2,$3'), not just the family; and the post-reboot
+        reconnect provisioner must carry an extended max_retries so a slow first
+        boot (SELinux relabel / firewalld cold start) does not look like a dead
+        instance."""
+        if PROFILES[profile_name].get("family") == "windows":
+            data = _make_win_toml(profile_name)
+        else:
+            valid_toml["build"]["profile"] = profile_name
+            data = valid_toml
+
+        r = resolve(data)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+
+        # nft table iteration must carry family+name (Linux template only)
+        if r.family != "windows":
+            assert "awk '{print $2, $3}'" in hcl, (
+                f"{profile_name}: nft table iteration still drops the table name"
+            )
+            # the old broken form must be gone
+            assert "nft list tables 2>/dev/null | awk '{print $2}')" not in hcl, (
+                f"{profile_name}: old family-only nft iteration still present"
+            )
+            # post-reboot reconnect provisioner keeps a long retry budget
+            assert "max_retries       = 40" in hcl, (
+                f"{profile_name}: post-reboot reconnect budget not extended"
+            )
+
 
 class TestBuildGovernance:
     """smoke test / lineage / notification / provenance (v0.14)."""
