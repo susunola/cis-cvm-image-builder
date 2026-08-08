@@ -1455,10 +1455,13 @@ class TestBuildGovernance:
         assert "smoke test: /dev/shm noexec (if hardened in fstab)" in hcl
         assert "SMOKE FAIL: /dev/shm noexec applied but not live" in hcl
         assert "SMOKE FAIL: /dev/shm lacks noexec" not in hcl
-        # journal-upload gated on is-enabled, not unit-file existence
+        # journal-upload gated on is-enabled, and (v0.14.32) never asserts
+        # active — a forwarder without a reachable remote server is
+        # legitimately inactive (TencentOS 3 ships it enabled-but-idle).
         assert "journal-upload (if enabled)" in hcl
         assert "is-enabled --quiet systemd-journal-upload.service" in hcl
         assert "list-unit-files systemd-journal-upload.service" not in hcl
+        assert "SMOKE FAIL: journal-upload inactive" not in hcl
 
     def test_smoke_crypto_matches_cis_baseline(self, valid_toml, tmp_path):
         """Regression (v0.14.22): CIS 1.6.5/1.6.6 ALLOW hmac-sha1*, umac-64*,
