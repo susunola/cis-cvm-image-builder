@@ -42,7 +42,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.16.0"
+VERSION = "0.16.1"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -1312,7 +1312,11 @@ TEST_COMPONENTS_LINUX_BLOCK = r"""  provisioner "shell" {
     inline = [
       "set +e",
       "echo '[ciscvm] user test components: running'",
-      "for t in /root/ciscvm-test-components/*; do",
+      # __REMOTE_DIR__ resolves to /root (root user) or /home/<user> (e.g.
+      # ubuntu) — the same mechanism as the smoke test (v0.14.33).  A
+      # hardcoded /root breaks non-root profiles: the file upload to /root
+      # fails with permission denied before any test even runs.
+      "for t in __REMOTE_DIR__/ciscvm-test-components/*; do",
       "  [ -f \"$t\" ] || continue",
       "  echo \"[ciscvm] user-test: running $(basename \"$t\")\"",
       "  bash \"$t\"",
@@ -1348,7 +1352,10 @@ CVE_SCAN_LINUX_BLOCK = r"""  provisioner "shell" {
       "  echo '[ciscvm] cve-scan: WARNING trivy unavailable — skipping CVE gate (build continues)'",
       "else",
       "  echo '[ciscvm] cve-scan: trivy $(trivy --version 2>/dev/null | head -1) — scanning / (CRITICAL only)'",
-      "  sudo trivy fs --quiet --severity CRITICAL --exit-code 1 --no-progress / >/tmp/ciscvm-trivy.log 2>&1",
+      # Skip pseudo-filesystems & caches: /proc,/sys,/dev report unfixable
+      # kernel findings, /run,/tmp are ephemeral — scanning them just slows
+      # the gate down and pollutes the report with noise.
+      "  sudo trivy fs --quiet --severity CRITICAL --exit-code 1 --no-progress --skip-dirs /proc,/sys,/dev,/run,/tmp / >/tmp/ciscvm-trivy.log 2>&1",
       "  RC=$?",
       "  tail -20 /tmp/ciscvm-trivy.log",
       "  if [ \"$RC\" = \"1\" ]; then",
@@ -2330,6 +2337,10 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
     if not scan and r.test_components:
         tc_dir = workdir / "packer" / "scripts" / "test-components"
         tc_dir.mkdir(parents=True, exist_ok=True)
+        # Non-root profiles (ubuntu) cannot write to /root — upload to the
+        # ssh user's home instead, mirroring __REMOTE_DIR__ (v0.14.33).
+        ssh_user = str(p.get("ssh_username", "root") or "root")
+        remote_home = "/root" if ssh_user == "root" else f"/home/{ssh_user}"
         uploads: list[str] = []
         for i, script in enumerate(r.test_components):
             src = Path(script)
@@ -2350,7 +2361,7 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
                 uploads.append(
                     f'  provisioner "file" {{\n'
                     f'    source      = "packer/scripts/test-components/{dest_name}"\n'
-                    f'    destination = "/root/ciscvm-test-components/{dest_name}"\n'
+                    f'    destination = "{remote_home}/ciscvm-test-components/{dest_name}"\n'
                     f'  }}\n')
         test_uploads = "".join(uploads)
         runner = TEST_COMPONENTS_WIN_BLOCK if family == "windows" else TEST_COMPONENTS_LINUX_BLOCK
@@ -2848,7 +2859,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         share_targets = list(dict.fromkeys(
             r.image_share_accounts + r.image_share_org_units))
         if share_targets and image_ids:
-            _share_images(r.region, image_ids, share_targets)
+            _share_images(r, image_ids, share_targets)
         # P0#3 — clean-boot verification (build → test → distribute).
         # Boot a probe from the produced image and re-audit on fresh boot.
         if r.verify_boot and image_ids:
@@ -2864,6 +2875,9 @@ def cmd_build(args: argparse.Namespace) -> int:
                     _record_lineage(r, image_ids, image_name, score, ok=False,
                                     sbom_sha=sbom_sha, sbom_count=sbom_count)
                     _send_notification(r, False, image_ids, score, image_name)
+                    if _fh is not None:  # don't leak the log handler
+                        logger.removeHandler(_fh)
+                        _fh.close()
                     return vrc
     else:
         fail("packer build failed (see output above)")
@@ -3353,9 +3367,12 @@ def _probe_public_ip(r: ResolvedConfig, instance_id: str) -> str:
             if state == "RUNNING":
                 pub = ""
                 for nic in inst.get("NetworkInterfaceSet") or []:
-                    pub = nic.get("PublicIpAddresses", [""])[0] or pub
+                    # PublicIpAddresses may be absent OR an empty list.
+                    addrs = nic.get("PublicIpAddresses") or []
+                    pub = addrs[0] if addrs else pub
                 if not pub:
-                    pub = inst.get("PublicIpAddresses", [""])[0] or ""
+                    addrs = inst.get("PublicIpAddresses") or []
+                    pub = addrs[0] if addrs else ""
                 if pub:
                     return pub
         except Exception:
@@ -3414,11 +3431,16 @@ def _probe_scan(r: ResolvedConfig, ip: str, ssh_port: int, ssh_user: str,
         "--out /tmp/ciscvm-verify.json >/dev/null 2>&1 && "
         "cat /tmp/ciscvm-verify.json; fi"
     )
-    cp = subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
-         "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=15",
-         "-p", str(ssh_port), f"{ssh_user}@{ip}", remote],
-        capture_output=True, text=True, timeout=900)
+    try:
+        cp = subprocess.run(
+            ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
+             "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=15",
+             "-p", str(ssh_port), f"{ssh_user}@{ip}", remote],
+            capture_output=True, text=True, timeout=900)
+    except subprocess.TimeoutExpired:
+        return {"error": f"remote scan timed out after 900s on {ip}"}
+    except FileNotFoundError:
+        return {"error": "ssh not found in PATH — cannot scan remote host"}
     try:
         return cast("dict[str, Any]", json.loads(cp.stdout))
     except json.JSONDecodeError:
@@ -3438,7 +3460,10 @@ def cmd_verify_image(args: argparse.Namespace, image_id: str | None = None) -> i
         return 1
     r, _workdir = prep
     image_id = image_id or getattr(args, "image", "") or ""
-    min_score = float(getattr(args, "min_score", 85))
+    # When driven by 'build --verify-boot', args carries no --min-score —
+    # fall back to the config's [cis].min_score, not a hardcoded 85, so the
+    # auto-verification gate matches the configured audit gate.
+    min_score = float(getattr(args, "min_score", r.min_score or 85))
     if not image_id:
         fail("--image <img-xxx> is required")
         return 1
@@ -3446,7 +3471,11 @@ def cmd_verify_image(args: argparse.Namespace, image_id: str | None = None) -> i
          f"({r.profile_name} L{r.level}, {r.region}) …")
     instance_id = None
     try:
-        instance_id = _probe_launch(r, image_id, f"ciscvm-verify-{image_id}")
+        try:
+            instance_id = _probe_launch(r, image_id, f"ciscvm-verify-{image_id}")
+        except ConfigError as exc:
+            fail(str(exc))
+            return 1
         ok(f"Probe instance: {instance_id}")
         ip = _probe_public_ip(r, instance_id)
         if not ip:
@@ -3587,15 +3616,22 @@ def cmd_drift(args: argparse.Namespace) -> int:
             info("Fetching baseline from the instance's shipped audit "
                  "(/opt/ciscvm-AUDIT-RESULT.json, written at build time) …")
             remote = "sudo cat /opt/ciscvm-AUDIT-RESULT.json 2>/dev/null"
-            cp = subprocess.run(
-                ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
-                 "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=15",
-                 "-p", str(ssh_port), f"{ssh_user}@{host}", remote],
-                capture_output=True, text=True, timeout=60)
             try:
-                baseline = cast("dict[str, Any]", json.loads(cp.stdout))
-            except json.JSONDecodeError:
+                cp = subprocess.run(
+                    ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
+                     "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=15",
+                     "-p", str(ssh_port), f"{ssh_user}@{host}", remote],
+                    capture_output=True, text=True, timeout=60)
+            except subprocess.TimeoutExpired:
                 baseline = None
+            except FileNotFoundError:
+                warn("ssh not found in PATH — cannot fetch the image baseline")
+                baseline = None
+            else:
+                try:
+                    baseline = cast("dict[str, Any]", json.loads(cp.stdout))
+                except json.JSONDecodeError:
+                    baseline = None
         if baseline is None:
             warn("No baseline found — try saving one with "
                  "'ciscvm drift --save-baseline' or pass --baseline <file>")
@@ -3767,6 +3803,12 @@ def cmd_cleanup_images(args: argparse.Namespace) -> int:
 
     # mark retired in lineage (both dry-run and apply update the audit trail)
     if args.apply:
+        # Per-IMAGE granularity: a lineage record can hold several image_ids
+        # (cross-region copies).  Removing ONE of them must NOT retire the
+        # whole record — otherwise the surviving copies are dropped from the
+        # cleanup set forever (they never age out) and check-source/pending
+        # treat the record as gone.  Remove the deleted ids; only mark
+        # retired when the record has no images left.
         retired_ids = {img for _, img in candidates}
         lines: list[str] = []
         retired_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -3779,9 +3821,14 @@ def cmd_cleanup_images(args: argparse.Namespace) -> int:
                     rec = json.loads(ln)
                 except json.JSONDecodeError:
                     continue
-                if any(i in retired_ids for i in rec.get("image_ids", [])) and not rec.get("retired"):
-                    rec["retired"] = True
-                    rec["retired_ts"] = retired_ts
+                ids = list(rec.get("image_ids", []))
+                if ids and not rec.get("retired"):
+                    remaining = [i for i in ids if i not in retired_ids]
+                    if len(remaining) != len(ids):
+                        rec["image_ids"] = remaining
+                        if not remaining:
+                            rec["retired"] = True
+                            rec["retired_ts"] = retired_ts
                 lines.append(json.dumps(rec, ensure_ascii=False))
         with open(path, "w", encoding="utf-8") as fh:
             fh.write("\n".join(lines) + "\n")
@@ -3981,24 +4028,26 @@ def cmd_pending(args: argparse.Namespace) -> int:
     return 1
 
 
-def _share_images(region: str, image_ids: list[str], accounts: list[str]) -> None:
+def _share_images(r: ResolvedConfig, image_ids: list[str], accounts: list[str]) -> None:
     """Share built images with other Tencent Cloud accounts (P2#9).
 
     Uses cvm:ModifyImageSharePermission with the configured AccountIds
-    (uin/… strings).  Credentials come from the standard env vars.
+    (uin/… strings).  Credentials come from the SAME env names as the
+    build itself ([cloud].secret_id_env / secret_key_env / security_token_env)
+    so custom env-name configs work consistently with verify-image.
     """
     if not image_ids or not accounts:
         return
-    sid, skey, tok = (os.environ.get("TENCENTCLOUD_SECRET_ID", ""),
-                      os.environ.get("TENCENTCLOUD_SECRET_KEY", ""),
-                      os.environ.get("TENCENTCLOUD_SECURITY_TOKEN", ""))
+    sid, skey, tok = (os.environ.get(r.secret_id_env, ""),
+                      os.environ.get(r.secret_key_env, ""),
+                      os.environ.get(r.security_token_env, ""))
     if not sid or not skey:
-        warn("TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY not set — "
+        warn(f"{r.secret_id_env} / {r.secret_key_env} not set — "
              "cannot share images")
         return
     try:
         resp = _tc3_api("cvm", "ModifyImageSharePermission", "2017-03-12",
-                        region,
+                        r.region,
                         {"ImageIds": image_ids, "AccountIds": accounts},
                         sid, skey, tok or None)
         if "Error" in resp.get("Response", {}):
@@ -4044,8 +4093,15 @@ def _audit_oscap(host: str, ssh_user: str, ssh_port: int, ssh_key: str | None,
     """Run oscap over SSH, return the ARF XML document ("" on failure)."""
     remote = (f"oscap xccdf eval --profile {profile} --results-arf - {datastream} 2>/dev/null"
               )
-    cp = subprocess.run(_audit_ssh_args(host, ssh_user, ssh_port, ssh_key) + [remote],
-                        capture_output=True, text=True, timeout=timeout)
+    try:
+        cp = subprocess.run(_audit_ssh_args(host, ssh_user, ssh_port, ssh_key) + [remote],
+                            capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        warn(f"oscap audit timed out after {timeout}s on {host}")
+        return ""
+    except FileNotFoundError:
+        warn("ssh not found in PATH — cannot run the oscap audit")
+        return ""
     return cp.stdout
 
 
@@ -4108,14 +4164,11 @@ def _parse_oscap_arf(xml_text: str) -> dict[str, Any]:
         _res_node = rule.find("x:result", ns)
         status = (_res_node.text or "notselected") if _res_node is not None else "notselected"
         st = status.lower()
-        if st in ("pass", "fail", "error", "notselected", "notapplicable",
-                  "informational", "fixed", "unknown"):
-            out[st if st in ("pass", "fail", "error", "notselected") else "pass"] += 0
         if st == "pass":
             out["pass"] += 1
         elif st == "fail":
             out["fail"] += 1
-        elif st in ("notselected", "notapplicable", "informational"):
+        elif st in ("notselected", "notapplicable", "informational", "fixed", "unknown"):
             out["notselected"] += 1
         elif st == "error":
             out["error"] += 1
