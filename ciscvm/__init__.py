@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.14.32"
+VERSION = "0.14.33"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -722,14 +722,14 @@ build {
   # 0. Version banner — makes it trivial to confirm which ciscvm code
   #    generated this template (no more guessing from pause_before values).
   provisioner "shell" {
-    remote_path = "/root/ciscvm-banner.sh"
+    remote_path = "__REMOTE_DIR__/ciscvm-banner.sh"
     inline = ["echo '==> ciscvm version: __VERSION__'"]
   }
 
   # 1. Install ansible-core (roles uploaded by ciscvm — no galaxy needed)
   provisioner "shell" {
     script       = "packer/scripts/install-ansible.sh"
-    remote_path  = "/root/ciscvm-install-ansible.sh"
+    remote_path  = "__REMOTE_DIR__/ciscvm-install-ansible.sh"
   }
 
   # 2. CIS apply (gate disabled: fails don't block, re-audited after reboot)
@@ -955,7 +955,7 @@ build {
     # Upload to /opt (not /tmp): systemd-tmpfiles on the freshly rebooted
     # image may purge /tmp (tmp.conf D-type cleanup), which made the
     # reconnect probe fail with 'bash: script: Permission denied' (126).
-    remote_path       = "/root/ciscvm-reconnected.sh"
+    remote_path       = "__REMOTE_DIR__/ciscvm-reconnected.sh"
     inline            = ["echo reconnected"]
     valid_exit_codes  = [0, 1, -1]
   }
@@ -966,7 +966,7 @@ build {
   #     flags them in the re-audit unless we fix them first.
   provisioner "shell" {
     pause_before = "5s"
-    remote_path  = "/root/ciscvm-fix-logperms.sh"
+    remote_path  = "__REMOTE_DIR__/ciscvm-fix-logperms.sh"
     inline = [
       "set +e",
       "# Post-reboot state evidence: if SELinux autorelabel ran at boot it would",
@@ -1033,7 +1033,7 @@ build {
   #    same authorized_keys) remains the supported admin channel.
   provisioner "shell" {
     pause_before = "10s"
-    remote_path  = "/root/ciscvm-cleanup.sh"
+    remote_path  = "__REMOTE_DIR__/ciscvm-cleanup.sh"
     inline = [
       "__CLEAN_CMD__",
       "# Re-lock root login for the final image (CIS 5.1.22/5.2.10).  Do NOT",
@@ -1054,7 +1054,7 @@ build {
   #     so /tmp/cis-*/result.json still exists when we get here.
   provisioner "shell" {
     pause_before = "5s"
-    remote_path  = "/root/ciscvm-collect-audit.sh"
+    remote_path  = "__REMOTE_DIR__/ciscvm-collect-audit.sh"
     inline = [
       "set +e",
       "SRC=$(ls -dt /tmp/cis-*/result.json 2>/dev/null | head -1)",
@@ -1083,7 +1083,7 @@ build {
   #    before Packer snapshots the image.
   provisioner "shell" {
     pause_before = "5s"
-    remote_path  = "/root/ciscvm-run-finalize.sh"
+    remote_path  = "__REMOTE_DIR__/ciscvm-run-finalize.sh"
     inline = [
       "# Fix hostname BEFORE sudo — 'sudo bash' hangs on DNS if /etc/hosts",
       "# lacks the short hostname.  We write as root (Packer is root) so",
@@ -1133,7 +1133,7 @@ SMOKE_LINUX_BLOCK = r"""  provisioner "shell" {
     # v0.14.31: upload to /root, never /tmp — profiles where CIS 1.1.2.1
     # actually mounts /tmp as a noexec tmpfs (e.g. TencentOS 3) make packer's
     # default /tmp/script_XXXX.sh upload unexecutable (exit 126).
-    remote_path = "/root/ciscvm-smoke.sh"
+    remote_path = "__REMOTE_DIR__/ciscvm-smoke.sh"
     inline = [
       "echo '[ciscvm] smoke test: sshd config parses'",
       "sudo sshd -T >/dev/null 2>&1 || { echo '[ciscvm] SMOKE FAIL: sshd -T rejected config'; exit 1; }",
@@ -1439,6 +1439,10 @@ echo "==> Using $($PY --version) for ansible venv"
 #    version check keeps this to one network install pass.
 VENV=/opt/ciscvm-ansible
 sudo "$PY" -m venv "$VENV"
+# v0.14.33: Ubuntu builds connect as the 'ubuntu' user — hand /opt/ciscvm-
+# ansible over to the connecting user so the later shell provisioners
+# (ssh-guard.sh, reboot.sh, ...) can scp their scripts there.
+sudo chown -R "$USER" "$VENV"
 # Non-/tmp scratch space for ansible (modular ansiballz payload cache via
 # TMPDIR).  /tmp on TencentOS 4 can be tmpfs/swept and payload reuse then
 # fails mid-run — keep it on stable root-disk storage instead.
@@ -2105,7 +2109,12 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
                .replace("__SECURITY_TOKEN_ENV__", r.security_token_env)
                .replace("__IDEMPOTENCY_BLOCK__", idempotency_block)
                .replace("__SMOKE_TEST_BLOCK__", smoke_block)
-               .replace("__ASSUME_ROLE_BLOCK__", assume_role_block))
+               .replace("__ASSUME_ROLE_BLOCK__", assume_role_block)
+               # must run AFTER the smoke block is spliced in — the block
+               # itself carries __REMOTE_DIR__ placeholders (v0.14.33)
+               .replace("__REMOTE_DIR__",
+                        "/root" if p.get("ssh_username", "root") == "root"
+                        else f"/home/{p['ssh_username']}"))
         user_data = ""
         if r.ssh_debug_password:
             quoted = shlex.quote(f"root:{r.ssh_debug_password}")
