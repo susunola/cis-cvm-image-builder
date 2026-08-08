@@ -134,6 +134,22 @@ ciscvm clean
 | `ciscvm preflight` | 校验配置、凭据和前置条件 |
 | `ciscvm validate` | 渲染模板并执行 `packer validate` |
 | `ciscvm build` | 渲染 + `packer build`（产出镜像） |
+| `ciscvm build --skip-if-unchanged` | 输入未变化时跳过重建（变更检测） |
+| `ciscvm scan [--min-score 85]` | 仅审计（不修复）+ 分数闸门 |
+| `ciscvm scan --sarif out.sarif` | 另输出 SARIF 2.1.0 失败报告 |
+| `ciscvm scan --xccdf out.xml` | 另输出 XCCDF 1.2 结果（GRC 平台接入） |
+| `ciscvm test --idempotency` | 重复执行 apply，二次有变更即失败 |
+| `ciscvm list` | 枚举可用 profile 及元数据 |
+| `ciscvm images [--latest] [-n N]` | 列出历史构建（血缘） |
+| `ciscvm pending` | 变更检测：是否需要重建（退出码 0/1） |
+| `ciscvm cleanup-images [--older-than 30]` | 按血缘年龄退役旧镜像 |
+| `ciscvm cleanup-images --apply` | 实际删除（默认仅演练） |
+| `ciscvm verify --provenance <file>` | 校验 SLSA 来源签名 |
+| `ciscvm verify --image <img-id>` | 按镜像 ID 定位来源记录 |
+| `ciscvm verify-image --image <img-id>` | 对产出镜像做干净启动验收 |
+| `ciscvm audit --tool oscap ...` | 独立审计：OpenSCAP（RHEL 系 SCAP 内容） |
+| `ciscvm audit --tool inspec ...` | 独立审计：Chef InSpec（dev-sec 基线） |
+| `ciscvm audit --tool kitty --parse out.csv` | 独立审计：HardeningKitty（Windows）CSV |
 | `ciscvm clean` | 删除 `.ciscvm-build/` 工作目录 |
 
 所有命令均支持以下参数：
@@ -146,6 +162,17 @@ ciscvm clean
 | `--debug` | — | validate / build | 启用 Packer 调试日志（`PACKER_LOG=1`） |
 | `-y` / `--yes` | — | build | 跳过构建确认提示 |
 | `--log-file <path>` | — | build | 将完整构建日志写入文件 |
+| `--skip-if-unchanged` | — | build | 源镜像/规则/基准/等级未变化时跳过 |
+| `--min-score <pct>` | `85` | scan / audit / verify-image | 分数闸门（低于则退出 1） |
+| `--sarif <path>` | — | scan / audit | 输出 SARIF 2.1.0 |
+| `--xccdf <path>` | — | scan / audit | 输出 XCCDF 1.2（企业 GRC 接入） |
+| `--host <ip>` | — | audit | 待审计目标主机（oscap/inspec） |
+| `--datastream <path>` | — | audit | 目标上的 oscap SCAP 数据流（如 `/usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml`） |
+| `--baseline <name>` | `dev-sec/linux-baseline` | audit | inspec 基线 |
+| `--parse <csv>` | — | audit --tool kitty | 待解析的 HardeningKitty 审计 CSV |
+| `--older-than <days>` | `30` | cleanup-images | 退役 N 天前的构建 |
+| `--keep-latest <n>` | `1` | cleanup-images | 保留最新 N 个构建 |
+| `--apply` | — | cleanup-images | 实际删除（默认仅演练） |
 
 ## 配置文件
 
@@ -171,9 +198,16 @@ associate_public_ip = true
 [image]
 name_prefix  = "tencentos3-cis"
 copy_regions = ["ap-shanghai"]            # 留空 [] 不跨地域
+# share_accounts = ["uin/1234567890"]    # 可选：构建后与其它账号共享镜像
 
 [cis]
 level = 1                                 # 1 或 2
+# min_score = 85                          # 重启后审计闸门（0 关闭；默认 85）
+# rules_include = ["1.5.6"]               # 只运行这些规则
+# rules_exclude = ["1.1.2.2.4"]           # 优先级高于 rules_include
+# 单条规则参数覆写（渲染时深度合并进规则目录）：
+# [cis.overrides."5.2.2"]
+# ssh_max_auth_tries = 4
 
 [cloud]
 secret_id_env  = "TENCENTCLOUD_SECRET_ID"
@@ -184,6 +218,10 @@ secret_key_env = "TENCENTCLOUD_SECRET_KEY"
 [meta]
 os_tag    = "tencentos-3"
 benchmark = "CIS-v1.0.0"
+# smoke_test = true           # 快照前实例级检查
+# cve_scan   = false          # 可选：快照前 trivy 漏洞闸门
+# sbom       = false          # 可选：向镜像与 provenance 输出 SBOM
+# verify_boot = false         # 可选：用产出镜像开探针实例做干净启动复审
 ```
 
 ### 配置参考
@@ -351,10 +389,23 @@ ciscvm build --log-file build.log
 
 ## 路线图
 
-- [ ] CI 流水线（GitHub Actions）自动构建镜像
-- [ ] PyPI 发布（`pip install ciscvm`）
-- [ ] `ciscvm list` — 枚举可用画像及元数据
-- [ ] 自定义规则选择（`ciscvm.toml` 中的 `rules_include` / `rules_exclude`）
+- [x] CI 流水线（GitHub Actions + OIDC，零长时 AK/SK）
+- [x] 镜像治理闭环：smoke test / 血缘 / 通知 / SLSA 签名
+- [x] `ciscvm list` — 枚举可用画像及元数据
+- [x] 自定义规则选择（`ciscvm.toml` 中的 `rules_include` / `rules_exclude`）
+- [x] PyPI 发布（`pip install ciscvm`）
+- [x] 自动镜像清理（按血缘年龄退役）
+- [x] 独立审计工具（`ciscvm audit` — oscap / inspec / kitty）
+- [x] 基准锚定的规则 ID（引擎输出 + SARIF，可与 CIS-CAT 交叉核对）
+- [x] 干净启动验收（`ciscvm verify-image` / `[meta].verify_boot`）
+- [x] 单条规则参数覆写（`[cis].overrides`）
+- [x] CVE 扫描闸门 + SBOM 输出（`[meta].cve_scan` / `[meta].sbom`）
+- [x] 变更检测（`ciscvm pending` / `build --skip-if-unchanged`）
+- [x] XCCDF 1.2 报告导出（`scan --xccdf`、audit `--xccdf`）
+- [x] 跨账号镜像共享（`[image].share_accounts`）
+- [x] provenance + 血缘锚定 SBOM（SLSA L2 风格证据）
+- [x] Windows 经 HardeningKitty CSV 交叉验证（`audit --tool kitty`）
+- [ ] SLSA L2：完全可复现构建（锁定构建环境）
 
 ## 参与贡献
 
