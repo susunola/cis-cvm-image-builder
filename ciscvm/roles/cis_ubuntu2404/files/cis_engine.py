@@ -3127,6 +3127,15 @@ def f_audit_rule(ctx, p):
     existing = readlines(AUDIT_CIS_RULES) if exists(AUDIT_CIS_RULES) else \
         ["# Managed by CIS Ansible hardening"]
     pool = [_norm_rule(x) for x in existing if x.strip() and not x.startswith("#")]
+    # v0.14.30: also dedup against the privileged-command ruleset (61-*).
+    # Several 4.1.3.x targets (chsh, newgrp, setfacl, chacl, gpasswd, chage,
+    # pam_timestamp_check, ...) are setuid binaries that 4.1.3.6 (audit_
+    # privileged) also generates rules for; an identical line in both files
+    # made augenrules --load abort with "Rule exists" and drop everything
+    # after it (including the -e 2 immutable marker).
+    for other in sorted(globmod.glob("/etc/audit/rules.d/6*-cis-privileged.rules")):
+        pool += [_norm_rule(x) for x in readlines(other)
+                 if x.strip() and not x.startswith("#")]
     added = []
     for r in p["rules"]:
         rr = _norm_rule(r)
@@ -3178,9 +3187,19 @@ def f_audit_privileged(ctx, p):
     if not binaries:
         return False, "no setuid/setgid binaries found"
     lines = ["# CIS hardening: privileged command execution"]
+    # v0.14.30: skip binaries already covered by 60-* (4.1.3.15-24 target
+    # some setuid commands) — an identical rule in both files makes
+    # augenrules --load abort with "Rule exists" (see f_audit_rule).
+    other_pool = []
+    for f in sorted(globmod.glob("/etc/audit/rules.d/6[0-9]-cis-hardening.rules")):
+        other_pool += [_norm_rule(x) for x in readlines(f)
+                       if x.strip() and not x.startswith("#")]
     for b in binaries:
-        lines.append("-a always,exit -F path=%s -F perm=x -F auid>=%d "
-                     "-F auid!=unset -k privileged" % (b, umin))
+        line = ("-a always,exit -F path=%s -F perm=x -F auid>=%d "
+                "-F auid!=unset -k privileged" % (b, umin))
+        if _norm_rule(line) in other_pool:
+            continue
+        lines.append(line)
     write_file(ctx, "/etc/audit/rules.d/61-cis-privileged.rules",
                "\n".join(lines) + "\n", 0o640)
     with ctx.file_lock("__cmd__:augenrules"):

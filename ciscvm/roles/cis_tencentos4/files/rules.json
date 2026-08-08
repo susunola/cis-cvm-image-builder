@@ -3052,7 +3052,7 @@
     "family": "audit_rule",
     "params": {
       "rules": [
-        "-a always,exit -F path=/usr/sbin/pam_timestamp_check -F perm=x -F auid>=1000 -F auid!=unset -k privileged"
+        "-a always,exit -F path=/usr/sbin/pam_timestamp_check -F perm=x -F auid>=1000 -F auid!=unset -k pam_timestamp"
       ],
       "name": "Ensure successful and unsuccessful attempts to use the pam_timestamp_check command are recorded"
     },
