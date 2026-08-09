@@ -42,7 +42,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.16.4"
+VERSION = "0.16.5"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -2736,7 +2736,13 @@ def _load_resolve_preflight(config_path: str, workdir: str) -> tuple[ResolvedCon
     if not run_preflight(r):
         return None
 
-    wd = Path(workdir)
+    # v0.16.5: resolve the render dir to an ABSOLUTE path BEFORE rendering.
+    # render_all writes into it as given, and run_packer later re-resolves the
+    # same Path — if the parent cwd changes between the two (rebuild.sh
+    # rm -rf + clone churns the tree), a relative ".ciscvm-build" resolves to
+    # a different directory and packer's ansible-local prepare fails with
+    # 'stat ansible/site.yml: no such file' even though the file exists.
+    wd = Path(workdir).resolve()
     wd.mkdir(parents=True, exist_ok=True)
     return r, wd
 
