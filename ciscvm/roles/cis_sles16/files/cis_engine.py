@@ -435,7 +435,7 @@ def pkg_installed(name):
     return False
 
 
-_PKG_ALIASES: dict[str, tuple[str, ...]] = {
+_PKG_ALIASES = {  # type: ignore[valid-type]  # py3.8 compatible (no PEP 585)
     # RHEL9/TencentOS4: iptables -> iptables-nft; RHEL8/TencentOS3 name is "iptables"
     "iptables": ("iptables-nft",),
 }
