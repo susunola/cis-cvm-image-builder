@@ -42,7 +42,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.16.7"
+VERSION = "0.16.8"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -1632,6 +1632,18 @@ need_pkgs=0
 python3 -c 'import venv, ensurepip' >/dev/null 2>&1 || need_pkgs=1
 if [ "$need_pkgs" = "1" ]; then
     echo "==> base deps missing, refreshing package manager"
+    # Cloud-init (and other boot-time jobs) may still be running apt-get on
+    # first connect — grabbing the dpkg lock races them and dies with
+    # "Could not get lock /var/lib/dpkg/lock-frontend".  Wait for the lock
+    # instead of failing (up to 5 min; no-op on rpm/zypper systems where the
+    # file never exists).
+    for _w in $(seq 1 60); do
+        if ! sudo fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock >/dev/null 2>&1; then
+            break
+        fi
+        echo "==> dpkg lock held by another process (cloud-init?), waiting... ($_w/60)"
+        sleep 5
+    done
     __PKG_UPDATE__
     __PKG_INSTALL__
 else
