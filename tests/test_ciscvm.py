@@ -3310,3 +3310,27 @@ class TestMainExceptionGuard:
                 "A", (), {"func": lambda *a: (_ for _ in ()).throw(
                     KeyboardInterrupt()), "verbose": False})()})())
         assert main([]) == 130
+
+
+class TestEnginePy38Compat:
+    """v0.16.6: cis_engine.py must run on python3.8 — ubuntu2004's venv is
+    py3.8 (focal has no python3.9 without deadsnakes PPA). PEP 585 builtin
+    generics (dict[str, ...]) are 3.9+ and crash at import:
+      TypeError: 'type' object is not subscriptable"""
+
+    def test_engine_parses_as_py38(self):
+        import ast, glob
+        for path in glob.glob("ciscvm/roles/*/files/cis_engine.py"):
+            src = open(path, encoding="utf-8").read()
+            try:
+                ast.parse(src, feature_version=(3, 8))
+            except SyntaxError as e:
+                raise AssertionError(f"{path}: not py3.8-compatible: {e}")
+
+    def test_no_pep585_builtin_generics_in_annotations(self):
+        import re
+        src = open("ciscvm/roles/cis_tencentos4/files/cis_engine.py",
+                   encoding="utf-8").read()
+        # annotation-position PEP585: word: dict[ / list[ / tuple[ / set[
+        hits = re.findall(r"(?m)^\s*\w+\s*:\s*(?:dict|list|tuple|set)\[", src)
+        assert not hits, f"PEP585 annotations found (py3.9+): {hits}"
