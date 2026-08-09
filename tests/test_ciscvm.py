@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import ast
+import glob
+import hashlib
+
 import json
 import logging
 import os
@@ -3318,19 +3322,78 @@ class TestEnginePy38Compat:
     generics (dict[str, ...]) are 3.9+ and crash at import:
       TypeError: 'type' object is not subscriptable"""
 
+    ENGINES = sorted(glob.glob("ciscvm/roles/*/files/cis_engine.py"))
+    PY38_UNSAFE = {"list", "dict", "set", "frozenset", "tuple", "type",
+                   "bytearray", "bytes"}
+
+    @staticmethod
+    def _ann_unsafe(ann):
+        """True when the annotation needs py3.9+ (PEP585) / 3.10+ (PEP604)
+        at runtime — i.e. it is not a lazy string annotation."""
+        if ann is None:
+            return False
+        if isinstance(ann, ast.Constant) and isinstance(ann.value, str):
+            return False
+        if isinstance(ann, ast.BinOp) and isinstance(ann.op, ast.BitOr):
+            return True
+        if isinstance(ann, ast.Subscript):
+            v = ann.value
+            if (isinstance(v, ast.Name) and v.id in TestEnginePy38Compat.PY38_UNSAFE) \
+               or (isinstance(v, ast.Attribute) and v.attr in TestEnginePy38Compat.PY38_UNSAFE):
+                return True
+            for sub in ast.walk(ann):
+                if (isinstance(sub, ast.Subscript) and isinstance(sub.value, ast.Name)
+                        and sub.value.id in TestEnginePy38Compat.PY38_UNSAFE):
+                    return True
+        return False
+
     def test_engine_parses_as_py38(self):
-        import ast, glob
-        for path in glob.glob("ciscvm/roles/*/files/cis_engine.py"):
-            src = open(path, encoding="utf-8").read()
+        for path in self.ENGINES:
+            with open(path, encoding="utf-8") as fh:
+                src = fh.read()
             try:
                 ast.parse(src, feature_version=(3, 8))
             except SyntaxError as e:
-                raise AssertionError(f"{path}: not py3.8-compatible: {e}")
+                raise AssertionError(
+                    f"{path}: not py3.8-compatible: {e}") from e
 
     def test_no_pep585_builtin_generics_in_annotations(self):
-        import re
-        src = open("ciscvm/roles/cis_tencentos4/files/cis_engine.py",
-                   encoding="utf-8").read()
-        # annotation-position PEP585: word: dict[ / list[ / tuple[ / set[
-        hits = re.findall(r"(?m)^\s*\w+\s*:\s*(?:dict|list|tuple|set)\[", src)
-        assert not hits, f"PEP585 annotations found (py3.9+): {hits}"
+        """Runtime-evaluated annotations across ALL engines: function
+        signatures, returns, and module/class-level variables.  (The
+        original check only covered line-leading var annotations in one
+        engine.)"""
+        for path in self.ENGINES:
+            with open(path, encoding="utf-8") as fh:
+                tree = ast.parse(fh.read())
+            for n in ast.walk(tree):
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    args = (list(n.args.posonlyargs) + list(n.args.args)
+                            + list(n.args.kwonlyargs))
+                    if any(self._ann_unsafe(a.annotation) for a in args):
+                        raise AssertionError(f"{path}:L{n.lineno} py3.8-unsafe "
+                                             f"param annotation")
+                    if self._ann_unsafe(n.returns):
+                        raise AssertionError(f"{path}:L{n.lineno} py3.8-unsafe "
+                                             f"return annotation")
+                if isinstance(n, (ast.Module, ast.ClassDef)):
+                    for b in n.body:
+                        if (isinstance(b, ast.AnnAssign)
+                                and self._ann_unsafe(b.annotation)):
+                            raise AssertionError(f"{path}:L{b.lineno} py3.8-unsafe "
+                                                 f"var annotation")
+
+    def test_no_py39_stdlib_apis(self):
+        for path in self.ENGINES:
+            with open(path, encoding="utf-8") as fh:
+                src = fh.read()
+            for api in ("removeprefix", "removesuffix", "functools.cache",
+                        "zoneinfo", "graphlib", "math.lcm", "int.bit_count",
+                        "tomllib", "ParamSpec", "TypeVarTuple", "Self"):
+                assert api not in src, f"{path} uses py3.9+ stdlib: {api}"
+
+    def test_all_engines_in_sync(self):
+        hashes = set()
+        for path in self.ENGINES:
+            with open(path, "rb") as fh:
+                hashes.add(hashlib.sha256(fh.read()).hexdigest())
+        assert len(hashes) == 1, "role engines drifted out of sync"
