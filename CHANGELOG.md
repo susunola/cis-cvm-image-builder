@@ -5,6 +5,25 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
+## [0.16.7] — 2026-08-09
+
+Py3.8 compatibility hardening (ubuntu2004 matrix follow-up to v0.16.6).
+
+### Added
+- **Regression guard for target-side py3.8**: the engine runs ON the build
+  target (ubuntu2004 ships python3.8) but tests run on 3.13 — so py3.8
+  breakage was invisible.  `TestEnginePy38Compat` now enforces, statically
+  on any CI python:
+  - py3.8 grammar via `ast.parse(feature_version=(3,8))` on ALL 10 engines
+  - no runtime-evaluated PEP585/PEP604 annotations (function signatures,
+    returns, module/class vars) — the exact `'type' object is not
+    subscriptable` import crash v0.16.6 fixed
+  - no py3.9+ stdlib APIs (`removeprefix`, `functools.cache`, `zoneinfo`…)
+  - all 10 role engines stay byte-identical (drift guard)
+- **Live verification**: engine scan (L1: 254 rules, L2: 312 rules) and
+  apply-mode startup were executed under a real Python 3.8.20 — no
+  crash; apply correctly stops at the root check.
+
 ## [0.16.2] — 2026-08-09
 
 Round-2 review — the engine (`cis_engine.py`), HCL templates, packer
