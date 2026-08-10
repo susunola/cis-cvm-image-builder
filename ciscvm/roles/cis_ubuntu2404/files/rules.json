@@ -111,13 +111,14 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "kmod",
+    "family": "manual",
     "params": {
       "module": "overlay",
       "mtype": "fs"
     },
     "risk": "safe",
-    "page": 39
+    "page": 39,
+    "note": "EXPERIMENT-R2: L2 non-audit group isolated (bisect round 2)"
   },
   {
     "id": "1.1.1.7",
@@ -131,13 +132,14 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "kmod",
+    "family": "manual",
     "params": {
       "module": "squashfs",
       "mtype": "fs"
     },
     "risk": "safe",
-    "page": 42
+    "page": 42,
+    "note": "EXPERIMENT-R2: L2 non-audit group isolated (bisect round 2)"
   },
   {
     "id": "1.1.1.8",
@@ -151,13 +153,14 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "kmod",
+    "family": "manual",
     "params": {
       "module": "udf",
       "mtype": "fs"
     },
     "risk": "safe",
-    "page": 45
+    "page": 45,
+    "note": "EXPERIMENT-R2: L2 non-audit group isolated (bisect round 2)"
   },
   {
     "id": "1.1.1.9",
@@ -939,12 +942,13 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "svc_enabled",
+    "family": "manual",
     "params": {
       "name": "apparmor"
     },
     "risk": "safe",
-    "page": 157
+    "page": 157,
+    "note": "EXPERIMENT-R2: L2 non-audit group isolated (bisect round 2)"
   },
   {
     "id": "1.3.1.4",
@@ -1026,10 +1030,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "sysctl",
+    "family": "manual",
     "params": {},
     "risk": "safe",
-    "page": 174
+    "page": 174,
+    "note": "EXPERIMENT-R2: L2 non-audit group isolated (bisect round 2)"
   },
   {
     "id": "1.5.3",
@@ -1866,10 +1871,11 @@
       "Server"
     ],
     "assessment": "Automated",
-    "family": "svc_disabled",
+    "family": "manual",
     "params": {},
     "risk": "disruptive",
-    "page": 313
+    "page": 313,
+    "note": "EXPERIMENT-R2: L2 non-audit group isolated (bisect round 2)"
   },
   {
     "id": "2.2.1",
@@ -4456,10 +4462,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "svc_enabled",
+    "family": "manual",
     "params": {},
     "risk": "safe",
-    "page": 765
+    "page": 765,
+    "note": "EXPERIMENT-R2: L2 non-audit group isolated (bisect round 2)"
   },
   {
     "id": "6.1.2.9",
@@ -4490,10 +4497,11 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "svc_enabled",
+    "family": "manual",
     "params": {},
     "risk": "safe",
-    "page": 769
+    "page": 769,
+    "note": "EXPERIMENT-R2: L2 non-audit group isolated (bisect round 2)"
   },
   {
     "id": "6.1.3.1",
@@ -4524,10 +4532,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "pkg_present",
+    "family": "manual",
     "params": {},
     "risk": "safe",
-    "page": 780
+    "page": 780,
+    "note": "EXPERIMENT-R2: L2 non-audit group isolated (bisect round 2)"
   },
   {
     "id": "6.2.1.2",
@@ -4541,10 +4550,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "svc_enabled",
+    "family": "manual",
     "params": {},
     "risk": "safe",
-    "page": 782
+    "page": 782,
+    "note": "EXPERIMENT-R2: L2 non-audit group isolated (bisect round 2)"
   },
   {
     "id": "6.2.1.3",
@@ -4558,10 +4568,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "svc_enabled",
+    "family": "manual",
     "params": {},
     "risk": "safe",
-    "page": 784
+    "page": 784,
+    "note": "EXPERIMENT-R2: L2 non-audit group isolated (bisect round 2)"
   },
   {
     "id": "6.2.1.4",
@@ -4626,10 +4637,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "svc_disabled",
+    "family": "manual",
     "params": {},
     "risk": "disruptive",
-    "page": 792
+    "page": 792,
+    "note": "EXPERIMENT-R2: L2 non-audit group isolated (bisect round 2)"
   },
   {
     "id": "6.2.2.4",
