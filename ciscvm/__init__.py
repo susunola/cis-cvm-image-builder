@@ -42,7 +42,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.16.10"
+VERSION = "0.16.11"
 
 # ---------------------------------------------------------------------------
 # Logging
