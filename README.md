@@ -428,6 +428,26 @@ To switch profiles, change `[build].profile` and `source_image_id` in `ciscvm.to
 
 ---
 
+## Test Matrix
+
+Validated CIS-hardened images across the supported OS × level grid.
+All builds ran on Tencent Cloud Guangzhou region with `cis_allow_disruptive: false` and kmod rules excluded.
+
+| OS | L1 | L2 |
+|---|---|---|
+| **RHEL 8** | — | `img-m46lxvak` |
+| **RHEL 9** | `img-qhqyka24` | `img-30l9yupw` |
+| **RHEL 10** | `img-htakx5sy` | — |
+| **Ubuntu 20.04** | `img-0ap3659m` | `img-ahprtrwm` |
+| **Ubuntu 22.04** | `img-ou3v2358` | `img-89ym2zpk` |
+| **Ubuntu 24.04** | `img-rgjy06jq` | — |
+| **TencentOS 3** | `img-ipndbov6` | `img-dgg92o3s` |
+| **TencentOS 4** | `img-rlh46fse` | `img-9tijlx1o` |
+
+> Images marked `—` have not yet been built. kmod rules (`cramfs`, `squashfs`, `usb-storage`, `sctp`, `dccp`) are excluded from the packer build phase because they require kernel module loading; they are applied separately in a post-build SSH session.
+
+---
+
 ## CI/CD Integration
 
 ```bash
