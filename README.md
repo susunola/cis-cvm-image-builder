@@ -435,7 +435,7 @@ All builds ran on Tencent Cloud Guangzhou region with `cis_allow_disruptive: fal
 
 | OS | L1 | L2 |
 |---|---|---|
-| **RHEL 8** | — | `img-qpyu1vxe` |
+| **RHEL 8** | `img-6oiwt0gw` | `img-qpyu1vxe` |
 | **RHEL 9** | `img-qhqyka24` | `img-30l9yupw` |
 | **RHEL 10** | `img-htakx5sy` | — |
 | **Ubuntu 20.04** | `img-0ap3659m` | `img-ahprtrwm` |
