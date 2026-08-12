@@ -46,7 +46,8 @@
          + (['--families', cis_families | join(',')] if cis_families | length > 0 else [])
          + (['--backup-dir', cis_backup_dir] if cis_mode == 'apply' else [])
          + (['--allow-disruptive'] if cis_allow_disruptive else [])
-         + ['--benchmark', cis_benchmark_name ~ ' ' ~ cis_benchmark_version,
+         + ['--deadline', ([cis_engine_timeout | int - 300, 60] | max) | string,
+            '--benchmark', cis_benchmark_name ~ ' ' ~ cis_benchmark_version,
             '--out', _cis_tmp.path ~ '/result.json'] }}
 
 - name: Run benchmark

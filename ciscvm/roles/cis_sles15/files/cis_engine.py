@@ -25,6 +25,7 @@ import os
 import pwd
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -78,7 +79,9 @@ class Ctx(object):
         self._changed_files_lock = threading.Lock()
         self.notes = []
         self._notes_lock = threading.Lock()
-        self._pkg_lock = threading.Lock()
+        # RLock: _install_pkgs() takes it too, and pkg_* fixes reach
+        # _install_pkgs while _apply_one already holds this lock.
+        self._pkg_lock = threading.RLock()
         self._svc_lock = threading.Lock()
         self._svc_queue = set()      # services to restart en-masse after apply
 
@@ -183,17 +186,30 @@ class Ctx(object):
 def sh(cmd, timeout=60):
     """Run a command. cmd may be a list or a shell string. -> (rc, out, err)"""
     try:
-        if isinstance(cmd, str):
-            p = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, timeout=timeout)
-        else:
-            p = subprocess.run(cmd, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, timeout=timeout)
+        # start_new_session makes the child its own process-group leader, so
+        # a timeout can kill the WHOLE group (the /bin/sh wrapper plus
+        # grandchildren like chage/dnf/find).  Orphaned grandchildren would
+        # otherwise keep holding /etc/shadow or the rpmdb lock and cascade
+        # into further timeouts.
+        p = subprocess.Popen(
+            cmd, shell=isinstance(cmd, str),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            start_new_session=True)
+        try:
+            out_b, err_b = p.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except Exception:
+                pass
+            try:
+                p.communicate(timeout=10)      # reap the killed group
+            except Exception:
+                pass
+            return 124, "", "timeout"
         return (p.returncode,
-                p.stdout.decode("utf-8", "replace").strip(),
-                p.stderr.decode("utf-8", "replace").strip())
-    except subprocess.TimeoutExpired:
-        return 124, "", "timeout"
+                out_b.decode("utf-8", "replace").strip(),
+                err_b.decode("utf-8", "replace").strip())
     except FileNotFoundError:
         return 127, "", "not found"
     except Exception as exc:                    # pragma: no cover
@@ -446,13 +462,30 @@ _PKG_CACHE_LOCK = threading.Lock()
 
 
 def _installed_pkgs():
-    """Set of installed package names (rpm -qa --qf, one subprocess, cached)."""
+    """Set of installed package names (rpm -qa --qf, one subprocess, cached).
+
+    A timed-out / failed rpm -qa must never be cached as "zero packages
+    installed" — that made Phase 1 batch-install hundreds of bogus packages
+    and blow the 900s dnf timeout.  Retry up to 3 times (2s/5s apart); on
+    persistent failure raise RuntimeError (run_rule turns it into a per-rule
+    error) and leave the cache empty for the next attempt.
+    """
     global _PKG_CACHE
     if _PKG_CACHE is None:
         with _PKG_CACHE_LOCK:
             if _PKG_CACHE is None:
-                rc, o, _ = sh(["rpm", "-qa", "--qf", "%{NAME}\n"], 120)
-                _PKG_CACHE = set(o.split())
+                last = ""
+                for pause in (0, 2, 5):
+                    if pause:
+                        time.sleep(pause)
+                    rc, o, e = sh(["rpm", "-qa", "--qf", "%{NAME}\n"], 120)
+                    if rc == 0 and o.strip():
+                        _PKG_CACHE = set(o.split())
+                        break
+                    last = "rc=%s %s" % (rc, (e or "")[:120])
+                else:
+                    raise RuntimeError(
+                        "rpm -qa failed after 3 attempts: %s" % last)
     return _PKG_CACHE
 
 
@@ -697,11 +730,14 @@ def f_partition(ctx, p):
         return False, "%s needs a dedicated partition; cannot create automatically" % mp
     # Mount as tmpfs with CIS-recommended options (noexec,nosuid,nodev)
     if exists("/etc/fstab"):
-        backup(ctx, "/etc/fstab")
-        fstab_line = "tmpfs  %s  tmpfs  defaults,noexec,nosuid,nodev  0 0" % mp
-        with open("/etc/fstab", "a", encoding="utf-8") as fh:
-            fh.write("\n" + fstab_line + "\n")
-        ctx.add_changed_file("/etc/fstab")
+        # Serialize with f_mount_opt's locked atomic rewrite of fstab —
+        # an unlocked append racing os.replace would silently lose lines.
+        with ctx.file_lock("/etc/fstab"):
+            backup(ctx, "/etc/fstab")
+            fstab_line = "tmpfs  %s  tmpfs  defaults,noexec,nosuid,nodev  0 0" % mp
+            with open("/etc/fstab", "a", encoding="utf-8") as fh:
+                fh.write("\n" + fstab_line + "\n")
+            ctx.add_changed_file("/etc/fstab")
     os.makedirs(mp, exist_ok=True)
     rc, _, err = sh(["mount", "-t", "tmpfs", "-o", "noexec,nosuid,nodev", "tmpfs", mp])
     ctx.invalidate("mounts")
@@ -877,6 +913,26 @@ def f_path_perm_glob(ctx, p):
     return True, "fixed %d host key file(s)" % len(files)
 
 
+def _fs_scan_skip_mounts():
+    """Mount points that find must NOT walk, by fstype from /proc/mounts.
+
+    A hung FUSE (s3fs/ossfs) or autofs mount puts find into uninterruptible
+    D state — the process then cannot even be killed.  Excluding these
+    fstypes is a mitigation only; a D-state hang on a remaining local
+    filesystem cannot be fully prevented from userspace.
+    """
+    skip = set()
+    for ln in readlines("/proc/mounts"):
+        f = ln.split()
+        if len(f) >= 3:
+            fst = f[2]
+            if (fst.startswith("fuse") or fst == "autofs"
+                    or fst.startswith("nfs") or fst == "cifs"
+                    or fst == "overlay"):
+                skip.add(f[1])
+    return skip
+
+
 def _fs_scan(ctx):
     """One full-filesystem pass collecting every permission category the
     audit needs.  Returns a dict of path lists.
@@ -896,6 +952,8 @@ def _fs_scan(ctx):
             f = ln.split()
             if len(f) >= 6 and f[0] != "Filesystem":
                 mounts.append(f[5])  # mount point is column 6
+        skip = _fs_scan_skip_mounts()
+        mounts = [mp for mp in mounts if mp not in skip]
         if not mounts:
             mounts = ["/"]
         # Build the find expression once, pass mount points as ARGV
@@ -949,6 +1007,8 @@ def _fs_scan_legacy(res):
             f = ln.split()
             if len(f) >= 6 and f[0] != "Filesystem":
                 mounts.append(f[5])
+    skip = _fs_scan_skip_mounts()
+    mounts = [mp for mp in mounts if mp not in skip]
     if not mounts:
         mounts = ["/"]
     for key, *cond in scans:
@@ -1178,21 +1238,28 @@ def c_svc_enabled(ctx, p):
 
 
 def _install_pkgs(ctx, pkgs, timeout=900):
-    """Platform-aware package install (dnf / apt-get / zypper)."""
-    if have("dnf"):
-        cmd = ["dnf", "-y", "install"] + pkgs
-    elif have("apt-get"):
-        cmd = ["apt-get", "-y", "install"] + pkgs
-    elif have("zypper"):
-        cmd = ["zypper", "--non-interactive", "install"] + pkgs
-    else:
-        return False, "no supported package manager found"
-    rc, o, e = sh(cmd, timeout)
-    if rc != 0:
-        return False, (e or o)[:200]
-    _pkg_cache_invalidate()
-    _unit_db_invalidate()
-    return True, None
+    """Platform-aware package install (dnf / apt-get / zypper).
+
+    Serialised on ctx._pkg_lock: pkg_* families already hold it inside
+    _apply_one (RLock, so re-entry is safe), but svc_enabled fixes and the
+    journal-upload bootstrap call this directly — without the lock they
+    raced parallel dnf runs for the rpmdb lock.
+    """
+    with ctx._pkg_lock:
+        if have("dnf"):
+            cmd = ["dnf", "-y", "install"] + pkgs
+        elif have("apt-get"):
+            cmd = ["apt-get", "-y", "install"] + pkgs
+        elif have("zypper"):
+            cmd = ["zypper", "--non-interactive", "install"] + pkgs
+        else:
+            return False, "no supported package manager found"
+        rc, o, e = sh(cmd, timeout)
+        if rc != 0:
+            return False, (e or o)[:200]
+        _pkg_cache_invalidate()
+        _unit_db_invalidate()
+        return True, None
 
 
 def _bootstrap_journal_upload(ctx):
@@ -1307,21 +1374,28 @@ def f_dnf_flag(ctx, p):
     if exists("/etc/dnf/dnf.conf"):
         set_kv_in_file(ctx, "/etc/dnf/dnf.conf", key, want, sep="=")
     for rp in sorted(globmod.glob("/etc/yum.repos.d/*.repo")):
-        backup(ctx, rp)
-        lines = readlines(rp)
-        chg = False
-        res = []
-        for ln in lines:
-            m = re.match(r"^\s*" + re.escape(key) + r"\s*=\s*(.*)$", ln, re.I)
-            if m and m.group(1).strip() != want:
-                res.append("%s=%s" % (key, want))
-                chg = True
-            else:
-                res.append(ln)
-        if chg:
-            with open(rp, "w", encoding="utf-8") as fh:
-                fh.write("\n".join(res).rstrip("\n") + "\n")
-            ctx.add_changed_file(rp)
+        # Several dnf_flag rules run in parallel over the SAME repo files —
+        # serialise per path and write atomically (temp file + os.replace),
+        # preserving the original permissions.
+        with ctx.file_lock(rp):
+            backup(ctx, rp)
+            lines = readlines(rp)
+            chg = False
+            res = []
+            for ln in lines:
+                m = re.match(r"^\s*" + re.escape(key) + r"\s*=\s*(.*)$", ln, re.I)
+                if m and m.group(1).strip() != want:
+                    res.append("%s=%s" % (key, want))
+                    chg = True
+                else:
+                    res.append(ln)
+            if chg:
+                try:
+                    mode = stat.S_IMODE(os.stat(rp).st_mode)
+                except Exception:
+                    mode = 0o644
+                atomic_write(rp, "\n".join(res).rstrip("\n") + "\n", mode=mode)
+                ctx.add_changed_file(rp)
     return True, "set %s=%s in dnf.conf and repo files" % (key, want)
 
 
@@ -3609,12 +3683,46 @@ def f_firewalld_zone_target(ctx, p):
 # User / group hygiene  (family: user_audit)
 # ==========================================================================
 
+def _getpwall_with_timeout(timeout=30):
+    """pwd.getpwall() with a timeout.
+
+    getpwall goes through NSS and can block indefinitely when a directory
+    service (sssd/LDAP) flaps.  Run it in a daemon thread with a join
+    timeout; on timeout (or error) fall back to parsing /etc/passwd,
+    returning the same struct_passwd shape either way.
+    """
+    box = {}
+
+    def _grab():
+        try:
+            box["entries"] = pwd.getpwall()
+        except Exception as exc:                # pragma: no cover
+            box["error"] = exc
+
+    t = threading.Thread(target=_grab)
+    t.daemon = True
+    t.start()
+    t.join(timeout)
+    if "entries" in box:
+        return box["entries"]
+    entries = []
+    for ln in readlines("/etc/passwd"):
+        f = ln.split(":")
+        if len(f) >= 7:
+            try:
+                entries.append(pwd.struct_passwd(
+                    (f[0], f[1], int(f[2]), int(f[3]), f[4], f[5], f[6])))
+            except (ValueError, TypeError):
+                continue
+    return entries
+
+
 def _interactive_users(ctx):
     """(name, uid, gid, home, shell) for real interactive accounts."""
     def load():
         umin = uid_min()
         res = []
-        for e in pwd.getpwall():
+        for e in _getpwall_with_timeout():
             if e.pw_shell.rstrip("/").split("/")[-1] in ("nologin", "false", "sync",
                                                          "shutdown", "halt"):
                 continue
@@ -4623,6 +4731,43 @@ def run_rule(ctx, rule):
     return res
 
 
+def _deadline_result(ctx, rule, detail="deadline exceeded"):
+    """Synthetic run_rule() result for rules cut off by the --deadline
+    budget, so result.json always contains every selected rule."""
+    fam = rule["family"]
+    _bm = ctx.opts.benchmark or ""
+    return {
+        "id": rule["id"],
+        "rule_id": (_bm + " " + rule["id"]).strip(),
+        "benchmark": _bm,
+        "title": rule["title"],
+        "section": rule.get("section") or "",
+        "levels": rule.get("levels") or [],
+        "level": primary_level(rule),
+        "assessment": rule.get("assessment") or "Automated",
+        "family": fam,
+        "risk": rule.get("risk") or "none",
+        "page": rule.get("page"),
+        "status": "error",
+        "detail": detail,
+        "apply_status": "n/a",
+        "apply_detail": "",
+        "status_before": None,
+        "duration_ms": 0,
+        "params": rule.get("params") or {},
+    }
+
+
+def _mem_total_kb():
+    """MemTotal from /proc/meminfo in kB; None when unavailable (non-Linux)."""
+    txt = read("/proc/meminfo")
+    if txt:
+        m = re.search(r"^MemTotal:\s+(\d+)\s*kB", txt, re.M)
+        if m:
+            return int(m.group(1))
+    return None
+
+
 def summarize(results, skipped_count):
     def blank():
         return {"total": 0, "pass": 0, "fail": 0, "manual": 0, "error": 0,
@@ -4661,6 +4806,10 @@ def main():
     ap.add_argument("--backup-dir", default="")
     ap.add_argument("--out", default="-")
     ap.add_argument("--benchmark", default="")
+    ap.add_argument("--deadline", type=int, default=0,
+                    help="overall time budget in seconds (0 = unlimited); "
+                         "rules still unfinished when the budget is spent "
+                         "are reported as error so result.json is always complete")
     opts = ap.parse_args()
 
     def csv(x):
@@ -4685,8 +4834,22 @@ def main():
     try:
         from concurrent.futures import ThreadPoolExecutor
         workers = min(8, max(1, os.cpu_count() or 1))
+        # Low-memory CVMs: dnf + find + rpm running in parallel OOM well
+        # below 4GB, so cap the pool size by total RAM.
+        mem_kb = _mem_total_kb()
+        if mem_kb is not None:
+            if mem_kb < 2 * 1024 * 1024:
+                workers = min(workers, 2)
+            elif mem_kb < 4 * 1024 * 1024:
+                workers = min(workers, 4)
     except ImportError:                              # pragma: no cover
         workers = 1
+
+    def _remaining_budget():
+        """Seconds left of the --deadline budget; None when unlimited."""
+        if not opts.deadline:
+            return None
+        return opts.deadline - (time.time() - started)
 
     def _in_pool(fn, items):
         if workers > 1:
@@ -4741,13 +4904,23 @@ def main():
 
         if missing_pkgs:
             pkg_list = sorted(missing_pkgs)
-            sys.stderr.write("cis-engine: phase 1 installing %d packages: %s\n"
-                             % (len(pkg_list), " ".join(pkg_list)))
-            rc, o, e = sh(["dnf", "-y", "install"] + pkg_list, 900)
-            if rc != 0:
-                sys.stderr.write("batch install warning: %s\n" % ((e or o)[:200]))
-            _pkg_cache_invalidate()
-            _unit_db_invalidate()  # new packages may ship new systemd units
+            remaining = _remaining_budget()
+            if remaining is not None and remaining < 60:
+                # The single batch dnf call cannot be interrupted safely —
+                # skip it when the budget is nearly spent and let the
+                # per-rule fixes (which have their own timeouts) try instead.
+                sys.stderr.write("cis-engine: phase 1 skipped — only %.0fs "
+                                 "left of the --deadline budget\n" % remaining)
+                ctx.add_note("phase 1 batch install skipped: "
+                             "deadline budget nearly exhausted")
+            else:
+                sys.stderr.write("cis-engine: phase 1 installing %d packages: %s\n"
+                                 % (len(pkg_list), " ".join(pkg_list)))
+                rc, o, e = sh(["dnf", "-y", "install"] + pkg_list, 900)
+                if rc != 0:
+                    sys.stderr.write("batch install warning: %s\n" % ((e or o)[:200]))
+                _pkg_cache_invalidate()
+                _unit_db_invalidate()  # new packages may ship new systemd units
 
         # ── Phase 2: Parallel apply ──
         # Rules that touch the package manager are serialised via ctx._pkg_lock;
@@ -4770,7 +4943,37 @@ def main():
                     return run_rule(ctx, rule)
             return run_rule(ctx, rule)
 
-        results = _in_pool(lambda r: _apply_one(ctx, r), ordered)
+        def _apply_with_deadline():
+            """Pool apply bounded by the --deadline budget: stop waiting once
+            the budget is spent and mark unfinished rules as error, so
+            result.json is always written before Ansible's outer timeout
+            kills the process.  Still-running worker threads keep their own
+            sh() timeouts and wind down in the background."""
+            from concurrent.futures import wait as _cf_wait
+            pool = ThreadPoolExecutor(max_workers=workers)
+            try:
+                futs = [(pool.submit(_apply_one, ctx, r), r) for r in ordered]
+                remaining = _remaining_budget()
+                done, _ = _cf_wait([f for f, _ in futs],
+                                   timeout=max(0.0, remaining))
+                res = []
+                for f, r in futs:
+                    if f in done:
+                        try:
+                            res.append(f.result())
+                        except Exception as exc:                # pragma: no cover
+                            res.append(_deadline_result(
+                                ctx, r, "%s: %s" % (type(exc).__name__, exc)))
+                    else:
+                        res.append(_deadline_result(ctx, r))
+                return res
+            finally:
+                pool.shutdown(wait=False)
+
+        if opts.deadline:
+            results = _apply_with_deadline()
+        else:
+            results = _in_pool(lambda r: _apply_one(ctx, r), ordered)
 
         # ── Phase 3: Batch restart queued services ──
         sys.stderr.write("cis-engine: phase 3 flushing %d service restart(s)\n"
@@ -4848,7 +5051,7 @@ if __name__ == "__main__":
         _sys.stderr.write("cis-engine: FATAL — %s: %s\n"
                          % (type(_exc).__name__, _exc))
         _tb.print_exc(file=_sys.stderr)
-        _sys.stdout.write(_json.dumps({
+        _payload = _json.dumps({
             "schema": 1, "engine_version": "1.0.0",
             "mode": "error", "error": str(_exc),
             "results": [{"id": "_fatal_", "title": "engine crash",
@@ -4858,5 +5061,25 @@ if __name__ == "__main__":
                          "apply_status": "failed",
                          "apply_detail": "engine crashed before completion",
                          "duration_ms": 0}]
-        }, indent=1))
+        }, indent=1)
+        _sys.stdout.write(_payload)
+        # Also drop the same document at --out so the Ansible slurp of
+        # result.json still finds valid JSON (with the diagnosis) after a
+        # crash — previously the error only went to stdout and was lost.
+        _out = None
+        _argv = _sys.argv[1:]
+        for _i, _a in enumerate(_argv):
+            if _a == "--out" and _i + 1 < len(_argv):
+                _out = _argv[_i + 1]
+            elif _a.startswith("--out="):
+                _out = _a[len("--out="):]
+        if _out and _out != "-":
+            try:
+                _d = os.path.dirname(_out)
+                if _d:
+                    os.makedirs(_d, exist_ok=True)
+                with open(_out, "w", encoding="utf-8") as _fh:
+                    _fh.write(_payload)
+            except Exception:
+                pass
         _sys.exit(1)
