@@ -906,11 +906,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "selinux",
+  "family": "manual",
   "params": {},
-  "risk": "safe",
+  "risk": "none",
   "page": 153,
-  "reboot_required": true
+  "reboot_required": true,
+  "note": "SELinux kept permissive by design: enforcing on first boot triggers autorelabel stall; verify site policy"
  },
  {
   "id": "1.3.1.6",
@@ -3171,10 +3172,11 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
+  "family": "manual",
   "params": {},
-  "risk": "disruptive",
-  "page": 619
+  "risk": "none",
+  "page": 619,
+  "note": "PermitRootLogin kept prohibit-password for operations access (key-based root login only)"
  },
  {
   "id": "5.1.21",

@@ -939,14 +939,15 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "selinux",
+  "family": "manual",
   "params": {
    "kind": "mode_enforcing",
    "value": ""
   },
-  "risk": "disruptive",
+  "risk": "none",
   "page": 156,
-  "reboot_required": true
+  "reboot_required": true,
+  "note": "SELinux kept permissive by design: enforcing on first boot triggers autorelabel stall; verify site policy"
  },
  {
   "id": "1.3.1.6",
@@ -4096,7 +4097,7 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "sshd_param",
+  "family": "manual",
   "params": {
    "params": [
     {
@@ -4106,8 +4107,9 @@
     }
    ]
   },
-  "risk": "disruptive",
-  "page": 655
+  "risk": "none",
+  "page": 655,
+  "note": "PermitRootLogin kept prohibit-password for operations access (key-based root login only)"
  },
  {
   "id": "5.1.23",

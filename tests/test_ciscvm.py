@@ -3397,3 +3397,59 @@ class TestEnginePy38Compat:
             with open(path, "rb") as fh:
                 hashes.add(hashlib.sha256(fh.read()).hexdigest())
         assert len(hashes) == 1, "role engines drifted out of sync"
+
+
+class TestLinuxRulePolicyConsistency:
+    """v0.16.12: engineering decisions made during the TOS4 L2 campaign
+    (v0.14.23-.30) only landed in cis_tencentos4/rules.json while the
+    engine was synced to all roles — rhel8/9/10 kept auto-executing
+    SELinux enforcing (first-boot autorelabel stall -> CREATEFAILED) and
+    kept scoring PermitRootLogin (guard deliberately restores
+    prohibit-password, so the gate could never see it pass).
+    These decisions are platform-wide, not TOS4-specific: assert every
+    Linux role honours them so the catalogs cannot drift again."""
+
+    CATALOGS = sorted(glob.glob("ciscvm/roles/cis_*/files/rules.json"))
+
+    def _rules(self, path):
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def test_selinux_enforcing_is_manual(self):
+        """First-boot enforcing triggers a full autorelabel before sshd;
+        the ssh-guard only deletes a STALE /.autorelabel and assumes a
+        permissive boot.  Enforcing must stay a manual, unscored rule."""
+        for path in self.CATALOGS:
+            for rule in self._rules(path):
+                if rule.get("title") == "Ensure the SELinux mode is enforcing":
+                    assert rule["family"] == "manual", (
+                        f"{path}: {rule['id']} SELinux enforcing must be "
+                        f"manual, got {rule['family']}")
+                    assert rule["risk"] == "none", (
+                        f"{path}: {rule['id']} must be risk=none")
+                    assert rule.get("note"), (
+                        f"{path}: {rule['id']} must document the deviation")
+
+    def test_permit_root_login_is_manual(self):
+        """The ssh-guard restores PermitRootLogin prohibit-password so
+        Packer can reconnect, and only re-locks it after the audit gate —
+        the gate would always score this rule as fail.  Key-based root
+        login is the documented engineering decision."""
+        for path in self.CATALOGS:
+            for rule in self._rules(path):
+                if "PermitRootLogin" in rule.get("title", ""):
+                    assert rule["family"] == "manual", (
+                        f"{path}: {rule['id']} PermitRootLogin must be "
+                        f"manual, got {rule['family']}")
+                    assert rule["risk"] == "none", (
+                        f"{path}: {rule['id']} must be risk=none")
+
+    def test_no_bare_trailing_dash_f(self):
+        """v0.14.23 root cause: audit rule strings truncated with a bare
+        '-F' break augenrules compilation (whole ruleset fails to load,
+        L2 audit section scores ~26%)."""
+        for path in self.CATALOGS:
+            blob = json.dumps(self._rules(path))
+            for m in re.finditer(r'-F(?=")', blob):
+                raise AssertionError(
+                    f"{path}: audit rule truncated with bare -F")

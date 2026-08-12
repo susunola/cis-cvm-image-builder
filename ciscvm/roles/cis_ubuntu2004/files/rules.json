@@ -3130,10 +3130,11 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
+  "family": "manual",
   "params": {},
-  "risk": "disruptive",
-  "page": 541
+  "risk": "none",
+  "page": 541,
+  "note": "PermitRootLogin kept prohibit-password for operations access (key-based root login only)"
  },
  {
   "id": "5.1.21",
