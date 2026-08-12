@@ -49,6 +49,7 @@
           '--families', cis_families | join(','),
           '--backup-dir', cis_backup_dir,
           '--benchmark', cis_benchmark_name ~ ' ' ~ cis_benchmark_version,
+          '--deadline', ([cis_engine_timeout | int - 300, 60] | max) | string,
           '--out', cis_workdir.path ~ '/result.json']
          + (['--allow-disruptive']
             if (cis_mode_effective == 'apply' and cis_allow_disruptive | bool)
