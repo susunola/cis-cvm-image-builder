@@ -5,6 +5,20 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
+## [0.16.18] — 2026-08-13
+
+First Windows build attempt (win2022 L1) failed at "Timeout waiting for
+WinRM"; root-caused with a manually launched probe instance.
+
+### Fixed
+- **WinRM auth**: stock TencentCloud Windows images DISABLE Basic auth on
+  the WinRM service (NTLM verified working).  The packer communicator now
+  sets `winrm_use_ntlm = true` and the ansible provisioner /
+  site.yml use `ansible_winrm_transport=ntlm` (requires `pywinrm` +
+  `ntlm-auth` on the controller).
+- **winrm_timeout 10m → 30m**: Windows specialize/OOBE first boot can
+  exceed 10 minutes on small instance types.
+
 ## [0.16.17] — 2026-08-13
 
 ubuntu2004 post-reboot audit fixes (debugged live on a scratch CVM).

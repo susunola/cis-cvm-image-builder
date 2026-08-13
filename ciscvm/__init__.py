@@ -42,7 +42,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.16.17"
+VERSION = "0.16.18"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -1500,7 +1500,14 @@ __ASSUME_ROLE_BLOCK__
   # and the VM is destroyed after snapshotting, so plain HTTP is acceptable.
   winrm_use_ssl               = false
   winrm_insecure              = true
-  winrm_timeout               = "10m"
+  # Stock images also DISABLE WinRM Basic auth — the communicator must
+  # negotiate NTLM or the connection is rejected ("credentials rejected")
+  # and the build dies at "Timeout waiting for WinRM".  Same for the
+  # ansible provisioner below (ansible_winrm_transport=ntlm).
+  winrm_use_ntlm              = true
+  # Windows first boot (specialize/oobe) can take well over 10 minutes on
+  # small instance types; give WinRM ample time to come up.
+  winrm_timeout               = "30m"
   image_name                  = var.image_name
   vpc_id                      = var.vpc_id
   subnet_id                   = var.subnet_id
@@ -1532,7 +1539,7 @@ build {
     use_proxy     = false
     extra_arguments = [
       "-e", "ansible_connection=winrm",
-      "-e", "ansible_winrm_transport=basic"
+      "-e", "ansible_winrm_transport=ntlm"
     ]
   }
 __SMOKE_TEST_BLOCK____TEST_COMPONENTS_BLOCK__
@@ -1590,7 +1597,7 @@ SITE_YML_WIN_TEMPLATE = r"""---
   gather_facts: true
   vars:
     ansible_connection: winrm
-    ansible_winrm_transport: basic
+    ansible_winrm_transport: ntlm
     cis_mode: apply
     cis_profile: __CIS_LEVEL__
     cis_platform: server
