@@ -1500,22 +1500,24 @@ __ASSUME_ROLE_BLOCK__
   # and the VM is destroyed after snapshotting, so plain HTTP is acceptable.
   winrm_use_ssl               = false
   winrm_insecure              = true
-  # Stock images also DISABLE WinRM Basic auth — the communicator must
-  # negotiate NTLM or the connection is rejected ("credentials rejected")
-  # and the build dies at "Timeout waiting for WinRM".  Same for the
-  # ansible provisioner below (ansible_winrm_transport=ntlm).
-  winrm_use_ntlm              = true
   # Windows first boot (specialize/oobe) can take well over 10 minutes on
   # small instance types; give WinRM ample time to come up.
   winrm_timeout               = "30m"
-  # The plugin does NOT set the Administrator password from winrm_password,
-  # so without this the VM boots with a random password and WinRM auth
-  # always fails ("Timeout waiting for WinRM").  cloudbase-init runs this
-  # at first boot and sets the password packer then authenticates with.
+  # Two stock-image hurdles, both handled by this cloudbase-init userdata:
+  #  1. the plugin does NOT set the Administrator password from
+  #     winrm_password — without this the VM boots with a random password
+  #     and every WinRM attempt is a 401 ("Timeout waiting for WinRM");
+  #  2. the stock image disables WinRM Basic auth, and packer's
+  #     communicator cannot negotiate NTLM against it (verified: pywinrm
+  #     NTLM works, packer NTLM 401s) — so Basic + unencrypted HTTP are
+  #     enabled for the BUILD only; the final provisioner re-locks both
+  #     before the snapshot.
   # NB: the password must not contain a single quote.
   user_data = <<-UDEOF
   <powershell>
   net user Administrator '${var.winrm_password}'
+  winrm set winrm/service/auth '@{Basic="true"}'
+  winrm set winrm/service '@{AllowUnencrypted="true"}'
   </powershell>
   UDEOF
   image_name                  = var.image_name
@@ -1549,10 +1551,21 @@ build {
     use_proxy     = false
     extra_arguments = [
       "-e", "ansible_connection=winrm",
-      "-e", "ansible_winrm_transport=ntlm"
+      "-e", "ansible_winrm_transport=basic"
     ]
   }
 __SMOKE_TEST_BLOCK____TEST_COMPONENTS_BLOCK__
+  # Re-lock WinRM before the snapshot: the build's userdata enabled Basic
+  # auth + unencrypted HTTP so the communicator could get in; the shipped
+  # image must not carry that weakening.  Runs last — nothing after this
+  # needs the communicator.
+  provisioner "powershell" {
+    inline = [
+      "winrm set winrm/service/auth '@{Basic=\"false\"}'",
+      "winrm set winrm/service '@{AllowUnencrypted=\"false\"}'",
+      "Write-Host '[ciscvm] winrm re-locked: basic auth + unencrypted HTTP off'"
+    ]
+  }
 }
 """
 
@@ -1607,7 +1620,7 @@ SITE_YML_WIN_TEMPLATE = r"""---
   gather_facts: true
   vars:
     ansible_connection: winrm
-    ansible_winrm_transport: ntlm
+    ansible_winrm_transport: basic
     cis_mode: apply
     cis_profile: __CIS_LEVEL__
     cis_platform: server

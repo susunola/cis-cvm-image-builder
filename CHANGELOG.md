@@ -13,7 +13,12 @@ can be traced across rebuilds.
   password from `winrm_password`, so the VM boots with a random one.
   The Windows source now passes a cloudbase-init `user_data` PowerShell
   snippet that sets the Administrator password at first boot to the
-  `winrm_password` value.
+  `winrm_password` value.  Follow-up: packer's Go WinRM client still could
+  not negotiate NTLM against the stock image (pywinrm NTLM works — packer
+  401s), so the userdata also enables Basic auth + unencrypted HTTP for
+  the BUILD only, and a final powershell provisioner re-locks both before
+  the snapshot.  NTLM flags from v0.16.18 are reverted; the ansible side
+  is back to transport=basic.
 
 ## [0.16.18] — 2026-08-13
 
