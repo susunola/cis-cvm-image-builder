@@ -5,6 +5,15 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
+## [0.16.16] — 2026-08-13
+
+### Fixed
+- **Gate read the level-ONLY summary bucket**: `gate.yml` scored
+  `summary[cis_profile].score` — for L2 that is the L2-exclusive bucket,
+  which is 0.0% when every L2-only rule is manual (ubuntu2404 L2: run
+  scored 95.2% on "all" but gated 0.0%).  The gate now falls back to
+  `summary.all.score` when the profile bucket has zero assessed rules.
+
 ## [0.16.15] — 2026-08-13
 
 Ubuntu build failures root-caused on a live debug instance.

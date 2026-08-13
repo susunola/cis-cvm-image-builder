@@ -1,7 +1,12 @@
 ---
 - name: Evaluate the compliance gate
   ansible.builtin.set_fact:
-    cis_gate_score: "{{ cis_result.summary[cis_profile].score | default(cis_result.summary.all.score) }}"
+    # Level buckets are level-ONLY (e.g. "L2" = rules exclusive to L2).
+    # When that bucket has zero assessed rules (every L2-only rule is
+    # manual), its score is a meaningless 0.0 — fall back to the whole-run
+    # score.  (v0.16.16: ubuntu2404 L2 gated at 0.0% while the run scored
+    # 95.2% on the "all" bucket.)
+    cis_gate_score: "{{ cis_result.summary[cis_profile].score if (cis_result.summary[cis_profile].assessed | default(0) | int) > 0 else cis_result.summary.all.score }}"
     cis_gate_fails: "{{ cis_result.summary.all.fail | int }}"
 
 - name: Fail when findings remain
