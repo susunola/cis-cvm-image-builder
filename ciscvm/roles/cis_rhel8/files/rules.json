@@ -116,7 +116,7 @@
    "module": "overlay",
    "mtype": "fs"
   },
-  "risk": "safe",
+  "risk": "disruptive",
   "page": 40
  },
  {
@@ -136,7 +136,7 @@
    "module": "squashfs",
    "mtype": "fs"
   },
-  "risk": "safe",
+  "risk": "disruptive",
   "page": 44
  },
  {
@@ -197,7 +197,7 @@
    "module": "usb-storage",
    "mtype": "fs"
   },
-  "risk": "safe",
+  "risk": "disruptive",
   "page": 53
  },
  {
@@ -232,7 +232,7 @@
   "family": "partition",
   "params": {
    "mount": "/tmp",
-   "size_mb": 0
+   "allow_tmpfs": true
   },
   "risk": "none",
   "page": 66
@@ -833,8 +833,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "pkg_present",
+  "params": {
+   "packages": [
+    "libselinux"
+   ]
+  },
   "risk": "safe",
   "page": 145
  },
@@ -850,8 +854,11 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
-  "params": {},
+  "family": "selinux",
+  "params": {
+   "kind": "bootloader",
+   "value": ""
+  },
   "risk": "disruptive",
   "page": 147
  },
@@ -868,7 +875,10 @@
   ],
   "assessment": "Automated",
   "family": "selinux",
-  "params": {},
+  "params": {
+   "kind": "policy",
+   "value": "targeted"
+  },
   "risk": "safe",
   "page": 150,
   "reboot_required": true
@@ -885,8 +895,11 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
-  "params": {},
+  "family": "selinux",
+  "params": {
+   "kind": "mode_not_disabled",
+   "value": ""
+  },
   "risk": "disruptive",
   "page": 152
  },
@@ -938,8 +951,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
-  "params": {},
+  "family": "pkg_absent",
+  "params": {
+   "packages": [
+    "mcstrans"
+   ]
+  },
   "risk": "safe",
   "page": 162
  },
@@ -954,8 +971,12 @@
    "Server"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
-  "params": {},
+  "family": "pkg_absent",
+  "params": {
+   "packages": [
+    "setroubleshoot"
+   ]
+  },
   "risk": "disruptive",
   "page": 164
  },
@@ -971,7 +992,7 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "bootloader_perm",
+  "family": "bootloader_password",
   "params": {},
   "risk": "safe",
   "page": 167
@@ -1023,7 +1044,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "fs.protected_hardlinks",
+     "value": "1"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 176
  },
@@ -1040,7 +1068,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "fs.protected_symlinks",
+     "value": "1"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 181
  },
@@ -1057,7 +1092,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "fs.suid_dumpable",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 186
  },
@@ -1074,7 +1116,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "kernel.dmesg_restrict",
+     "value": "1"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 191
  },
@@ -1091,7 +1140,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "kernel.kptr_restrict",
+     "value": "(1|2)"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 196
  },
@@ -1108,7 +1164,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "kernel.yama.ptrace_scope",
+     "value": "(1|2|3)"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 201
  },
@@ -1125,7 +1188,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "kernel.randomize_va_space",
+     "value": "2"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 206
  },
@@ -1295,7 +1365,9 @@
   ],
   "assessment": "Automated",
   "family": "banner",
-  "params": {},
+  "params": {
+   "path": "/etc/issue"
+  },
   "risk": "safe",
   "page": 248
  },
@@ -1345,8 +1417,14 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "banner",
-  "params": {},
+  "family": "file_perm",
+  "params": {
+   "path": "/etc/issue",
+   "mode": "644",
+   "owner": "root",
+   "group": "root",
+   "kind": "file"
+  },
   "risk": "safe",
   "page": 254
  },
@@ -1379,8 +1457,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "banner",
-  "params": {},
+  "family": "gdm_dconf",
+  "params": {
+   "dpath": "org/gnome/login-screen",
+   "key": "banner-message-enable",
+   "value": "true"
+  },
   "risk": "safe",
   "page": 259
  },
@@ -1414,7 +1496,11 @@
   ],
   "assessment": "Automated",
   "family": "gdm_dconf",
-  "params": {},
+  "params": {
+   "dpath": "org/gnome/desktop/session",
+   "key": "idle-delay",
+   "value": "900"
+  },
   "risk": "safe",
   "page": 269
  },
@@ -1465,7 +1551,7 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
+  "family": "xdmcp",
   "params": {},
   "risk": "disruptive",
   "page": 283
@@ -1501,7 +1587,14 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "autofs.service"
+   ],
+   "packages": [
+    "autofs"
+   ]
+  },
   "risk": "disruptive",
   "page": 289
  },
@@ -1519,7 +1612,16 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "avahi-daemon.service",
+    "avahi-daemon.socket"
+   ],
+   "packages": [
+    "avahi",
+    "avahi-autoipd"
+   ]
+  },
   "risk": "disruptive",
   "page": 292
  },
@@ -1536,7 +1638,15 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "cockpit.socket",
+    "cockpit.service"
+   ],
+   "packages": [
+    "cockpit-ws"
+   ]
+  },
   "risk": "disruptive",
   "page": 295
  },
@@ -1553,7 +1663,15 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "dhcpd.service",
+    "dhcpd6.service"
+   ],
+   "packages": [
+    "dhcp-server"
+   ]
+  },
   "risk": "disruptive",
   "page": 298
  },
@@ -1570,7 +1688,14 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "named.service"
+   ],
+   "packages": [
+    "bind"
+   ]
+  },
   "risk": "disruptive",
   "page": 301
  },
@@ -1587,7 +1712,14 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "dnsmasq.service"
+   ],
+   "packages": [
+    "dnsmasq"
+   ]
+  },
   "risk": "disruptive",
   "page": 304
  },
@@ -1604,7 +1736,14 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "vsftpd.service"
+   ],
+   "packages": [
+    "vsftpd"
+   ]
+  },
   "risk": "disruptive",
   "page": 306
  },
@@ -1621,7 +1760,16 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "dovecot.service",
+    "dovecot.socket"
+   ],
+   "packages": [
+    "dovecot",
+    "cyrus-imapd"
+   ]
+  },
   "risk": "disruptive",
   "page": 309
  },
@@ -1638,7 +1786,14 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "nfs-server.service"
+   ],
+   "packages": [
+    "nfs-utils"
+   ]
+  },
   "risk": "disruptive",
   "page": 312
  },
@@ -1655,7 +1810,14 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "ypserv.service"
+   ],
+   "packages": [
+    "ypserv"
+   ]
+  },
   "risk": "disruptive",
   "page": 315
  },
@@ -1671,7 +1833,15 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "cups.service",
+    "cups.socket"
+   ],
+   "packages": [
+    "cups"
+   ]
+  },
   "risk": "disruptive",
   "page": 318
  },
@@ -1688,7 +1858,15 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "rpcbind.service",
+    "rpcbind.socket"
+   ],
+   "packages": [
+    "rpcbind"
+   ]
+  },
   "risk": "disruptive",
   "page": 321
  },
@@ -1705,7 +1883,15 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "rsyncd.service",
+    "rsyncd.socket"
+   ],
+   "packages": [
+    "rsync-daemon"
+   ]
+  },
   "risk": "disruptive",
   "page": 324
  },
@@ -1722,7 +1908,14 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "smb.service"
+   ],
+   "packages": [
+    "samba"
+   ]
+  },
   "risk": "disruptive",
   "page": 327
  },
@@ -1739,7 +1932,14 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "snmpd.service"
+   ],
+   "packages": [
+    "net-snmp"
+   ]
+  },
   "risk": "disruptive",
   "page": 330
  },
@@ -1756,7 +1956,14 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "telnet.socket"
+   ],
+   "packages": [
+    "telnet-server"
+   ]
+  },
   "risk": "disruptive",
   "page": 333
  },
@@ -1773,7 +1980,15 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "tftp.service",
+    "tftp.socket"
+   ],
+   "packages": [
+    "tftp-server"
+   ]
+  },
   "risk": "disruptive",
   "page": 336
  },
@@ -1790,7 +2005,14 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "squid.service"
+   ],
+   "packages": [
+    "squid"
+   ]
+  },
   "risk": "disruptive",
   "page": 339
  },
@@ -1807,7 +2029,17 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "httpd.service",
+    "httpd.socket",
+    "nginx.service"
+   ],
+   "packages": [
+    "httpd",
+    "nginx"
+   ]
+  },
   "risk": "disruptive",
   "page": 342
  },
@@ -1824,7 +2056,14 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "xinetd.service"
+   ],
+   "packages": [
+    "xinetd"
+   ]
+  },
   "risk": "disruptive",
   "page": 346
  },
@@ -1839,8 +2078,12 @@
    "Server"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
-  "params": {},
+  "family": "pkg_absent",
+  "params": {
+   "packages": [
+    "gdm"
+   ]
+  },
   "risk": "disruptive",
   "page": 349
  },
@@ -1856,7 +2099,12 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [],
+   "packages": [
+    "xorg-x11-server-common"
+   ]
+  },
   "risk": "disruptive",
   "page": 351
  },
@@ -1906,8 +2154,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
-  "params": {},
+  "family": "pkg_absent",
+  "params": {
+   "packages": [
+    "ftp"
+   ]
+  },
   "risk": "disruptive",
   "page": 360
  },
@@ -1923,8 +2175,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
-  "params": {},
+  "family": "pkg_absent",
+  "params": {
+   "packages": [
+    "openldap-clients"
+   ]
+  },
   "risk": "disruptive",
   "page": 362
  },
@@ -1940,8 +2196,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
-  "params": {},
+  "family": "pkg_absent",
+  "params": {
+   "packages": [
+    "ypbind"
+   ]
+  },
   "risk": "disruptive",
   "page": 364
  },
@@ -1957,8 +2217,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
-  "params": {},
+  "family": "pkg_absent",
+  "params": {
+   "packages": [
+    "telnet"
+   ]
+  },
   "risk": "disruptive",
   "page": 366
  },
@@ -1974,8 +2238,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
-  "params": {},
+  "family": "pkg_absent",
+  "params": {
+   "packages": [
+    "tftp"
+   ]
+  },
   "risk": "disruptive",
   "page": 368
  },
@@ -2009,7 +2277,14 @@
   ],
   "assessment": "Automated",
   "family": "svc_enabled",
-  "params": {},
+  "params": {
+   "units": [
+    "chronyd.service"
+   ],
+   "packages": [
+    "chrony"
+   ]
+  },
   "risk": "safe",
   "page": 373
  },
@@ -2043,7 +2318,14 @@
   ],
   "assessment": "Automated",
   "family": "svc_enabled",
-  "params": {},
+  "params": {
+   "units": [
+    "crond.service"
+   ],
+   "packages": [
+    "cronie"
+   ]
+  },
   "risk": "safe",
   "page": 380
  },
@@ -2247,7 +2529,14 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "bluetooth.service"
+   ],
+   "packages": [
+    "bluez"
+   ]
+  },
   "risk": "disruptive",
   "page": 413
  },
@@ -2385,7 +2674,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.ip_forward",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 440
  },
@@ -2402,7 +2698,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.conf.all.forwarding",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 445
  },
@@ -2419,7 +2722,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.conf.default.forwarding",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 450
  },
@@ -2436,7 +2746,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.conf.all.send_redirects",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 455
  },
@@ -2453,7 +2770,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.conf.default.send_redirects",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 460
  },
@@ -2470,7 +2794,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.icmp_ignore_bogus_error_responses",
+     "value": "1"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 465
  },
@@ -2487,7 +2818,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.icmp_echo_ignore_broadcasts",
+     "value": "1"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 470
  },
@@ -2504,7 +2842,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.conf.all.accept_redirects",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 475
  },
@@ -2521,7 +2866,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.conf.default.accept_redirects",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 480
  },
@@ -2538,7 +2890,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.conf.all.secure_redirects",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 485
  },
@@ -2555,7 +2914,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.conf.default.secure_redirects",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 490
  },
@@ -2572,7 +2938,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.conf.all.rp_filter",
+     "value": "1"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 495
  },
@@ -2589,7 +2962,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.conf.default.rp_filter",
+     "value": "1"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 500
  },
@@ -2606,7 +2986,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.conf.all.accept_source_route",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 505
  },
@@ -2623,7 +3010,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.conf.default.accept_source_route",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 510
  },
@@ -2640,7 +3034,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.conf.all.log_martians",
+     "value": "1"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 515
  },
@@ -2657,7 +3058,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.conf.default.log_martians",
+     "value": "1"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 520
  },
@@ -2674,7 +3082,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv4.tcp_syncookies",
+     "value": "1"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 525
  },
@@ -2691,7 +3106,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv6.conf.all.forwarding",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 531
  },
@@ -2708,7 +3130,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv6.conf.default.forwarding",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 536
  },
@@ -2725,7 +3154,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv6.conf.all.accept_redirects",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 541
  },
@@ -2742,7 +3178,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv6.conf.default.accept_redirects",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 546
  },
@@ -2759,7 +3202,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv6.conf.all.accept_source_route",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 551
  },
@@ -2776,7 +3226,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv6.conf.default.accept_source_route",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 556
  },
@@ -2793,7 +3250,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv6.conf.all.accept_ra",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 561
  },
@@ -2810,7 +3274,14 @@
   ],
   "assessment": "Automated",
   "family": "sysctl",
-  "params": {},
+  "params": {
+   "params": [
+    {
+     "key": "net.ipv6.conf.default.accept_ra",
+     "value": "0"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 566
  },
@@ -2826,8 +3297,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "pkg_present",
+  "params": {
+   "packages": [
+    "firewalld"
+   ]
+  },
   "risk": "safe",
   "page": 574
  },
@@ -3082,7 +3557,10 @@
   ],
   "assessment": "Automated",
   "family": "sshd_idle",
-  "params": {},
+  "params": {
+   "interval_max": 15,
+   "countmax": 3
+  },
   "risk": "safe",
   "page": 616
  },
@@ -3099,8 +3577,16 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "sshd_param",
+  "params": {
+   "params": [
+    {
+     "key": "DisableForwarding",
+     "value": "yes",
+     "op": "eq"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 619
  },
@@ -3117,8 +3603,16 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
-  "params": {},
+  "family": "sshd_param",
+  "params": {
+   "params": [
+    {
+     "key": "GSSAPIAuthentication",
+     "value": "no",
+     "op": "eq"
+    }
+   ]
+  },
   "risk": "disruptive",
   "page": 622
  },
@@ -3134,8 +3628,16 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
-  "params": {},
+  "family": "sshd_param",
+  "params": {
+   "params": [
+    {
+     "key": "HostbasedAuthentication",
+     "value": "no",
+     "op": "eq"
+    }
+   ]
+  },
   "risk": "disruptive",
   "page": 625
  },
@@ -3151,8 +3653,16 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "sshd_param",
+  "params": {
+   "params": [
+    {
+     "key": "IgnoreRhosts",
+     "value": "yes",
+     "op": "eq"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 628
  },
@@ -3287,8 +3797,16 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
-  "params": {},
+  "family": "sshd_param",
+  "params": {
+   "params": [
+    {
+     "key": "PermitEmptyPasswords",
+     "value": "no",
+     "op": "eq"
+    }
+   ]
+  },
   "risk": "disruptive",
   "page": 652
  },
@@ -3322,8 +3840,16 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
-  "params": {},
+  "family": "sshd_param",
+  "params": {
+   "params": [
+    {
+     "key": "PermitUserEnvironment",
+     "value": "no",
+     "op": "eq"
+    }
+   ]
+  },
   "risk": "disruptive",
   "page": 658
  },
@@ -3339,8 +3865,16 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "sshd_param",
+  "params": {
+   "params": [
+    {
+     "key": "UsePAM",
+     "value": "yes",
+     "op": "eq"
+    }
+   ]
+  },
   "risk": "safe",
   "page": 660
  },
@@ -3356,8 +3890,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "pkg_present",
+  "params": {
+   "packages": [
+    "sudo"
+   ]
+  },
   "risk": "safe",
   "page": 663
  },
@@ -3374,7 +3912,11 @@
   ],
   "assessment": "Automated",
   "family": "sudo_defaults",
-  "params": {},
+  "params": {
+   "key": "use_pty",
+   "value": "",
+   "op": "flag"
+  },
   "risk": "safe",
   "page": 665
  },
@@ -3424,8 +3966,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
-  "params": {},
+  "family": "sudo_defaults",
+  "params": {
+   "key": "!authenticate",
+   "value": "",
+   "op": "absent_tag"
+  },
   "risk": "disruptive",
   "page": 671
  },
@@ -3442,7 +3988,11 @@
   ],
   "assessment": "Automated",
   "family": "sudo_defaults",
-  "params": {},
+  "params": {
+   "key": "timestamp_timeout",
+   "value": "15",
+   "op": "kv_le"
+  },
   "risk": "safe",
   "page": 673
  },
@@ -3475,8 +4025,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "pkg_present",
+  "params": {
+   "packages": [
+    "pam"
+   ]
+  },
   "risk": "safe",
   "page": 678
  },
@@ -3492,8 +4046,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "pkg_present",
+  "params": {
+   "packages": [
+    "authselect"
+   ]
+  },
   "risk": "safe",
   "page": 679
  },
@@ -3526,8 +4084,10 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "pam_module",
+  "params": {
+   "module": "pam_faillock.so"
+  },
   "risk": "safe",
   "page": 688
  },
@@ -3543,8 +4103,10 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "pam_module",
+  "params": {
+   "module": "pam_pwquality.so"
+  },
   "risk": "safe",
   "page": 691
  },
@@ -3560,8 +4122,10 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "pam_module",
+  "params": {
+   "module": "pam_pwhistory.so"
+  },
   "risk": "safe",
   "page": 694
  },
@@ -3577,8 +4141,10 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "pam_module",
+  "params": {
+   "module": "pam_unix.so"
+  },
   "risk": "safe",
   "page": 697
  },
@@ -3663,7 +4229,18 @@
   ],
   "assessment": "Automated",
   "family": "kv_conf",
-  "params": {},
+  "params": {
+   "files": [
+    "/etc/security/pwquality.conf"
+   ],
+   "globs": [
+    "/etc/security/pwquality.conf.d/*.conf"
+   ],
+   "key": "minlen",
+   "sep": "=",
+   "value": "14",
+   "op": "ge"
+  },
   "risk": "safe",
   "page": 715
  },
@@ -3680,7 +4257,18 @@
   ],
   "assessment": "Manual",
   "family": "kv_conf",
-  "params": {},
+  "params": {
+   "files": [
+    "/etc/security/pwquality.conf"
+   ],
+   "globs": [
+    "/etc/security/pwquality.conf.d/*.conf"
+   ],
+   "key": "minclass",
+   "sep": "=",
+   "value": "4",
+   "op": "ge"
+  },
   "risk": "safe",
   "page": 718
  },
@@ -3730,8 +4318,19 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "kv_conf",
+  "params": {
+   "files": [
+    "/etc/security/pwquality.conf"
+   ],
+   "globs": [
+    "/etc/security/pwquality.conf.d/*.conf"
+   ],
+   "key": "dictcheck",
+   "sep": "=",
+   "value": "1",
+   "op": "ne:0"
+  },
   "risk": "safe",
   "page": 728
  },
@@ -3748,7 +4347,18 @@
   ],
   "assessment": "Automated",
   "family": "kv_conf",
-  "params": {},
+  "params": {
+   "files": [
+    "/etc/security/pwquality.conf"
+   ],
+   "globs": [
+    "/etc/security/pwquality.conf.d/*.conf"
+   ],
+   "key": "enforce_for_root",
+   "sep": "=",
+   "value": "",
+   "op": "bool_present"
+  },
   "risk": "safe",
   "page": 731
  },
@@ -3764,8 +4374,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "kv_conf",
-  "params": {},
+  "family": "pam_arg",
+  "params": {
+   "module": "pam_pwhistory.so",
+   "arg": "remember",
+   "mode": "ge:24"
+  },
   "risk": "safe",
   "page": 735
  },
@@ -3781,8 +4395,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "kv_conf",
-  "params": {},
+  "family": "pam_arg",
+  "params": {
+   "module": "pam_pwhistory.so",
+   "arg": "enforce_for_root",
+   "mode": "present"
+  },
   "risk": "safe",
   "page": 737
  },
@@ -3884,7 +4502,15 @@
   ],
   "assessment": "Automated",
   "family": "kv_conf",
-  "params": {},
+  "params": {
+   "files": [
+    "/etc/login.defs"
+   ],
+   "key": "PASS_MAX_DAYS",
+   "sep": " ",
+   "value": "365",
+   "op": "le_pos"
+  },
   "risk": "safe",
   "page": 758
  },
@@ -3918,7 +4544,15 @@
   ],
   "assessment": "Automated",
   "family": "kv_conf",
-  "params": {},
+  "params": {
+   "files": [
+    "/etc/login.defs"
+   ],
+   "key": "PASS_WARN_AGE",
+   "sep": " ",
+   "value": "7",
+   "op": "ge"
+  },
   "risk": "safe",
   "page": 765
  },
@@ -4071,7 +4705,15 @@
   ],
   "assessment": "Automated",
   "family": "kv_conf",
-  "params": {},
+  "params": {
+   "key": "umask",
+   "sep": " ",
+   "value": "027",
+   "op": "umask",
+   "files": [
+    "/root/.bashrc"
+   ]
+  },
   "risk": "safe",
   "page": 786
  },
@@ -4139,7 +4781,15 @@
   ],
   "assessment": "Automated",
   "family": "kv_conf",
-  "params": {},
+  "params": {
+   "key": "TMOUT",
+   "sep": "=",
+   "value": "900",
+   "op": "tmout",
+   "files": [
+    "/etc/profile.d/60-cis-tmout.sh"
+   ]
+  },
   "risk": "safe",
   "page": 796
  },
@@ -4156,7 +4806,15 @@
   ],
   "assessment": "Automated",
   "family": "kv_conf",
-  "params": {},
+  "params": {
+   "key": "umask",
+   "sep": " ",
+   "value": "027",
+   "op": "umask",
+   "files": [
+    "/etc/profile.d/60-cis-umask.sh"
+   ]
+  },
   "risk": "safe",
   "page": 800
  },
@@ -4172,8 +4830,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "pkg_present",
+  "params": {
+   "packages": [
+    "aide"
+   ]
+  },
   "risk": "safe",
   "page": 807
  },
@@ -4189,9 +4851,14 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "pkg_present",
+  "family": "svc_enabled",
   "params": {
-   "name": "aide"
+   "units": [
+    "aidecheck.timer"
+   ],
+   "packages": [
+    "aide"
+   ]
   },
   "risk": "safe",
   "page": 809
@@ -4242,7 +4909,7 @@
    "Workstation"
   ],
   "assessment": "Manual",
-  "family": "svc_enabled",
+  "family": "journald_fileperm",
   "params": {},
   "risk": "safe",
   "page": 821
@@ -4259,8 +4926,19 @@
    "Workstation"
   ],
   "assessment": "Manual",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "kv_conf",
+  "params": {
+   "files": [
+    "/etc/systemd/journald.conf"
+   ],
+   "globs": [
+    "/etc/systemd/journald.conf.d/*.conf"
+   ],
+   "key": "SystemMaxUse",
+   "sep": "=",
+   "value": "1G",
+   "op": "present"
+  },
   "risk": "safe",
   "page": 824
  },
@@ -4276,8 +4954,19 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
-  "params": {},
+  "family": "kv_conf",
+  "params": {
+   "files": [
+    "/etc/systemd/journald.conf"
+   ],
+   "globs": [
+    "/etc/systemd/journald.conf.d/*.conf"
+   ],
+   "key": "ForwardToSyslog",
+   "sep": "=",
+   "value": "no",
+   "op": "eq"
+  },
   "risk": "disruptive",
   "page": 826
  },
@@ -4293,8 +4982,19 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "kv_conf",
+  "params": {
+   "files": [
+    "/etc/systemd/journald.conf"
+   ],
+   "globs": [
+    "/etc/systemd/journald.conf.d/*.conf"
+   ],
+   "key": "Storage",
+   "sep": "=",
+   "value": "persistent",
+   "op": "eq"
+  },
   "risk": "safe",
   "page": 830
  },
@@ -4310,8 +5010,19 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "kv_conf",
+  "params": {
+   "files": [
+    "/etc/systemd/journald.conf"
+   ],
+   "globs": [
+    "/etc/systemd/journald.conf.d/*.conf"
+   ],
+   "key": "Compress",
+   "sep": "=",
+   "value": "yes",
+   "op": "eq"
+  },
   "risk": "safe",
   "page": 833
  },
@@ -4327,8 +5038,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "pkg_present",
+  "params": {
+   "packages": [
+    "systemd-journal-remote"
+   ]
+  },
   "risk": "safe",
   "page": 837
  },
@@ -4362,7 +5077,12 @@
   ],
   "assessment": "Automated",
   "family": "svc_enabled",
-  "params": {},
+  "params": {
+   "units": [
+    "systemd-journal-upload.service"
+   ],
+   "packages": []
+  },
   "risk": "safe",
   "page": 841
  },
@@ -4379,7 +5099,13 @@
   ],
   "assessment": "Automated",
   "family": "svc_disabled",
-  "params": {},
+  "params": {
+   "units": [
+    "systemd-journal-remote.socket",
+    "systemd-journal-remote.service"
+   ],
+   "packages": []
+  },
   "risk": "disruptive",
   "page": 843
  },
@@ -4395,8 +5121,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "pkg_present",
+  "params": {
+   "packages": [
+    "rsyslog"
+   ]
+  },
   "risk": "safe",
   "page": 846
  },
@@ -4413,7 +5143,14 @@
   ],
   "assessment": "Automated",
   "family": "svc_enabled",
-  "params": {},
+  "params": {
+   "units": [
+    "rsyslog.service"
+   ],
+   "packages": [
+    "rsyslog"
+   ]
+  },
   "risk": "safe",
   "page": 848
  },
@@ -4429,8 +5166,19 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "kv_conf",
+  "params": {
+   "files": [
+    "/etc/systemd/journald.conf"
+   ],
+   "globs": [
+    "/etc/systemd/journald.conf.d/*.conf"
+   ],
+   "key": "ForwardToSyslog",
+   "sep": "=",
+   "value": "yes",
+   "op": "eq"
+  },
   "risk": "safe",
   "page": 850
  },
@@ -4446,8 +5194,16 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
+  "family": "kv_conf",
+  "params": {
+   "key": "$FileCreateMode",
+   "sep": " ",
+   "value": "0640",
+   "op": "filemode",
+   "files": [
+    "/etc/rsyslog.conf"
+   ]
+  },
   "risk": "safe",
   "page": 854
  },
@@ -4463,7 +5219,7 @@
    "Workstation"
   ],
   "assessment": "Manual",
-  "family": "svc_enabled",
+  "family": "manual",
   "params": {},
   "risk": "safe",
   "page": 856
@@ -4480,7 +5236,7 @@
    "Workstation"
   ],
   "assessment": "Manual",
-  "family": "svc_enabled",
+  "family": "manual",
   "params": {},
   "risk": "safe",
   "page": 858
@@ -4497,7 +5253,7 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
+  "family": "rsyslog_no_receive",
   "params": {},
   "risk": "safe",
   "page": 860
@@ -4516,7 +5272,9 @@
   "assessment": "Manual",
   "family": "pkg_present",
   "params": {
-   "name": "logrotate"
+   "packages": [
+    "logrotate"
+   ]
   },
   "risk": "safe",
   "page": 862
@@ -4551,7 +5309,12 @@
   ],
   "assessment": "Automated",
   "family": "pkg_present",
-  "params": {},
+  "params": {
+   "packages": [
+    "audit",
+    "audit-libs"
+   ]
+  },
   "risk": "safe",
   "page": 873
  },
@@ -4567,9 +5330,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {},
-  "risk": "safe",
+  "family": "grub_flag",
+  "params": {
+   "key": "audit",
+   "value": "1"
+  },
+  "risk": "disruptive",
   "page": 875
  },
  {
@@ -4602,7 +5368,14 @@
   ],
   "assessment": "Automated",
   "family": "svc_enabled",
-  "params": {},
+  "params": {
+   "units": [
+    "auditd.service"
+   ],
+   "packages": [
+    "audit"
+   ]
+  },
   "risk": "safe",
   "page": 881
  },
@@ -4652,8 +5425,16 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
-  "params": {},
+  "family": "kv_conf",
+  "params": {
+   "files": [
+    "/etc/audit/auditd.conf"
+   ],
+   "key": "disk_full_action",
+   "sep": "=",
+   "value": "halt",
+   "op": "in:halt,single"
+  },
   "risk": "disruptive",
   "page": 888
  },
@@ -5079,7 +5860,12 @@
   ],
   "assessment": "Automated",
   "family": "audit_perm",
-  "params": {},
+  "params": {
+   "kind": "logfiles",
+   "mode": "640",
+   "owner": null,
+   "group": null
+  },
   "risk": "safe",
   "page": 982
  },
@@ -5129,8 +5915,13 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "audit_rule",
-  "params": {},
+  "family": "audit_perm",
+  "params": {
+   "kind": "conffiles",
+   "mode": "640",
+   "owner": null,
+   "group": null
+  },
   "risk": "safe",
   "page": 990
  },
@@ -5146,8 +5937,13 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "audit_rule",
-  "params": {},
+  "family": "audit_perm",
+  "params": {
+   "kind": "conffiles",
+   "mode": null,
+   "owner": "root",
+   "group": null
+  },
   "risk": "safe",
   "page": 992
  },
@@ -5163,8 +5959,13 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "audit_rule",
-  "params": {},
+  "family": "audit_perm",
+  "params": {
+   "kind": "conffiles",
+   "mode": null,
+   "owner": null,
+   "group": "root"
+  },
   "risk": "safe",
   "page": 994
  },
@@ -5452,8 +6253,10 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "kv_conf",
-  "params": {},
+  "family": "user_audit",
+  "params": {
+   "kind": "passwd_shadowed"
+  },
   "risk": "safe",
   "page": 1035
  },
@@ -5469,8 +6272,10 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "kv_conf",
-  "params": {},
+  "family": "user_audit",
+  "params": {
+   "kind": "shadow_not_empty"
+  },
   "risk": "safe",
   "page": 1038
  },
@@ -5504,7 +6309,9 @@
   ],
   "assessment": "Automated",
   "family": "user_audit",
-  "params": {},
+  "params": {
+   "kind": "dup_uid"
+  },
   "risk": "safe",
   "page": 1042
  },
@@ -5521,7 +6328,9 @@
   ],
   "assessment": "Automated",
   "family": "user_audit",
-  "params": {},
+  "params": {
+   "kind": "dup_gid"
+  },
   "risk": "safe",
   "page": 1044
  },
@@ -5538,7 +6347,9 @@
   ],
   "assessment": "Automated",
   "family": "user_audit",
-  "params": {},
+  "params": {
+   "kind": "dup_user"
+  },
   "risk": "safe",
   "page": 1046
  },
@@ -5555,7 +6366,9 @@
   ],
   "assessment": "Automated",
   "family": "user_audit",
-  "params": {},
+  "params": {
+   "kind": "dup_group"
+  },
   "risk": "safe",
   "page": 1048
  },
@@ -5588,8 +6401,10 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "kv_conf",
-  "params": {},
+  "family": "user_audit",
+  "params": {
+   "kind": "dot_files"
+  },
   "risk": "safe",
   "page": 1054
  }

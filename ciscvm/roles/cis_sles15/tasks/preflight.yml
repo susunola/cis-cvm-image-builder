@@ -23,6 +23,7 @@
   register: _py_probe
   changed_when: false
   failed_when: false
+  check_mode: false
 
 - name: Verify Python 3 found
   ansible.builtin.fail:
@@ -76,7 +77,7 @@
   ansible.builtin.debug:
     msg:
       - "======================================================"
-      - "  CIS Benchmark: CIS SUSE Linux Enterprise 15 Benchmark v2.0.1 v1.0.0"
+      - "  CIS Benchmark: CIS SUSE Linux Enterprise 15 Benchmark v2.0.1"
       - "  Mode: {{ cis_mode }}  Profile: {{ cis_profile }}  Platform: {{ cis_platform }}"
       - "  Allow disruptive: {{ cis_allow_disruptive }}"
       - "  Target: {{ inventory_hostname }}"

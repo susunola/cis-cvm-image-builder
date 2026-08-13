@@ -3770,8 +3770,11 @@
       "params": [
         {
           "key": "LogLevel",
-          "value": "VERBOSE",
-          "op": "in:verbose,info"
+          "value": [
+            "verbose",
+            "info"
+          ],
+          "op": "in"
         }
       ]
     },
@@ -3956,8 +3959,13 @@
       "params": [
         {
           "key": "LoginGraceTime",
+          "value": "1",
+          "op": "ge"
+        },
+        {
+          "key": "LoginGraceTime",
           "value": "60",
-          "op": "range:1-60"
+          "op": "le"
         }
       ]
     },

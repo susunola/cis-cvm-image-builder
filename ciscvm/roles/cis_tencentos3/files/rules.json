@@ -3770,13 +3770,23 @@
    "params": [
     {
      "key": "ClientAliveInterval",
+     "value": "1",
+     "op": "ge"
+    },
+    {
+     "key": "ClientAliveInterval",
      "value": "15",
-     "op": "range:1-15"
+     "op": "le"
+    },
+    {
+     "key": "ClientAliveCountMax",
+     "value": "1",
+     "op": "ge"
     },
     {
      "key": "ClientAliveCountMax",
      "value": "3",
-     "op": "range:1-3"
+     "op": "le"
     }
    ]
   },
@@ -3927,8 +3937,13 @@
    "params": [
     {
      "key": "LoginGraceTime",
+     "value": "1",
+     "op": "ge"
+    },
+    {
+     "key": "LoginGraceTime",
      "value": "60",
-     "op": "range:1-60"
+     "op": "le"
     }
    ]
   },
@@ -3952,8 +3967,11 @@
    "params": [
     {
      "key": "LogLevel",
-     "value": "VERBOSE",
-     "op": "in:verbose,info"
+     "value": [
+      "verbose",
+      "info"
+     ],
+     "op": "in"
     }
    ]
   },

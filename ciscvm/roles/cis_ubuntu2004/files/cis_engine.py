@@ -3481,6 +3481,30 @@ def _grub_cfg():
     return hits.strip() or None
 
 
+def _fstype_of(path):
+    """Filesystem type hosting path, via /proc/mounts (longest prefix)."""
+    best, fstype = "", None
+    try:
+        with open("/proc/mounts") as fh:
+            for ln in fh:
+                parts = ln.split()
+                if len(parts) >= 3:
+                    mp = parts[1].replace("\\040", " ")
+                    if path == mp or path.startswith(mp.rstrip("/") + "/"):
+                        if len(mp) > len(best):
+                            best, fstype = mp, parts[2]
+    except OSError:
+        pass
+    return fstype
+
+
+def _non_vfat(paths):
+    """Drop files on (v)fat EFI partitions: mode bits there are set by the
+    mount fmask and chmod(2) fails with EPERM, so they cannot be assessed
+    or remediated."""
+    return [f for f in paths if _fstype_of(f) not in ("vfat", "msdos", "fat")]
+
+
 @check("grub_flag")
 def c_grub_flag(ctx, p):
     cmdline = read("/proc/cmdline") or ""
@@ -3561,6 +3585,11 @@ def c_bootloader_perm(ctx, p):
                if x and exists(x)]
     if not targets:
         return "notapplicable", "no GRUB configuration files found"
+    targets = _non_vfat(targets)
+    if not targets:
+        return ("notapplicable",
+                "bootloader files are on a vfat EFI partition; "
+                "permission bits are mount-controlled")
     bad = []
     for f in targets:
         u, g, st = owner_of(f)
@@ -3576,12 +3605,13 @@ def f_bootloader_perm(ctx, p):
     cfg = _grub_cfg()
     targets = [x for x in [cfg, "/boot/grub2/grubenv", "/boot/grub2/user.cfg"]
                if x and exists(x)]
+    targets = _non_vfat(targets)
     for f in targets:
         sh(["chown", "root:root", f])
         os.chmod(f, 0o600)
         ctx.add_changed_file(f)
     if not targets:
-        return False, "no bootloader files found"
+        return True, "nothing to do: bootloader files are on a vfat EFI partition"
     return True, "set 0600 root:root on %d file(s)" % len(targets)
 
 
