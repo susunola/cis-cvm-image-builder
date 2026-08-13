@@ -26,7 +26,7 @@
           cis_remote_tmp ~ "\\cis-run\\" ~ cis_engine_file,
           "-Catalog", cis_remote_tmp ~ "\\cis-run\\" ~ cis_rules_file,
           "-Mode", cis_mode_effective,
-          "-Profile", cis_profile,
+          "-CisProfile", cis_profile,
           "-Platform", cis_platform,
           "-Benchmark", cis_benchmark_name ~ " " ~ cis_benchmark_version,
           "-Out", cis_remote_tmp ~ "\\cis-run\\result.json",

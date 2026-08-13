@@ -42,7 +42,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.16.21"
+VERSION = "0.16.22"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -121,11 +121,11 @@ def _ubuntu_profile(role_dir: str, os_tag: str, **kw: Any) -> dict[str, Any]:
     return {
         "role_dir": role_dir, "ssh_username": "ubuntu", "os_tag": os_tag,
         "benchmark": "CIS-v1.0.0",
-        "pkg_update": "sudo apt-get update -y",
-        "pkg_install": "sudo apt-get install -y python3-pip python3-venv",
+        "pkg_update": "sudo apt-get -o DPkg::Lock::Timeout=600 update -y",
+        "pkg_install": "sudo apt-get -o DPkg::Lock::Timeout=600 install -y python3-pip python3-venv",
         # authselect is RHEL-only; harmless under `--no-install-recommends
         # ... || true` but noisy — kept off the apt list.
-        "cis_pkg_batch": "sudo apt-get install -y --no-install-recommends sudo libpam-modules firewalld chrony rsyslog cron aide systemd-journal-remote || true",
+        "cis_pkg_batch": "sudo apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends sudo libpam-modules firewalld chrony rsyslog cron aide systemd-journal-remote || true",
         "clean_cmd": "sudo apt-get clean", **kw,
     }
 
@@ -1567,7 +1567,13 @@ __SMOKE_TEST_BLOCK____TEST_COMPONENTS_BLOCK__
     inline = [
       "Set-Item -Path WSMan:\\localhost\\Service\\Auth\\Basic -Value $false",
       "Set-Item -Path WSMan:\\localhost\\Service\\AllowUnencrypted -Value $false",
-      "Write-Host '[ciscvm] winrm re-locked: basic auth + unencrypted HTTP off'"
+      "# Randomize the Administrator password before snapshot: userdata set it",
+      "# to winrm_password for the build; without this every instance launched",
+      "# from the image would share that build-time password. Alphanumeric only,",
+      "# so 'net user' parsing and Windows complexity rules are both satisfied.",
+      "$newpass = -join ((48..57)+(65..90)+(97..122) | Get-Random -Count 40 | ForEach-Object {[char]$_})",
+      "net user Administrator $newpass | Out-Null",
+      "Write-Host '[ciscvm] winrm re-locked: basic auth + unencrypted HTTP off; Administrator password randomized'"
     ]
   }
 }
@@ -1616,21 +1622,23 @@ SITE_AUDIT_TEMPLATE = r"""---
 
 # ── Windows SITE_YML (controller-side ansible → winrm) ──
 SITE_YML_WIN_TEMPLATE = r"""---
-# CIS apply — bundled cis-os engine (PowerShell)
+# CIS __CIS_MODE__ — bundled cis-os engine (PowerShell)
 # Gate via cis_min_score (findings-only gate stays off: some controls are
 # always manual/disruptive and would block every build).
-- name: "CIS __OS_NAME__ - apply (__CIS_LEVEL__)"
+- name: "CIS __OS_NAME__ - __CIS_MODE__ (__CIS_LEVEL__)"
   hosts: all
   gather_facts: true
   vars:
     ansible_connection: winrm
     ansible_winrm_transport: basic
-    cis_mode: apply
+    cis_mode: __CIS_MODE__
     cis_profile: __CIS_LEVEL__
     cis_platform: server
     cis_allow_disruptive: false
     cis_fail_on_findings: false
-    cis_min_score: 85
+    cis_min_score: __MIN_SCORE__
+    cis_include: __CIS_INCLUDE__
+    cis_exclude: __CIS_EXCLUDE__
     cis_org_name: ""
   roles:
     - role: __ROLE_DIR__
@@ -1671,11 +1679,34 @@ if [ "$need_pkgs" = "1" ]; then
     # NB: use pgrep (procps, preinstalled everywhere) — fuser (psmisc) is
     # NOT installed on ubuntu cloud images, so a fuser-based check would
     # silently no-op and we would race the lock again.
-    for _w in $(seq 1 60); do
-        if ! pgrep -x apt-get >/dev/null 2>&1 && ! pgrep -x apt >/dev/null 2>&1; then
+    _dpkg_locked() {
+        if pgrep -x apt-get >/dev/null 2>&1 || pgrep -x apt >/dev/null 2>&1 \
+           || pgrep -x unattended-upgr >/dev/null 2>&1 || pgrep -x unattended-upgrade >/dev/null 2>&1 \
+           || pgrep -x dpkg >/dev/null 2>&1; then
+            return 0
+        fi
+        for _lk in /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock; do
+            [ -e "$_lk" ] || continue
+            if command -v fuser >/dev/null 2>&1; then
+                if fuser "$_lk" >/dev/null 2>&1; then return 0; fi
+            elif command -v flock >/dev/null 2>&1; then
+                if ! flock -n "$_lk" true >/dev/null 2>&1; then return 0; fi
+            fi
+        done
+        return 1
+    }
+    # Stop scheduled apt jobs BEFORE waiting; otherwise an active
+    # unattended-upgrade can hold the lock for the whole timeout.
+    if command -v systemctl >/dev/null 2>&1; then
+        sudo systemctl stop unattended-upgrades.service        >/dev/null 2>&1 || true
+        sudo systemctl stop apt-daily.service apt-daily.timer   >/dev/null 2>&1 || true
+        sudo systemctl stop apt-daily-upgrade.service apt-daily-upgrade.timer >/dev/null 2>&1 || true
+    fi
+    for _w in $(seq 1 120); do
+        if ! _dpkg_locked; then
             break
         fi
-        echo "==> package manager busy (cloud-init apt?), waiting... ($_w/60)"
+        echo "==> package manager busy (cloud-init/unattended-upgrades?), waiting... ($_w/120)"
         sleep 5
     done
     __PKG_UPDATE__
@@ -1775,6 +1806,11 @@ elif [ "$CUR_USER" = "root" ] && [ -f /root/.ssh/authorized_keys ]; then
     sudo chown -R "$BUILD_USER:$BUILD_USER" "/home/$BUILD_USER/.ssh"
     sudo chmod 700 "/home/$BUILD_USER/.ssh"
     sudo chmod 600 "/home/$BUILD_USER/.ssh/authorized_keys"
+fi
+# Ubuntu cloud images may carry an already-expired provisioning account.
+# Keep the ephemeral Packer login valid while CIS hardening runs.
+if [ "$CUR_USER" != "root" ] && command -v chage >/dev/null 2>&1; then
+    sudo chage -M 99999 -I -1 -E -1 "$CUR_USER" >/dev/null 2>&1 || true
 fi
 echo "build user '$BUILD_USER' ready (sudo + shared SSH key)"
 
@@ -2222,22 +2258,31 @@ def render_install(p: dict[str, Any]) -> str:
 
 def render_site(p: dict[str, Any], level: int, mode: str = "apply",
                 rules_include: list[str] | None = None,
-                rules_exclude: list[str] | None = None) -> str:
+                rules_exclude: list[str] | None = None,
+                min_score: int = 85) -> str:
     """Generate ansible/site.yml.
 
     *mode* — "apply" (remediate) or "scan" (audit-only, no changes).
     *rules_include/rules_exclude* — optional rule-id filters forwarded to
     the engine's --include/--exclude (empty list = run all rules).
+    *min_score* — gate threshold (Windows applies it in-role; Linux applies
+    it in the post-reboot site-audit.yml via render_site_audit).
     """
     cis_level = f"L{level}"
     family = str(p.get("family", ""))
 
     if family == "windows":
+        # Windows has no post-reboot re-audit — the gate lives in the single
+        # apply/scan pass, so min_score/mode/include/exclude all land here.
         return (
             SITE_YML_WIN_TEMPLATE
             .replace("__OS_NAME__", str(p["os_tag"]))
             .replace("__CIS_LEVEL__", cis_level)
             .replace("__ROLE_DIR__", str(p["role_dir"]))
+            .replace("__CIS_MODE__", mode)
+            .replace("__MIN_SCORE__", str(min_score))
+            .replace("__CIS_INCLUDE__", _yaml_list(rules_include or []))
+            .replace("__CIS_EXCLUDE__", _yaml_list(rules_exclude or []))
         )
     else:
         inc = rules_include or []
@@ -2492,7 +2537,8 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
 
     # 4. Ansible playbooks
     site = render_site(p, r.level, mode="scan" if scan else "apply",
-                       rules_include=r.rules_include, rules_exclude=r.rules_exclude)
+                       rules_include=r.rules_include, rules_exclude=r.rules_exclude,
+                       min_score=r.min_score)
     _assert_no_markers(site, "site.yml")
     (workdir / "ansible" / "site.yml").write_text(site, encoding="utf-8")
 

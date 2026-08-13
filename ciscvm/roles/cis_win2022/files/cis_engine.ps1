@@ -16,7 +16,8 @@ Output JSON path (default: result.json)
 param(
     [string]$Catalog = "rules.json",
     [string]$Mode = "scan",
-    [string]$Profile = "L1",
+    [string]$CisProfile = "L1",
+    [string]$Benchmark = "",
     [string]$Platform = "server",
     [string]$Out = "result.json",
     [string]$Include = "",
@@ -657,7 +658,7 @@ $familyList  = if ($Families)  { $Families  -split ',' | % { $_.Trim() } } else 
 $rules = @()
 foreach ($r in $catalog) {
     # Level filter
-    if ($Profile -eq "L1" -and $r.levels -notcontains 1) { continue }
+    if ($CisProfile -eq "L1" -and $r.levels -notcontains 1) { continue }
     # Platform filter
     if ($Platform -and $r.platforms -and $r.platforms -notcontains $Platform) { continue }
     # Exclude — must check BEFORE adding to $rules
@@ -787,6 +788,7 @@ $overallScore = $summary.all.score
 
 $output = @{
     mode = $Mode
+    benchmark = $Benchmark
     engine_version = "1.1.0-windows"
     duration_seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1)
     started_at = $startedAt
