@@ -42,7 +42,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.16.18"
+VERSION = "0.16.19"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -1508,6 +1508,16 @@ __ASSUME_ROLE_BLOCK__
   # Windows first boot (specialize/oobe) can take well over 10 minutes on
   # small instance types; give WinRM ample time to come up.
   winrm_timeout               = "30m"
+  # The plugin does NOT set the Administrator password from winrm_password,
+  # so without this the VM boots with a random password and WinRM auth
+  # always fails ("Timeout waiting for WinRM").  cloudbase-init runs this
+  # at first boot and sets the password packer then authenticates with.
+  # NB: the password must not contain a single quote.
+  user_data = <<-UDEOF
+  <powershell>
+  net user Administrator '${var.winrm_password}'
+  </powershell>
+  UDEOF
   image_name                  = var.image_name
   vpc_id                      = var.vpc_id
   subnet_id                   = var.subnet_id

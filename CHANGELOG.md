@@ -5,6 +5,16 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
+## [0.16.19] — 2026-08-13
+
+### Fixed
+- **Windows build still failed after NTLM** (401 on every WinRM attempt):
+  the tencentcloud packer plugin never sets the instance's Administrator
+  password from `winrm_password`, so the VM boots with a random one.
+  The Windows source now passes a cloudbase-init `user_data` PowerShell
+  snippet that sets the Administrator password at first boot to the
+  `winrm_password` value.
+
 ## [0.16.18] — 2026-08-13
 
 First Windows build attempt (win2022 L1) failed at "Timeout waiting for

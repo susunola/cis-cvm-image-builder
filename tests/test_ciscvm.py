@@ -710,6 +710,12 @@ class TestRenderAll:
         assert "winrm" in hcl
         assert "WINRM_PASSWORD" in hcl
         assert "ssh_username" not in hcl
+        # v0.16.18/19: stock images disable WinRM Basic auth, and the plugin
+        # never sets the Administrator password — NTLM + a cloudbase-init
+        # userdata that sets it are both required for packer to connect.
+        assert "winrm_use_ntlm" in hcl
+        assert "ansible_winrm_transport=ntlm" in hcl
+        assert "net user Administrator" in hcl
 
 
 # ---------------------------------------------------------------------------
