@@ -111,12 +111,9 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "kmod",
-  "params": {
-   "module": "overlay",
-   "mtype": "fs"
-  },
-  "risk": "disruptive",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
   "page": 40
  },
  {
@@ -992,9 +989,9 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "bootloader_password",
+  "family": "manual",
   "params": {},
-  "risk": "safe",
+  "risk": "none",
   "page": 167
  },
  {
@@ -2181,7 +2178,7 @@
     "openldap-clients"
    ]
   },
-  "risk": "disruptive",
+  "risk": "safe",
   "page": 362
  },
  {
@@ -2537,7 +2534,7 @@
     "bluez"
    ]
   },
-  "risk": "disruptive",
+  "risk": "safe",
   "page": 413
  },
  {
@@ -3558,7 +3555,7 @@
   "assessment": "Automated",
   "family": "sshd_idle",
   "params": {
-   "interval_max": 15,
+   "interval_max": 300,
    "countmax": 3
   },
   "risk": "safe",
@@ -3613,7 +3610,7 @@
     }
    ]
   },
-  "risk": "disruptive",
+  "risk": "safe",
   "page": 622
  },
  {
@@ -5330,12 +5327,9 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "grub_flag",
-  "params": {
-   "key": "audit",
-   "value": "1"
-  },
-  "risk": "disruptive",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
   "page": 875
  },
  {
@@ -5435,7 +5429,7 @@
    "value": "halt",
    "op": "in:halt,single"
   },
-  "risk": "disruptive",
+  "risk": "safe",
   "page": 888
  },
  {

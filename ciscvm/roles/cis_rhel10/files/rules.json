@@ -111,12 +111,9 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "kmod",
-  "params": {
-   "module": "overlay",
-   "mtype": "fs"
-  },
-  "risk": "disruptive",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
   "page": 39
  },
  {
@@ -998,9 +995,9 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "bootloader_password",
+  "family": "manual",
   "params": {},
-  "risk": "safe",
+  "risk": "none",
   "page": 162
  },
  {
@@ -2088,7 +2085,7 @@
     "openldap-clients"
    ]
   },
-  "risk": "disruptive",
+  "risk": "safe",
   "page": 336
  },
  {
@@ -2423,7 +2420,7 @@
     "bluez"
    ]
   },
-  "risk": "disruptive",
+  "risk": "safe",
   "page": 384
  },
  {
@@ -3455,17 +3452,12 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "sshd_param",
+  "family": "sshd_idle",
   "params": {
-   "params": [
-    {
-     "key": "GSSAPIAuthentication",
-     "value": "no",
-     "op": "eq"
-    }
-   ]
+   "interval_max": 300,
+   "countmax": 3
   },
-  "risk": "disruptive",
+  "risk": "safe",
   "page": 592
  },
  {
@@ -4864,20 +4856,9 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "kv_conf",
-  "params": {
-   "files": [
-    "/etc/systemd/journald.conf"
-   ],
-   "globs": [
-    "/etc/systemd/journald.conf.d/*.conf"
-   ],
-   "key": "ForwardToSyslog",
-   "sep": "=",
-   "value": "no",
-   "op": "eq"
-  },
-  "risk": "disruptive",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
   "page": 796
  },
  {
@@ -5157,12 +5138,9 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "grub_flag",
-  "params": {
-   "key": "audit",
-   "value": "1"
-  },
-  "risk": "disruptive",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
   "page": 841
  },
  {
@@ -5262,7 +5240,7 @@
    "value": "halt",
    "op": "in:halt,single"
   },
-  "risk": "disruptive",
+  "risk": "safe",
   "page": 852
  },
  {
