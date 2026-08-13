@@ -462,30 +462,46 @@ _PKG_CACHE_LOCK = threading.Lock()
 
 
 def _installed_pkgs():
-    """Set of installed package names (rpm -qa --qf, one subprocess, cached).
+    """Set of installed package names (one subprocess, cached).
 
-    A timed-out / failed rpm -qa must never be cached as "zero packages
-    installed" — that made Phase 1 batch-install hundreds of bogus packages
-    and blow the 900s dnf timeout.  Retry up to 3 times (2s/5s apart); on
-    persistent failure raise RuntimeError (run_rule turns it into a per-rule
-    error) and leave the cache empty for the next attempt.
+    Queries rpm (RHEL/SLES/TencentOS) or dpkg-query (Debian/Ubuntu),
+    whichever the platform provides.  A timed-out / failed query must
+    never be cached as "zero packages installed" — that made Phase 1
+    batch-install hundreds of bogus packages and blow the 900s dnf
+    timeout.  Retry up to 3 times (2s/5s apart); on persistent failure
+    raise RuntimeError (run_rule turns it into a per-rule error) and
+    leave the cache empty for the next attempt.
     """
     global _PKG_CACHE
     if _PKG_CACHE is None:
         with _PKG_CACHE_LOCK:
             if _PKG_CACHE is None:
+                if have("rpm"):
+                    cmd = ["rpm", "-qa", "--qf", "%{NAME}\n"]
+                elif have("dpkg-query"):
+                    cmd = ["dpkg-query", "-W",
+                           "-f=${db:Status-Abbrev} ${Package}\n"]
+                else:
+                    raise RuntimeError(
+                        "no supported package database (rpm/dpkg-query) found")
                 last = ""
                 for pause in (0, 2, 5):
                     if pause:
                         time.sleep(pause)
-                    rc, o, e = sh(["rpm", "-qa", "--qf", "%{NAME}\n"], 120)
+                    rc, o, e = sh(cmd, 120)
                     if rc == 0 and o.strip():
-                        _PKG_CACHE = set(o.split())
+                        if cmd[0] == "dpkg-query":
+                            _PKG_CACHE = {
+                                ln.split(None, 1)[1].strip()
+                                for ln in o.splitlines()
+                                if ln.startswith("ii ")}
+                        else:
+                            _PKG_CACHE = set(o.split())
                         break
                     last = "rc=%s %s" % (rc, (e or "")[:120])
                 else:
                     raise RuntimeError(
-                        "rpm -qa failed after 3 attempts: %s" % last)
+                        "%s failed after 3 attempts: %s" % (cmd[0], last))
     return _PKG_CACHE
 
 
@@ -1432,12 +1448,25 @@ def _dconf_sources(ctx):
                       lambda: sorted(globmod.glob("/etc/dconf/db/*.d/*")))
 
 
+def _gdm_custom_conf():
+    """GDM main config: /etc/gdm3 on Debian/Ubuntu, /etc/gdm on RHEL."""
+    for c in ("/etc/gdm3/custom.conf", "/etc/gdm/custom.conf"):
+        if exists(c):
+            return c
+    return None
+
+
+def _gdm_present():
+    return (pkg_installed("gdm3") or pkg_installed("gdm")
+            or _gdm_custom_conf() is not None)
+
+
 @check("gdm_dconf")
 def c_gdm_dconf(ctx, p):
     # Only applicable when GDM is actually present, not when a
     # stray /etc/dconf/db directory exists (dconf may be installed
     # as a dependency of other packages on a server image).
-    if not (pkg_installed("gdm") or exists("/etc/gdm/custom.conf")):
+    if not _gdm_present():
         return "notapplicable", "GDM is not installed"
     wanted = [(p["dpath"], p["key"], str(p["value"]))]
     for ex in p.get("extra") or []:
@@ -1466,7 +1495,7 @@ def c_gdm_dconf(ctx, p):
 
 @fix("gdm_dconf")
 def f_gdm_dconf(ctx, p):
-    if not (pkg_installed("gdm") or exists("/etc/gdm/custom.conf")):
+    if not _gdm_present():
         return False, "GDM is not installed"
     db = "gdm" if "login-screen" in p["dpath"] else "local"
     path = "/etc/dconf/db/%s.d/00-cis-hardening" % db
@@ -1506,8 +1535,8 @@ def f_gdm_dconf(ctx, p):
 
 @check("gdm_conf")
 def c_gdm_conf(ctx, p):
-    path = "/etc/gdm/custom.conf"
-    if not exists(path):
+    path = _gdm_custom_conf()
+    if not path:
         return "notapplicable", "GDM not installed"
     sec, want = p["section"], str(p["value"]).lower()
     cur = None
@@ -1528,8 +1557,8 @@ def c_gdm_conf(ctx, p):
 
 @fix("gdm_conf")
 def f_gdm_conf(ctx, p):
-    path = "/etc/gdm/custom.conf"
-    if not exists(path):
+    path = _gdm_custom_conf()
+    if not path:
         return False, "GDM not installed"
     backup(ctx, path)
     lines = readlines(path)
@@ -2207,7 +2236,10 @@ def f_sshd_config_perm(ctx, p):
 # PAM / authselect
 # ==========================================================================
 
-PAM_FILES = ["/etc/pam.d/system-auth", "/etc/pam.d/password-auth"]
+PAM_FILES = ["/etc/pam.d/system-auth", "/etc/pam.d/password-auth",
+             # Debian/Ubuntu split PAM config into the common-* files
+             "/etc/pam.d/common-auth", "/etc/pam.d/common-password",
+             "/etc/pam.d/common-account", "/etc/pam.d/common-session"]
 
 
 def _pam_paths(ctx):
