@@ -428,20 +428,23 @@ To switch profiles, change `[build].profile` and `source_image_id` in `ciscvm.to
 ## Test Matrix
 
 Validated CIS-hardened images across the supported OS × level grid.
-All builds ran on Tencent Cloud Guangzhou region with `cis_allow_disruptive: false` and kmod rules excluded.
+All builds ran on Tencent Cloud Guangzhou region with `cis_allow_disruptive: false`;
+every image below was re-verified in the console as `NORMAL` on 2026-08-13.
 
 | OS | L1 | L2 |
 |---|---|---|
-| **RHEL 8** | `img-6oiwt0gw` | `img-qpyu1vxe` |
-| **RHEL 9** | `img-qhqyka24` | `img-kpejk30o` |
-| **RHEL 10** | `img-htakx5sy` | `img-99grcn70` |
-| **Ubuntu 20.04** | `img-0ap3659m` | `img-ahprtrwm` |
-| **Ubuntu 22.04** | `img-ou3v2358` | `img-89ym2zpk` |
-| **Ubuntu 24.04** | `img-rgjy06jq` | `img-hlmps5i8` |
-| **TencentOS 3** | `img-ipndbov6` | `img-dgg92o3s` |
-| **TencentOS 4** | `img-rlh46fse` | `img-9tijlx1o` |
+| **RHEL 8** | `img-8zfwvl9g` (93.5%) | `img-4d6jxfe2` (93.3%) |
+| **RHEL 9** | `img-25hwnzl8` (95.3%) | `img-8mjw35cy` (95.2%) |
+| **RHEL 10** | `img-1idroc9y` (96.3%) | `img-lzha2io2` (95.3%) |
+| **Ubuntu 20.04** | `img-9xyvohdy` (92.0%) | `img-gut6728y` (90.0%) |
+| **Ubuntu 22.04** | `img-jd3gct8o` (91.5%) | `img-rx4n84w4` (92.1%) |
+| **Ubuntu 24.04** | `img-7ncjcq10` (95.9%) | `img-j9m1fn0u` (96.5%) |
+| **TencentOS 3** | `img-ip62dj1k` (95.7%) | `img-joo4xcis` (94.2%) |
+| **TencentOS 4** | `img-ipw57gea` (96.9%) | `img-fs0hh75w` (96.7%) |
 
-> Images marked `—` have not yet been built. kmod rules (`cramfs`, `squashfs`, `usb-storage`, `sctp`, `dccp`) are excluded from the packer build phase because they require kernel module loading; they are applied separately in a post-build SSH session.
+> Scores are the post-reboot re-audit results (all assessed rules, gate ≥ 85).
+> kmod rules are applied via persistent modprobe install-overrides — no rule
+> exclusions are needed at build time.
 
 ---
 
