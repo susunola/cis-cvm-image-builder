@@ -5,6 +5,27 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
+## [0.16.13] — 2026-08-13
+
+RHEL 9/10 CREATEFAILED root cause — guest can no longer soft-shutdown after
+hardening, so TencentCloud image creation times out (snapshot is taken from
+a guest that never finished powering off).
+
+### Fixed
+- **rc-local.service stop hangs forever**: on the RHEL 9/10 public images
+  the TencentCloud security agent (`secu-tcs-agent`) is started from
+  `/etc/rc.d/rc.local` and lives in rc-local.service's cgroup.  The unit
+  ships `TimeoutStopSec=infinity` and the agent catches SIGTERM; once the
+  CIS firewall rules cut its backend connection, the agent's signal handler
+  blocks on a dead socket and the stop job never completes — reproducer:
+  `StopInstances --StopType SOFT` hangs >5 min on a hardened guest vs ~110 s
+  unhardened.  The cleanup provisioner now installs
+  `/etc/systemd/system/rc-local.service.d/10-ciscvm-stop-timeout.conf`
+  (`TimeoutStopSec=15s`) so systemd SIGKILLs the agent and the shutdown
+  completes.  RHEL 8 was unaffected (agent runs under a regular unit there).
+- Regression: `test_rc_local_stop_timeout_capped` asserts the drop-in is
+  rendered into the packer HCL.
+
 ## [0.16.7] — 2026-08-09
 
 Py3.8 compatibility hardening (ubuntu2004 matrix follow-up to v0.16.6).

@@ -527,6 +527,21 @@ class TestRenderAll:
         # bakes them in at runtime via shell quoting).
         assert valid_toml["build"]["source_image_id"] in hcl
         assert valid_toml["meta"]["os_tag"] in hcl
+
+    def test_rc_local_stop_timeout_capped(self, valid_toml, tmp_path):
+        """v0.16.13+: the cleanup provisioner must bound rc-local.service's
+        stop time.  On the RHEL 9/10 public images the TencentCloud security
+        agent (secu-tcs-agent) is started from /etc/rc.d/rc.local and lives
+        in rc-local.service's cgroup; the unit ships TimeoutStopSec=infinity
+        and the agent catches SIGTERM, so once CIS firewall rules cut its
+        backend connection the stop job can hang forever — the guest can no
+        longer soft-shutdown and image creation fails (CREATEFAILED)."""
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        assert "/etc/systemd/system/rc-local.service.d" in hcl
+        assert "TimeoutStopSec=15s" in hcl
         assert valid_toml["meta"]["benchmark"] in hcl
 
     def test_windows_has_no_banner_provisioner(self, tmp_path):

@@ -42,7 +42,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.16.12"
+VERSION = "0.16.13"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -1161,6 +1161,17 @@ build {
       "# Keep the engine + rule catalog in the image so the report's re-scan",
       "# instructions work; drop only the transient staging playbooks.",
       "sudo mv /opt/ciscvm-ansible/staging/roles /opt/ciscvm-ansible/roles 2>/dev/null || true",
+      "# Shutdown safety: bound rc-local.service stop time.  On the RHEL 9/10",
+      "# public images the TencentCloud security agent (secu-tcs-agent) is",
+      "# started from /etc/rc.d/rc.local and lives in rc-local.service's",
+      "# cgroup; the unit ships TimeoutStopSec=infinity and the agent catches",
+      "# SIGTERM, so once CIS firewall rules cut its backend connection the",
+      "# agent's signal handler can hang and the stop job never finishes —",
+      "# the guest then cannot soft-shutdown and TencentCloud image creation",
+      "# times out (CREATEFAILED).  A bounded stop lets systemd SIGKILL it.",
+      "sudo mkdir -p /etc/systemd/system/rc-local.service.d",
+      "sudo printf '[Service]\\nTimeoutStopSec=15s\\n' > /etc/systemd/system/rc-local.service.d/10-ciscvm-stop-timeout.conf",
+      "sudo systemctl daemon-reload || true",
       "rm -rf /tmp/ansible /opt/ciscvm-ansible/staging /opt/ciscvm-ansible/reboot.sh /opt/ciscvm-ansible/ssh-guard.sh /opt/ciscvm-ansible/reconnected.sh /opt/ciscvm-ansible/fix-logperms.sh /opt/ciscvm-ansible/cleanup.sh ~/.ansible/roles 2>/dev/null || true"
     ]
   }
