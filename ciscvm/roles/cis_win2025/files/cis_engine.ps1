@@ -9,8 +9,6 @@ Path to rules.json
 scan | apply
 .PARAMETER Profile
 L1 | L2
-.PARAMETER Out
-Output JSON path (default: result.json)
 #>
 
 param(
@@ -49,15 +47,15 @@ function Protect-TempFile($Path) {
     <#
     Restrict a temporary file to the current user. Secedit exports contain
     security-policy settings and user-rights memberships; they should not be
-    readable by other users while they exist.
+    readable by other users while they exist. NOTE: the file must already
+    exist when this is called — Get-Acl on a missing path is a no-op.
     #>
     try {
         $acl = Get-Acl -Path $Path
         $acl.SetAccessRuleProtection($true, $false)
-        $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
         $administrators = New-Object System.Security.Principal.SecurityIdentifier "S-1-5-32-544"
         $system = New-Object System.Security.Principal.SecurityIdentifier "S-1-5-18"
-        $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
         foreach ($sid in ($currentSid, $system, $administrators)) {
             $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
                 $sid, "FullControl", "Allow"
@@ -68,14 +66,26 @@ function Protect-TempFile($Path) {
     } catch { Write-Debug "Protect-TempFile failed: $_" }
 }
 
+function ConvertTo-RegistryPath($Path) {
+    <#
+    Normalize catalog registry paths to the PSDrive-qualified form
+    ("HKLM:\...") that Get-/Set-ItemProperty require. Accepts "HKLM\...",
+    "HKEY_LOCAL_MACHINE\..." and already-normalized "HKLM:\...".
+    #>
+    if ("$Path" -match '^HKLM:\\') { return $Path }
+    if ("$Path" -match '^HKEY_LOCAL_MACHINE\\') { return 'HKLM:\' + "$Path".Substring(19) }
+    if ("$Path" -match '^HKLM\\') { return 'HKLM:\' + "$Path".Substring(5) }
+    return $Path
+}
+
 function Get-SecPol {
     param($Area, $Key)
     $tmp = $null
     try {
         $tmp = "$env:TEMP\secpol_$([Guid]::NewGuid()).inf"
-                Protect-TempFile $tmp
         secedit /export /cfg $tmp /areas $Area 2>$null | Out-Null
         if (Test-Path $tmp) {
+            Protect-TempFile $tmp
             $content = Get-Content $tmp -Raw
             if ($content -match "(?m)^\s*$Key\s*=\s*(.+)$") {
                 return $Matches[1].Trim()
@@ -86,6 +96,53 @@ function Get-SecPol {
         if ($tmp -and (Test-Path $tmp)) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
     }
     return $null
+}
+
+function Set-SecPolValue {
+    <#
+    Set one [System Access] value via secedit export/edit/import.
+    Inserts the key directly under the [System Access] header when missing
+    (appending at end-of-file would land it in the wrong section).
+    Throws on failure so callers can report "failed: ...".
+    #>
+    param($Key, $Value)
+    $tmpInf = "$env:TEMP\secpol_fix_$([Guid]::NewGuid()).inf"
+    try {
+        secedit /export /cfg $tmpInf /areas SECURITYPOLICY 2>$null | Out-Null
+        if (-not (Test-Path $tmpInf)) { throw "secedit export produced no file" }
+        Protect-TempFile $tmpInf
+        $c = Get-Content $tmpInf -Raw
+        if ($c -match "(?m)^(\s*$([regex]::Escape($Key))\s*=\s*).*$") {
+            $c = $c -replace "(?m)^(\s*$([regex]::Escape($Key))\s*=\s*).*$", "`${1}$Value"
+        } elseif ($c -match "(?m)^\[System Access\]\s*$") {
+            $c = $c -replace "(?m)^(\[System Access\])", "`${1}`r`n$Key = $Value"
+        } else {
+            throw "no [System Access] section in secedit export"
+        }
+        [System.IO.File]::WriteAllText($tmpInf, $c)
+        $db = "$env:TEMP\cis-secedit-$([Guid]::NewGuid()).sdb"
+        secedit /configure /db $db /cfg $tmpInf /areas SECURITYPOLICY 2>$null | Out-Null
+        $rc = $LASTEXITCODE
+        Remove-Item $db -Force -ErrorAction SilentlyContinue
+        if ($rc -ne 0) { throw "secedit /configure exit code $rc" }
+    } finally {
+        Remove-Item $tmpInf -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Set-RegValue {
+    <# Shared remediation for all registry-backed families. #>
+    param($Path, $Name, $Value, $Type = "DWord")
+    $regPath = ConvertTo-RegistryPath $Path
+    try {
+        $current = Get-ItemProperty -Path $regPath -Name $Name -ErrorAction Stop | Select-Object -ExpandProperty $Name
+        if ($current -eq $Value) { return "already" }
+    } catch {}
+    try {
+        if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+        Set-ItemProperty -Path $regPath -Name $Name -Value $Value -Type $Type -Force
+        return "applied"
+    } catch { return "failed: $($_.Exception.Message)" }
 }
 
 $AuditPolicyRegMap = @{
@@ -109,10 +166,14 @@ function Invoke-Check {
         "password-policy" {
             $key = $params.key
             $expected = $params.expected
+            $op = if ($params.op) { $params.op } else { "ge" }
             $val = Get-SecPol "SECURITYPOLICY" $key
             if ($null -ne $val) {
-                $ok = ([int]$val -ge [int]$expected) -or ($params.op -eq "eq" -and $val -eq $expected)
-                return @{status=if($ok){"pass"}else{"fail"}; detail="$key=$val (expected ≥$expected)"}
+                if ($op -eq "le") { $ok = [int]$val -le [int]$expected }
+                elseif ($op -eq "eq") { $ok = [int]$val -eq [int]$expected }
+                else { $ok = [int]$val -ge [int]$expected }
+                $opText = @{ "ge" = "≥"; "le" = "≤"; "eq" = "=" }[$op]
+                return @{status=if($ok){"pass"}else{"fail"}; detail="$key=$val (expected $opText$expected)"}
             }
             return @{status="error"; detail="$key not found in security policy"}
         }
@@ -138,7 +199,7 @@ function Invoke-Check {
             if ($null -ne $val) {
                 if ($op -eq "le") { $ok = [int]$val -le [int]$expected }
                 elseif ($op -eq "ge") { $ok = [int]$val -ge [int]$expected }
-                else { $ok = ($val -eq $expected) }
+                else { $ok = ([int]$val -eq [int]$expected) }
                 return @{status=if($ok){"pass"}else{"fail"}; detail="$key=$val (expected $op $expected)"}
             }
             return @{status="error"; detail="$key not found"}
@@ -152,14 +213,14 @@ function Invoke-Check {
                     $val = Get-ItemProperty -Path $m.Path -Name $m.Name -ErrorAction Stop | Select-Object -ExpandProperty $m.Name
                     $ok = ($val -eq $m.Value)
                     return @{status=if($ok){"pass"}else{"fail"}; detail="$($m.Summary): $($m.Name)=$val (expected $($m.Value))"}
-                } catch { return @{status="error"; detail="Registry key not found: $($m.Path)\$($m.Name)"} }
+                } catch { return @{status="fail"; detail="$($m.Path)\$($m.Name) not present (expected $($m.Value))"} }
             }
             $subcategory = $params.subcategory
             $expected = if ($params.expected) { $params.expected } else { "Success and Failure" }
             try {
                 $out = auditpol /get /subcategory:"$subcategory" 2>&1 | Out-String
-                if ($out -match "$([regex]::Escape($subcategory))\s+(.+)$") {
-                    $actual = $Matches[2].Trim()
+                if ($out -match "(?m)$([regex]::Escape($subcategory))\s+(.+)$") {
+                    $actual = $Matches[1].Trim()
                     switch ($expected) {
                         "No Auditing"         { $ok = ($actual -eq "No Auditing") }
                         "Success"             { $ok = ($actual -eq "Success" -or $actual -eq "Success and Failure") }
@@ -176,20 +237,30 @@ function Invoke-Check {
         # ── 4. User Rights Assignment ──
         "user-right" {
             $privilege = $params.privilege
-            $expectedSid = $params.expected_sid
-            if (-not $expectedSid) { return @{status="error"; detail="No expected SID for $privilege"} }
+            # expected_sid may be a comma-separated list of SIDs/account names;
+            # empty means CIS expects "No One" (the privilege stays unassigned).
+            $expected = @()
+            if ("$($params.expected_sid)".Trim()) {
+                $expected = "$($params.expected_sid)" -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+            }
             $tmp = $null
             try {
                 $tmp = "$env:TEMP\ur_$([Guid]::NewGuid()).inf"
-                Protect-TempFile $tmp
                 secedit /export /cfg $tmp /areas USER_RIGHTS 2>$null | Out-Null
                 if (Test-Path $tmp) {
+                    Protect-TempFile $tmp
                     $content = Get-Content $tmp -Raw
-                    if ($content -match "(?m)^\s*$([regex]::Escape($privilege))\s*=\s*(.+)$") {
-                        $sids = $Matches[1].Trim() -split ',' | ForEach-Object { $_.Trim() }
-                        $ok = ($sids -contains $expectedSid.Trim())
-                        return @{status=if($ok){"pass"}else{"fail"}; detail="$privilege members: $($Matches[1].Trim())"}
+                    $members = @()
+                    if ($content -match "(?m)^\s*$([regex]::Escape($privilege))\s*=\s*(.*)$") {
+                        # secedit writes SIDs with a leading '*'; strip it
+                        $members = $Matches[1].Trim() -split ',' | ForEach-Object { $_.Trim().TrimStart('*') } | Where-Object { $_ }
                     }
+                    # CIS wants exactly the expected set — no missing, no extras
+                    $missing = @($expected | Where-Object { $members -notcontains $_ })
+                    $extras  = @($members | Where-Object { $expected -notcontains $_ })
+                    $ok = ($missing.Count -eq 0 -and $extras.Count -eq 0)
+                    $expectText = if ($expected.Count -gt 0) { $expected -join ',' } else { "(No One)" }
+                    return @{status=if($ok){"pass"}else{"fail"}; detail="$privilege members: [$($members -join ',')] (expected [$expectText])"}
                 }
             } catch {}
             finally {
@@ -200,28 +271,34 @@ function Invoke-Check {
 
         # ── 5. Security Options (Registry) ──
         "reg-dword" {
-            $path = $params.path
+            $path = ConvertTo-RegistryPath $params.path
             $name = $params.name
             $expected = $params.value
             try {
                 $val = Get-ItemProperty -Path $path -Name $name -ErrorAction Stop | Select-Object -ExpandProperty $name
-                $ok = ($val -eq $expected)
+                if ($params.op -eq "le") { $ok = [int]$val -le [int]$expected }
+                elseif ($params.op -eq "ge") { $ok = [int]$val -ge [int]$expected }
+                else { $ok = ("$val" -eq "$expected") }
                 return @{status=if($ok){"pass"}else{"fail"}; detail="$path\$name = $val (expected $expected)"}
-            } catch { return @{status="error"; detail="Registry key not found: $path\$name"} }
+            } catch {
+                # A policy value that is simply absent is NON-COMPLIANT (fail),
+                # not an engine error — and apply mode can create it.
+                return @{status="fail"; detail="$path\$name not present (expected $expected)"}
+            }
         }
 
         "reg-string" {
-            $path = $params.path
+            $path = ConvertTo-RegistryPath $params.path
             $name = $params.name
             try {
                 $val = Get-ItemProperty -Path $path -Name $name -ErrorAction Stop | Select-Object -ExpandProperty $name
-                $ok = ($val -eq $params.value)
+                $ok = ("$val" -eq "$($params.value)")
                 return @{status=if($ok){"pass"}else{"fail"}; detail="$path\$name = '$val' (expected '$($params.value)')"}
-            } catch { return @{status="error"; detail="Registry key not found: $path\$name"} }
+            } catch { return @{status="fail"; detail="$path\$name not present (expected '$($params.value)')"} }
         }
 
         "reg-exists" {
-            $path = $params.path
+            $path = ConvertTo-RegistryPath $params.path
             $ok = Test-Path $path
             return @{status=if($ok){"pass"}else{"fail"}; detail="$path exists=$ok"}
         }
@@ -273,61 +350,61 @@ function Invoke-Check {
 
         # ── 8. Windows Update ──
         "wu-config" {
-            $path = $params.path
+            $path = ConvertTo-RegistryPath $params.path
             $name = $params.name
             $expected = $params.value
             try {
                 $val = Get-ItemProperty -Path $path -Name $name -ErrorAction Stop | Select-Object -ExpandProperty $name
                 $ok = ($val -eq $expected)
                 return @{status=if($ok){"pass"}else{"fail"}; detail="WindowsUpdate\$name = $val (expected $expected)"}
-            } catch { return @{status="error"; detail="WU key not found"} }
+            } catch { return @{status="fail"; detail="$path\$name not present (expected $expected)"} }
         }
 
         # ── 9. UAC ──
         "uac" {
-            $path = $params.path
+            $path = ConvertTo-RegistryPath $params.path
             $name = $params.name
             $expected = $params.value
             try {
                 $val = Get-ItemProperty -Path $path -Name $name -ErrorAction Stop | Select-Object -ExpandProperty $name
                 $ok = ($val -eq $expected)
                 return @{status=if($ok){"pass"}else{"fail"}; detail="UAC\$name = $val (expected $expected)"}
-            } catch { return @{status="error"; detail="UAC key not found"} }
+            } catch { return @{status="fail"; detail="$path\$name not present (expected $expected)"} }
         }
 
         # ── 10. Network Security ──
         "lanman-auth" {
-            $path = $params.path
+            $path = ConvertTo-RegistryPath $params.path
             $name = $params.name
             $expected = $params.value
             try {
                 $val = Get-ItemProperty -Path $path -Name $name -ErrorAction Stop | Select-Object -ExpandProperty $name
                 $ok = ([int]$val -ge [int]$expected)
                 return @{status=if($ok){"pass"}else{"fail"}; detail="LmCompatibilityLevel = $val (expected ≥$expected)"}
-            } catch { return @{status="error"; detail="LSA key not found"} }
+            } catch { return @{status="fail"; detail="$path\$name not present (expected ≥$expected)"} }
         }
 
         "smb-signing" {
-            $path = $params.path
+            $path = ConvertTo-RegistryPath $params.path
             $name = $params.name
             $expected = $params.value
             try {
                 $val = Get-ItemProperty -Path $path -Name $name -ErrorAction Stop | Select-Object -ExpandProperty $name
                 $ok = ($val -eq $expected)
                 return @{status=if($ok){"pass"}else{"fail"}; detail="SMB\$name = $val (expected $expected)"}
-            } catch { return @{status="error"; detail="SMB key not found"} }
+            } catch { return @{status="fail"; detail="$path\$name not present (expected $expected)"} }
         }
 
         # ── 11. RDP Security ──
         "rdp-nla" {
-            $path = $params.path
+            $path = ConvertTo-RegistryPath $params.path
             $name = $params.name
             $expected = $params.value
             try {
                 $val = Get-ItemProperty -Path $path -Name $name -ErrorAction Stop | Select-Object -ExpandProperty $name
                 $ok = ($val -eq $expected)
                 return @{status=if($ok){"pass"}else{"fail"}; detail="RDP NLA = $val (expected $expected)"}
-            } catch { return @{status="error"; detail="RDP key not found"} }
+            } catch { return @{status="fail"; detail="$path\$name not present (expected $expected)"} }
         }
 
         # ── 12. Event Log ──
@@ -352,7 +429,7 @@ function Invoke-Check {
         }
 
         "ps-logging" {
-            $path = $params.path
+            $path = ConvertTo-RegistryPath $params.path
             $name = $params.name
             $expected = $params.value
             try {
@@ -384,27 +461,33 @@ function Invoke-Fix {
 
         "password-policy" {
             $key = $params.key; $expected = $params.expected
+            $op = if ($params.op) { $params.op } else { "ge" }
             $val = Get-SecPol "SECURITYPOLICY" $key
             if ($null -eq $val) { return "error: cannot read $key" }
-            $isOk = if ($params.op -eq "ge") { [int]$val -ge [int]$expected }
-                    elseif ($params.op -eq "le") { [int]$val -le [int]$expected }
-                    else { $val -eq $expected }
+            if ($op -eq "le") { $isOk = [int]$val -le [int]$expected }
+            elseif ($op -eq "eq") { $isOk = [int]$val -eq [int]$expected }
+            else { $isOk = [int]$val -ge [int]$expected }
             if ($isOk) { return "already" }
             try {
-                $tmpInf = "$env:TEMP\secpol_fix_$([Guid]::NewGuid()).inf"
-                Protect-TempFile $tmpInf
-                secedit /export /cfg $tmpInf /areas SECURITYPOLICY 2>$null | Out-Null
-                $c = Get-Content $tmpInf -Raw
-                if ($c -match "(?m)^(\s*[^\s=]*\s*=\s*).+$") {
-                    if ($c -match "(?m)^(\s*$key\s*=\s*).+$") {
-                        $c = $c -replace "(?m)^(\s*$key\s*=\s*).+$", "`${1}$expected"
-                    } else {
-                        $c += "`r`n$key = $expected"
-                    }
-                    [System.IO.File]::WriteAllText($tmpInf, $c)
-                    secedit /configure /db "$env:TEMP\cis-secedit-$([Guid]::NewGuid()).sdb" /cfg $tmpInf /areas SECURITYPOLICY 2>$null | Out-Null
-                }
-                Remove-Item $tmpInf -Force -ErrorAction SilentlyContinue
+                Set-SecPolValue $key $expected
+                return "applied"
+            } catch { return "failed: $($_.Exception.Message)" }
+        }
+
+        "password-complexity" {
+            $val = Get-SecPol "SECURITYPOLICY" "PasswordComplexity"
+            if ($val -eq "1") { return "already" }
+            try {
+                Set-SecPolValue "PasswordComplexity" 1
+                return "applied"
+            } catch { return "failed: $($_.Exception.Message)" }
+        }
+
+        "password-reversible" {
+            $val = Get-SecPol "SECURITYPOLICY" "ClearTextPassword"
+            if ($val -eq "0") { return "already" }
+            try {
+                Set-SecPolValue "ClearTextPassword" 0
                 return "applied"
             } catch { return "failed: $($_.Exception.Message)" }
         }
@@ -414,23 +497,12 @@ function Invoke-Fix {
             $op = if ($params.op) { $params.op } else { "le" }
             $val = Get-SecPol "SECURITYPOLICY" $key
             if ($null -eq $val) { return "error: cannot read $key" }
-            $isOk = if ($op -eq "le") { [int]$val -le [int]$expected }
-                    elseif ($op -eq "ge") { [int]$val -ge [int]$expected }
-                    else { $val -eq $expected }
+            if ($op -eq "le") { $isOk = [int]$val -le [int]$expected }
+            elseif ($op -eq "ge") { $isOk = [int]$val -ge [int]$expected }
+            else { $isOk = [int]$val -eq [int]$expected }
             if ($isOk) { return "already" }
             try {
-                $tmpInf = "$env:TEMP\secpol_fix_$([Guid]::NewGuid()).inf"
-                Protect-TempFile $tmpInf
-                secedit /export /cfg $tmpInf /areas SECURITYPOLICY 2>$null | Out-Null
-                $c = Get-Content $tmpInf -Raw
-                if ($c -match "(?m)^(\s*$key\s*=\s*).+$") {
-                    $c = $c -replace "(?m)^(\s*$key\s*=\s*).+$", "`${1}$expected"
-                } else {
-                    $c += "`r`n$key = $expected"
-                }
-                [System.IO.File]::WriteAllText($tmpInf, $c)
-                secedit /configure /db "$env:TEMP\cis-secedit-$([Guid]::NewGuid()).sdb" /cfg $tmpInf /areas SECURITYPOLICY 2>$null | Out-Null
-                Remove-Item $tmpInf -Force -ErrorAction SilentlyContinue
+                Set-SecPolValue $key $expected
                 return "applied"
             } catch { return "failed: $($_.Exception.Message)" }
         }
@@ -449,9 +521,8 @@ function Invoke-Fix {
             $expected = if ($params.expected) { $params.expected } else { "Success and Failure" }
             try {
                 $out = auditpol /get /subcategory:"$subcategory" 2>&1 | Out-String
-                if ($out -match "$([regex]::Escape($subcategory))\s+(.+)$") {
-                    $actual = $Matches[2].Trim()
-                    if ($actual -eq $expected) { return "already" }
+                if ($out -match "(?m)$([regex]::Escape($subcategory))\s+(.+)$") {
+                    $actual = $Matches[1].Trim()
                     $alreadyOk = $false
                     switch ($expected) {
                         "Success"             { $alreadyOk = ($actual -eq "Success" -or $actual -eq "Success and Failure") }
@@ -479,59 +550,59 @@ function Invoke-Fix {
         }
 
         "user-right" {
-            $privilege = $params.privilege; $expectedSid = $params.expected_sid
-            if (-not $expectedSid) { return "skipped: no expected SID defined" }
+            $privilege = $params.privilege
+            $expected = @()
+            if ("$($params.expected_sid)".Trim()) {
+                $expected = "$($params.expected_sid)" -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+            }
             $tmp = $null
             try {
-                $tmp = "$env:TEMP\ur_$([Guid]::NewGuid()).inf"
-                Protect-TempFile $tmp
+                $tmp = "$env:TEMP\ur_fix_$([Guid]::NewGuid()).inf"
                 secedit /export /cfg $tmp /areas USER_RIGHTS 2>$null | Out-Null
+                if (-not (Test-Path $tmp)) { return "failed: secedit export produced no file" }
+                Protect-TempFile $tmp
+                $c = Get-Content $tmp -Raw
                 $members = @()
-                if (Test-Path $tmp) {
-                    $c = Get-Content $tmp -Raw
-                    if ($c -match "(?m)^\s*$([regex]::Escape($privilege))\s*=\s*(.+)$") {
-                        $members = $Matches[1].Trim() -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
-                        if ($members -contains $expectedSid.Trim()) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue; return "already" }
-                    }
-                    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+                if ($c -match "(?m)^\s*$([regex]::Escape($privilege))\s*=\s*(.*)$") {
+                    $members = $Matches[1].Trim() -split ',' | ForEach-Object { $_.Trim().TrimStart('*') } | Where-Object { $_ }
                 }
-                $tmp2 = "$env:TEMP\ur_fix_$([Guid]::NewGuid()).inf"
-                Protect-TempFile $tmp2
-                secedit /export /cfg $tmp2 /areas USER_RIGHTS 2>$null | Out-Null
-                $c = Get-Content $tmp2 -Raw
-                if ($members -notcontains $expectedSid.Trim()) {
-                    $members += $expectedSid.Trim()
+                $missing = @($expected | Where-Object { $members -notcontains $_ })
+                $extras  = @($members | Where-Object { $expected -notcontains $_ })
+                if ($missing.Count -eq 0 -and $extras.Count -eq 0) { return "already" }
+                if ($expected.Count -eq 0) {
+                    return "skipped: expected 'No One' — clear '$privilege' assignments manually"
                 }
-                $members = $members | Select-Object -Unique
-                $line = "$privilege = $($members -join ',')"
-                if ($c -match "(?m)^(\s*$([regex]::Escape($privilege))\s*=\s*).+$") {
-                    $c = $c -replace "(?m)^(\s*$([regex]::Escape($privilege))\s*=\s*).+$", "`${1}$($members -join ',')"
+                # secedit imports SIDs with a leading '*'; account names stay bare.
+                # CIS wants exactly the expected set, so replace — not merge.
+                $written = $expected | ForEach-Object { if ($_ -match '^S-1-') { "*$_" } else { $_ } }
+                $line = "$privilege = $($written -join ',')"
+                if ($c -match "(?m)^(\s*$([regex]::Escape($privilege))\s*=\s*).*$") {
+                    $c = $c -replace "(?m)^(\s*$([regex]::Escape($privilege))\s*=\s*).*$", "`${1}$($written -join ',')"
+                } elseif ($c -match "(?m)^\[Privilege Rights\]\s*$") {
+                    $c = $c -replace "(?m)^(\[Privilege Rights\])", "`${1}`r`n$line"
                 } else {
-                    $c += "`r`n$line"
+                    $c += "`r`n[Privilege Rights]`r`n$line"
                 }
-                [System.IO.File]::WriteAllText($tmp2, $c)
+                [System.IO.File]::WriteAllText($tmp, $c)
                 $seceditDb = "$env:TEMP\cis-secedit-$([Guid]::NewGuid()).sdb"
-                secedit /configure /db $seceditDb /cfg $tmp2 /areas USER_RIGHTS 2>$null | Out-Null
+                secedit /configure /db $seceditDb /cfg $tmp /areas USER_RIGHTS 2>$null | Out-Null
                 $rc = $LASTEXITCODE
                 Remove-Item $seceditDb -Force -ErrorAction SilentlyContinue
-                Remove-Item $tmp2 -Force -ErrorAction SilentlyContinue
                 if ($rc -ne 0) { return "failed: secedit exit code $rc" }
                 return "applied"
             } catch { return "failed: $($_.Exception.Message)" }
+            finally {
+                if ($tmp -and (Test-Path $tmp)) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
+            }
         }
 
-        "reg-dword" {
-            $path = $params.path; $name = $params.name; $expected = $params.value
-            try {
-                $current = Get-ItemProperty -Path $path -Name $name -ErrorAction Stop | Select-Object -ExpandProperty $name
-                if ($current -eq $expected) { return "already" }
-            } catch {}
-            try {
-                if (-not (Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
-                Set-ItemProperty -Path $path -Name $name -Value $expected -Type DWord -Force
-                return "applied"
-            } catch { return "failed: $($_.Exception.Message)" }
-        }
+        "reg-dword"  { return Set-RegValue $params.path $params.name $params.value "DWord" }
+        "reg-string" { return Set-RegValue $params.path $params.name $params.value "String" }
+        "uac"        { return Set-RegValue $params.path $params.name $params.value "DWord" }
+        "wu-config"  { return Set-RegValue $params.path $params.name $params.value "DWord" }
+        "lanman-auth" { return Set-RegValue $params.path $params.name $params.value "DWord" }
+        "smb-signing" { return Set-RegValue $params.path $params.name $params.value "DWord" }
+        "rdp-nla"    { return Set-RegValue $params.path $params.name $params.value "DWord" }
 
         "firewall-profile" {
             $fwProfile = $params.profile
@@ -549,49 +620,24 @@ function Invoke-Fix {
             $name = $params.name; $expected = $params.state
             try {
                 $svc = Get-Service -Name $name -ErrorAction Stop
+                $startTypes = @("Automatic", "Manual", "Disabled", "Auto", "AutomaticDelayedStart")
+                if ($startTypes -contains $expected -and "$($svc.StartType)" -eq $expected) { return "already" }
                 if ($expected -eq "Stopped" -and $svc.Status -eq "Stopped") { return "already" }
                 if ($expected -eq "Running" -and $svc.Status -eq "Running") { return "already" }
-                if ($expected -eq "Stopped") {
+                if ($expected -eq "Stopped" -or $expected -eq "Disabled") {
                     Stop-Service -Name $name -Force -ErrorAction SilentlyContinue
                     Set-Service -Name $name -StartupType Disabled
-                } elseif ($expected -eq "Running") {
+                } elseif ($expected -eq "Running" -or $expected -eq "Auto" -or $expected -eq "Automatic") {
                     Set-Service -Name $name -StartupType Automatic
                     Start-Service -Name $name -ErrorAction SilentlyContinue
-                } elseif ($expected -eq "Auto") {
-                    Set-Service -Name $name -StartupType Automatic
-                    Start-Service -Name $name -ErrorAction SilentlyContinue
+                } elseif ($expected -eq "Manual") {
+                    Set-Service -Name $name -StartupType Manual
                 }
                 return "applied"
             } catch {
                 if ($expected -eq "NotFound") { return "already" }
                 return "failed: $($_.Exception.Message)"
             }
-        }
-
-        "smb-signing" {
-            $path = $params.path; $name = $params.name; $expected = $params.value
-            try {
-                $current = Get-ItemProperty -Path $path -Name $name -ErrorAction Stop | Select-Object -ExpandProperty $name
-                if ($current -eq $expected) { return "already" }
-            } catch {}
-            try {
-                if (-not (Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
-                Set-ItemProperty -Path $path -Name $name -Value $expected -Type DWord -Force
-                return "applied"
-            } catch { return "failed: $($_.Exception.Message)" }
-        }
-
-        "rdp-nla" {
-            $path = $params.path; $name = $params.name; $expected = $params.value
-            try {
-                $current = Get-ItemProperty -Path $path -Name $name -ErrorAction Stop | Select-Object -ExpandProperty $name
-                if ($current -eq $expected) { return "already" }
-            } catch {}
-            try {
-                if (-not (Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
-                Set-ItemProperty -Path $path -Name $name -Value $expected -Type DWord -Force
-                return "applied"
-            } catch { return "failed: $($_.Exception.Message)" }
         }
 
         "eventlog-size" {
@@ -617,20 +663,7 @@ function Invoke-Fix {
             } catch { return "failed: $($_.Exception.Message)" }
         }
 
-        "ps-logging" {
-            $path = $params.path; $name = $params.name; $expected = $params.value
-            try {
-                if (Test-Path $path) {
-                    $current = Get-ItemProperty -Path $path -Name $name -ErrorAction Stop | Select-Object -ExpandProperty $name
-                    if ($current -eq $expected) { return "already" }
-                }
-            } catch {}
-            try {
-                if (-not (Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
-                Set-ItemProperty -Path $path -Name $name -Value $expected -Type DWord -Force
-                return "applied"
-            } catch { return "failed: $($_.Exception.Message)" }
-        }
+        "ps-logging" { return Set-RegValue $params.path $params.name $params.value "DWord" }
 
         default { return "skipped: no fix for family $family" }
     }
@@ -706,9 +739,10 @@ foreach ($rule in $rules) {
     Write-Progress -Activity $activity -Status "$($rule.id): $($rule.title)" -PercentComplete (($count / $total) * 100)
     $rsw = [System.Diagnostics.Stopwatch]::StartNew()
 
-    # Non-automated controls are never remediated by the engine — report them
+    # Controls the engine cannot evaluate are never remediated — report them
     # as manual so they neither count as pass nor are silently "fixed".
-    if (($rule.PSObject.Properties.Name -contains 'automated') -and ($rule.automated -eq $false)) {
+    # family "manual" means the catalog has no machine-checkable params.
+    if ($rule.family -eq "manual" -or (($rule.PSObject.Properties.Name -contains 'automated') -and ($rule.automated -eq $false))) {
         Write-Result -Id $rule.id -Title $rule.title -Section $rule.section `
             -Status "manual" -Level ($rule.levels | Select-Object -First 1) `
             -Assessment $rule.assessment -Family $rule.family `
@@ -807,7 +841,7 @@ $overallScore = $summary.all.score
 $output = @{
     mode = $Mode
     benchmark = $Benchmark
-    engine_version = "1.1.0-windows"
+    engine_version = "1.2.0-windows"
     duration_seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1)
     started_at = $startedAt
     score = $overallScore

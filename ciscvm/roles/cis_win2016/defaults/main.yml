@@ -28,5 +28,5 @@ cis_fail_on_findings: false
 cis_min_score: 0
 
 cis_benchmark_name: "CIS Microsoft Windows Server 2016 Benchmark"
-cis_benchmark_version: "v1.0.0"
+cis_benchmark_version: "v4.0.0"
 cis_org_name: ""

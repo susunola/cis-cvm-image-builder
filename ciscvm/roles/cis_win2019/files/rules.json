@@ -1218,7 +1218,7 @@
   "page": 165,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
    "name": "LimitBlankPasswordUse",
    "value": 1
   }
@@ -1234,7 +1234,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 167,
   "family": "manual",
@@ -1251,7 +1251,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 169,
   "family": "manual",
@@ -1311,7 +1311,7 @@
   "page": 178,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Print\\Providers\\LanMan Print Services\\Servers",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Print\\Providers\\LanMan Print Services\\Servers",
    "name": "AddPrinterDrivers",
    "value": 1
   }
@@ -1332,7 +1332,7 @@
   "page": 181,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
    "name": "SubmitControl",
    "value": 0
   }
@@ -1348,12 +1348,12 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 183,
   "family": "reg-string",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
    "name": "VulnerableChannelAllowList",
    "value": "does not exist"
   }
@@ -1374,7 +1374,7 @@
   "page": 185,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters",
    "name": "LdapEnforceChannelBinding",
    "value": 2
   }
@@ -1395,7 +1395,7 @@
   "page": 188,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters",
    "name": "LDAPServerIntegrity",
    "value": 2
   }
@@ -1416,7 +1416,7 @@
   "page": 191,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
    "name": "RefusePasswordChange",
    "value": 0
   }
@@ -1437,7 +1437,7 @@
   "page": 194,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
    "name": "RequireSignOrSeal",
    "value": 1
   }
@@ -1458,7 +1458,7 @@
   "page": 196,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
    "name": "SealSecureChannel",
    "value": 1
   }
@@ -1479,7 +1479,7 @@
   "page": 198,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
    "name": "SignSecureChannel",
    "value": 1
   }
@@ -1500,7 +1500,7 @@
   "page": 200,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
    "name": "DisablePasswordChange",
    "value": 0
   }
@@ -1521,7 +1521,7 @@
   "page": 202,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\System\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+   "path": "HKLM:\\System\\CurrentControlSet\\Services\\Netlogon\\Parameters",
    "name": "MaximumPasswordAge",
    "value": 30,
    "op": "le"
@@ -1543,7 +1543,7 @@
   "page": 204,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
    "name": "RequireStrongKey",
    "value": 1
   }
@@ -1564,7 +1564,7 @@
   "page": 207,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "DisableCAD",
    "value": 0
   }
@@ -1585,7 +1585,7 @@
   "page": 209,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "DontDisplayLastUserName",
    "value": 1
   }
@@ -1606,7 +1606,7 @@
   "page": 211,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "InactivityTimeoutSecs",
    "value": 900,
    "op": "le"
@@ -1623,12 +1623,12 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 213,
   "family": "reg-string",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "LegalNoticeText",
    "value": "text"
   }
@@ -1644,12 +1644,12 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 215,
   "family": "reg-string",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "LegalNoticeCaption",
    "value": "text"
   }
@@ -1670,9 +1670,10 @@
   "page": 217,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
    "name": "CachedLogonsCount",
-   "value": null
+   "value": 4,
+   "op": "le"
   }
  },
  {
@@ -1691,9 +1692,9 @@
   "page": 219,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
    "name": "PasswordExpiryWarning",
-   "value": null
+   "value": 14
   }
  },
  {
@@ -1712,7 +1713,7 @@
   "page": 221,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
    "name": "ForceUnlockLogon",
    "value": 1
   }
@@ -1733,7 +1734,7 @@
   "page": 223,
   "family": "reg-string",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
    "name": "ScRemoveOption",
    "value": [
     1,
@@ -1758,7 +1759,7 @@
   "page": 226,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters",
    "name": "RequireSecuritySignature",
    "value": 1
   }
@@ -1779,7 +1780,7 @@
   "page": 228,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters",
    "name": "EnablePlainTextPassword",
    "value": 0
   }
@@ -1800,7 +1801,7 @@
   "page": 231,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
    "name": "AutoDisconnect",
    "value": 15,
    "op": "le"
@@ -1822,7 +1823,7 @@
   "page": 233,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
    "name": "RequireSecuritySignature",
    "value": 1
   }
@@ -1843,7 +1844,7 @@
   "page": 235,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
    "name": "EnableForcedLogoff",
    "value": 1
   }
@@ -1864,7 +1865,7 @@
   "page": 237,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
    "name": "SMBServerNameHardeningLevel",
    "value": [
     1,
@@ -1910,7 +1911,7 @@
   "page": 243,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
    "name": "RestrictAnonymousSAM",
    "value": 1
   }
@@ -1931,7 +1932,7 @@
   "page": 245,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
    "name": "RestrictAnonymous",
    "value": 1
   }
@@ -1952,7 +1953,7 @@
   "page": 247,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
    "name": "DisableDomainCreds",
    "value": 1
   }
@@ -1973,7 +1974,7 @@
   "page": 249,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
    "name": "EveryoneIncludesAnonymous",
    "value": 0
   }
@@ -1989,12 +1990,12 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 251,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
    "name": "NullSessionPipes",
    "value": "LSARPC,NETLOGON,SAMR"
   }
@@ -2010,12 +2011,12 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 253,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
    "name": "NullSessionPipes",
    "value": "blank (i"
   }
@@ -2031,12 +2032,12 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 255,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\SecurePipeServers\\Winreg\\ AllowedExactPaths",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecurePipeServers\\Winreg\\ AllowedExactPaths",
    "name": "Machine",
    "value": "System\\CurrentControlSet\\Control\\ProductOptions,System\\CurrentControlS"
   }
@@ -2052,12 +2053,12 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 257,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\SecurePipeServers\\Winreg\\ AllowedPaths",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecurePipeServers\\Winreg\\ AllowedPaths",
    "name": "Machine",
    "value": "System\\CurrentControlSet\\Control\\Print\\Printers,System\\CurrentControlS"
   }
@@ -2078,8 +2079,8 @@
   "page": 260,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Para The recommended state for this setting is",
-   "name": " Enabled.",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
+   "name": "RestrictNullSessAccess",
    "value": 1
   }
  },
@@ -2099,7 +2100,7 @@
   "page": 263,
   "family": "reg-string",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
    "name": "restrictremotesam",
    "value": "O:BAG:BAD:(A;;RC;;;BA)"
   }
@@ -2115,12 +2116,12 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 265,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
    "name": "NullSessionShares",
    "value": null
   }
@@ -2141,7 +2142,7 @@
   "page": 267,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
    "name": "ForceGuest",
    "value": 0
   }
@@ -2162,7 +2163,7 @@
   "page": 270,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
    "name": "UseMachineId",
    "value": 1
   }
@@ -2183,7 +2184,7 @@
   "page": 272,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0",
    "name": "AllowNullSessionFallback",
    "value": 0
   }
@@ -2204,7 +2205,7 @@
   "page": 274,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\pku2u",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\pku2u",
    "name": "AllowOnlineID",
    "value": 0
   }
@@ -2225,7 +2226,7 @@
   "page": 276,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\ Kerberos\\Parameters",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\ Kerberos\\Parameters",
    "name": "SupportedEncryptionTypes",
    "value": 2147483640
   }
@@ -2246,7 +2247,7 @@
   "page": 278,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
    "name": "NoLMHash",
    "value": 1
   }
@@ -2288,7 +2289,7 @@
   "page": 282,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
    "name": "LmCompatibilityLevel",
    "value": 5
   }
@@ -2309,7 +2310,7 @@
   "page": 285,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\LDAP",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LDAP",
    "name": "LDAPClientIntegrity",
    "value": [
     1,
@@ -2334,7 +2335,7 @@
   "page": 287,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0",
    "name": "NTLMMinClientSec",
    "value": 537395200
   }
@@ -2355,7 +2356,7 @@
   "page": 289,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0",
    "name": "NTLMMinServerSec",
    "value": 537395200
   }
@@ -2376,7 +2377,7 @@
   "page": 291,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0",
    "name": "AuditReceivingNTLMTraffic",
    "value": 2
   }
@@ -2397,7 +2398,7 @@
   "page": 293,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
    "name": "AuditReceivingNTLMTraffic",
    "value": 7
   }
@@ -2418,7 +2419,7 @@
   "page": 295,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0",
    "name": "RestrictSendingNTLMTraffic",
    "value": [
     1,
@@ -2443,7 +2444,7 @@
   "page": 299,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "ShutdownWithoutLogon",
    "value": 0
   }
@@ -2464,7 +2465,7 @@
   "page": 303,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Kernel",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Kernel",
    "name": "ObCaseInsensitive",
    "value": 1
   }
@@ -2485,7 +2486,7 @@
   "page": 305,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager",
    "name": "ProtectionMode",
    "value": 1
   }
@@ -2506,7 +2507,7 @@
   "page": 309,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "FilterAdministratorToken",
    "value": 1
   }
@@ -2527,7 +2528,7 @@
   "page": 311,
   "family": "uac",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "ConsentPromptBehaviorAdmin",
    "value": 2,
    "op": "ge"
@@ -2549,7 +2550,7 @@
   "page": 313,
   "family": "uac",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "ConsentPromptBehaviorUser",
    "value": 0
   }
@@ -2570,7 +2571,7 @@
   "page": 315,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "EnableInstallerDetection",
    "value": 1
   }
@@ -2591,7 +2592,7 @@
   "page": 317,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "EnableSecureUIAPaths",
    "value": 1
   }
@@ -2612,7 +2613,7 @@
   "page": 319,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "EnableLUA",
    "value": 1
   }
@@ -2633,7 +2634,7 @@
   "page": 321,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "PromptOnSecureDesktop",
    "value": 1
   }
@@ -2654,8 +2655,8 @@
   "page": 323,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE The recommended state for this setting is",
-   "name": " Enabled.",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "name": "EnableVirtualization",
    "value": 1
   }
  },
@@ -2675,7 +2676,7 @@
   "page": 327,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\Spooler",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Spooler",
    "name": "Start",
    "value": 4
   }
@@ -2696,7 +2697,7 @@
   "page": 329,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\Spooler",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Spooler",
    "name": "Start",
    "value": 4
   }
@@ -2755,10 +2756,11 @@
   "automated": true,
   "risk": "medium",
   "page": 337,
-  "family": "firewall",
+  "family": "reg-dword",
   "params": {
-   "profile": "Domain",
-   "direction": "Inbound"
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile",
+   "name": "DisableNotifications",
+   "value": 1
   }
  },
  {
@@ -2772,14 +2774,11 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 339,
-  "family": "firewall",
-  "params": {
-   "profile": "Domain",
-   "direction": "Inbound"
-  }
+  "family": "manual",
+  "params": {}
  },
  {
   "id": "9.1.5",
@@ -2795,10 +2794,12 @@
   "automated": true,
   "risk": "medium",
   "page": 341,
-  "family": "firewall",
+  "family": "reg-dword",
   "params": {
-   "profile": "Domain",
-   "direction": "Inbound"
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile\\Logging",
+   "name": "LogFileSize",
+   "value": 16384,
+   "op": "ge"
   }
  },
  {
@@ -2815,10 +2816,11 @@
   "automated": true,
   "risk": "medium",
   "page": 343,
-  "family": "firewall",
+  "family": "reg-dword",
   "params": {
-   "profile": "Domain",
-   "direction": "Inbound"
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile\\Logging",
+   "name": "LogDroppedPackets",
+   "value": 1
   }
  },
  {
@@ -2835,10 +2837,11 @@
   "automated": true,
   "risk": "medium",
   "page": 345,
-  "family": "firewall",
+  "family": "reg-dword",
   "params": {
-   "profile": "Domain",
-   "direction": "Inbound"
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile\\Logging",
+   "name": "LogSuccessfulConnections",
+   "value": 1
   }
  },
  {
@@ -2895,10 +2898,11 @@
   "automated": true,
   "risk": "medium",
   "page": 352,
-  "family": "firewall",
+  "family": "reg-dword",
   "params": {
-   "profile": "Private",
-   "direction": "Inbound"
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PrivateProfile",
+   "name": "DisableNotifications",
+   "value": 1
   }
  },
  {
@@ -2912,14 +2916,11 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 354,
-  "family": "firewall",
-  "params": {
-   "profile": "Private",
-   "direction": "Inbound"
-  }
+  "family": "manual",
+  "params": {}
  },
  {
   "id": "9.2.5",
@@ -2935,10 +2936,12 @@
   "automated": true,
   "risk": "medium",
   "page": 356,
-  "family": "firewall",
+  "family": "reg-dword",
   "params": {
-   "profile": "Private",
-   "direction": "Inbound"
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PrivateProfile\\Logging",
+   "name": "LogFileSize",
+   "value": 16384,
+   "op": "ge"
   }
  },
  {
@@ -2955,10 +2958,11 @@
   "automated": true,
   "risk": "medium",
   "page": 358,
-  "family": "firewall",
+  "family": "reg-dword",
   "params": {
-   "profile": "Private",
-   "direction": "Inbound"
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PrivateProfile\\Logging",
+   "name": "LogDroppedPackets",
+   "value": 1
   }
  },
  {
@@ -2975,10 +2979,11 @@
   "automated": true,
   "risk": "medium",
   "page": 360,
-  "family": "firewall",
+  "family": "reg-dword",
   "params": {
-   "profile": "Private",
-   "direction": "Inbound"
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PrivateProfile\\Logging",
+   "name": "LogSuccessfulConnections",
+   "value": 1
   }
  },
  {
@@ -3035,10 +3040,11 @@
   "automated": true,
   "risk": "medium",
   "page": 367,
-  "family": "firewall",
+  "family": "reg-dword",
   "params": {
-   "profile": "Public",
-   "direction": "Inbound"
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile",
+   "name": "DisableNotifications",
+   "value": 1
   }
  },
  {
@@ -3055,10 +3061,11 @@
   "automated": true,
   "risk": "medium",
   "page": 369,
-  "family": "firewall",
+  "family": "reg-dword",
   "params": {
-   "profile": "Public",
-   "direction": "Inbound"
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile",
+   "name": "AllowLocalPolicyMerge",
+   "value": 0
   }
  },
  {
@@ -3075,10 +3082,11 @@
   "automated": true,
   "risk": "medium",
   "page": 371,
-  "family": "firewall",
+  "family": "reg-dword",
   "params": {
-   "profile": "Public",
-   "direction": "Inbound"
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile",
+   "name": "AllowLocalIPsecPolicyMerge",
+   "value": 0
   }
  },
  {
@@ -3092,14 +3100,11 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 373,
-  "family": "firewall",
-  "params": {
-   "profile": "Public",
-   "direction": "Inbound"
-  }
+  "family": "manual",
+  "params": {}
  },
  {
   "id": "9.3.7",
@@ -3115,10 +3120,12 @@
   "automated": true,
   "risk": "medium",
   "page": 375,
-  "family": "firewall",
+  "family": "reg-dword",
   "params": {
-   "profile": "Public",
-   "direction": "Inbound"
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile\\Logging",
+   "name": "LogFileSize",
+   "value": 16384,
+   "op": "ge"
   }
  },
  {
@@ -3135,10 +3142,11 @@
   "automated": true,
   "risk": "medium",
   "page": 377,
-  "family": "firewall",
+  "family": "reg-dword",
   "params": {
-   "profile": "Public",
-   "direction": "Inbound"
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile\\Logging",
+   "name": "LogDroppedPackets",
+   "value": 1
   }
  },
  {
@@ -3155,10 +3163,11 @@
   "automated": true,
   "risk": "medium",
   "page": 379,
-  "family": "firewall",
+  "family": "reg-dword",
   "params": {
-   "profile": "Public",
-   "direction": "Inbound"
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile\\Logging",
+   "name": "LogSuccessfulConnections",
+   "value": 1
   }
  },
  {
@@ -3857,7 +3866,7 @@
   "page": 465,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Personalization",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Personalization",
    "name": "NoLockScreenCamera",
    "value": 1
   }
@@ -3878,7 +3887,7 @@
   "page": 467,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Personalization",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Personalization",
    "name": "NoLockScreenSlidesho",
    "value": 1
   }
@@ -3899,7 +3908,7 @@
   "page": 471,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\InputPersonalization",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\InputPersonalization",
    "name": "AllowInputPersonalization",
    "value": 0
   }
@@ -3920,7 +3929,7 @@
   "page": 473,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
    "name": "AllowOnlineTips",
    "value": 0
   }
@@ -3941,7 +3950,7 @@
   "page": 477,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "LocalAccountTo",
    "value": 0
   }
@@ -3962,7 +3971,7 @@
   "page": 479,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\mrxsmb10",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\mrxsmb10",
    "name": "Start",
    "value": 4
   }
@@ -3983,7 +3992,7 @@
   "page": 482,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters",
    "name": "SMB1",
    "value": 0
   }
@@ -4004,7 +4013,7 @@
   "page": 485,
   "family": "reg-string",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Cryptography\\Wintrust\\Config",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Cryptography\\Wintrust\\Config",
    "name": "EnableCertPaddingCheck",
    "value": 1
   }
@@ -4025,7 +4034,7 @@
   "page": 487,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel",
    "name": "DisableExceptionChainValidation",
    "value": 0
   }
@@ -4046,7 +4055,7 @@
   "page": 489,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa",
    "name": "RunAsPPL",
    "value": 1
   }
@@ -4067,7 +4076,7 @@
   "page": 491,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\NetBT\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\NetBT\\Parameters",
    "name": "NodeType",
    "value": 2
   }
@@ -4088,7 +4097,7 @@
   "page": 494,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest",
    "name": "UseLogonCrede",
    "value": 0
   }
@@ -4109,7 +4118,7 @@
   "page": 497,
   "family": "reg-string",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
    "name": "AutoAdminLogon",
    "value": 0
   }
@@ -4130,7 +4139,7 @@
   "page": 499,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters",
    "name": "DisableIPSourceRouti",
    "value": 2
   }
@@ -4151,7 +4160,7 @@
   "page": 501,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
    "name": "DisableIPSourceRoutin",
    "value": 2
   }
@@ -4172,7 +4181,7 @@
   "page": 503,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
    "name": "EnableICMPRedirect",
    "value": 0
   }
@@ -4193,7 +4202,7 @@
   "page": 505,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
    "name": "KeepAli",
    "value": 300000
   }
@@ -4214,7 +4223,7 @@
   "page": 507,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\NetBT\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\NetBT\\Parameters",
    "name": "NoNameReleaseOnDemand",
    "value": 1
   }
@@ -4235,7 +4244,7 @@
   "page": 509,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
    "name": "PerformRouterDiscover",
    "value": 0
   }
@@ -4256,7 +4265,7 @@
   "page": 511,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager",
    "name": "SafeDllSearchMode",
    "value": 1
   }
@@ -4277,7 +4286,7 @@
   "page": 513,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\TCPIP6\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\TCPIP6\\Parameters",
    "name": "TcpMax",
    "value": 3
   }
@@ -4298,7 +4307,7 @@
   "page": 515,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
    "name": "TcpMaxDataRetransmissions",
    "value": 3
   }
@@ -4319,7 +4328,7 @@
   "page": 517,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\Eventlog\\Security",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Eventlog\\Security",
    "name": "WarningLevel",
    "value": 90
   }
@@ -4340,7 +4349,7 @@
   "page": 521,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient",
    "name": "EnableMDNS",
    "value": 0
   }
@@ -4361,7 +4370,7 @@
   "page": 523,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient",
    "name": "EnableNetbios",
    "value": [
     0,
@@ -4386,7 +4395,7 @@
   "page": 525,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient",
    "name": "DisableIPv6DefaultDnsServers",
    "value": 1
   }
@@ -4407,7 +4416,7 @@
   "page": 527,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient",
    "name": "EnableMulticast",
    "value": 0
   }
@@ -4428,7 +4437,7 @@
   "page": 530,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
    "name": "EnableFontProviders",
    "value": 0
   }
@@ -4449,7 +4458,7 @@
   "page": 534,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\LanmanWorkstation",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\LanmanWorkstation",
    "name": "AllowInsecureGuest",
    "value": 0
   }
@@ -4470,7 +4479,7 @@
   "page": 537,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows\\LLTD",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\LLTD",
    "name": "AllowLLTDIOOnDomain",
    "value": 0
   }
@@ -4491,7 +4500,7 @@
   "page": 539,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows\\LLTD",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\LLTD",
    "name": "AllowRspndrOnDomain",
    "value": 0
   }
@@ -4512,7 +4521,7 @@
   "page": 543,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Peernet",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Peernet",
    "name": "Disabled",
    "value": 1
   }
@@ -4533,7 +4542,7 @@
   "page": 547,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Network Connections",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Network Connections",
    "name": "NC_AllowNetBridge_NLA",
    "value": 0
   }
@@ -4554,7 +4563,7 @@
   "page": 549,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Network Connections",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Network Connections",
    "name": "NC_ShowSharedAccessUI",
    "value": 0
   }
@@ -4575,7 +4584,7 @@
   "page": 551,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Network Connections",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Network Connections",
    "name": "NC_StdDomainUserSetLocation",
    "value": 1
   }
@@ -4591,14 +4600,14 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 555,
   "family": "reg-string",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows\\NetworkProvider\\Harden edPaths",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\NetworkProvider\\HardenedPaths",
    "name": "\\\\*\\NETLOGON",
-   "value": "RequireMutualAuthentication=1, RequireIntegrity=1,"
+   "value": "RequireMutualAuthentication=1, RequireIntegrity=1, RequirePrivacy=1"
   }
  },
  {
@@ -4612,7 +4621,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 561,
   "family": "manual",
@@ -4634,7 +4643,7 @@
   "page": 565,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows\\WCN\\Registrars",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WCN\\Registrars",
    "name": "EnableRegistrar",
    "value": 0
   }
@@ -4655,7 +4664,7 @@
   "page": 567,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WCN\\UI",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WCN\\UI",
    "name": "DisableWcnUi",
    "value": 1
   }
@@ -4676,7 +4685,7 @@
   "page": 570,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows\\WcmSvc\\GroupPolicy",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WcmSvc\\GroupPolicy",
    "name": "fMi",
    "value": 3
   }
@@ -4697,7 +4706,7 @@
   "page": 572,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WcmSvc\\GroupPolicy",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WcmSvc\\GroupPolicy",
    "name": "fBlockNonDomainNetworks",
    "value": 1
   }
@@ -4718,7 +4727,7 @@
   "page": 575,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\Software\\Policies\\Microsoft\\Windows NT\\Printers",
+   "path": "HKLM:\\Software\\Policies\\Microsoft\\Windows NT\\Printers",
    "name": "RegisterSpoolerRemoteRpcEndPoint",
    "value": 2
   }
@@ -4739,7 +4748,7 @@
   "page": 577,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers",
    "name": "RedirectionguardPolicy",
    "value": 1
   }
@@ -4760,7 +4769,7 @@
   "page": 579,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC",
    "name": "RpcUseNamedPipeProtocol",
    "value": 0
   }
@@ -4781,7 +4790,7 @@
   "page": 581,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC",
    "name": "RpcAuthentication",
    "value": 0
   }
@@ -4802,7 +4811,7 @@
   "page": 583,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC",
    "name": "RpcProtocols",
    "value": 5
   }
@@ -4823,7 +4832,7 @@
   "page": 585,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC",
    "name": "ForceKerberosForRpc",
    "value": [
     0,
@@ -4848,7 +4857,7 @@
   "page": 587,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\RPC",
    "name": "RpcTcpPort",
    "value": 0
   }
@@ -4869,7 +4878,7 @@
   "page": 589,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Print",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Print",
    "name": "RpcAuthnLevelPrivacyEnabled",
    "value": 1
   }
@@ -4890,7 +4899,7 @@
   "page": 591,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint",
    "name": "RestrictDriverInstallationToAdministrators",
    "value": 1
   }
@@ -4911,7 +4920,7 @@
   "page": 593,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers",
    "name": "CopyFilesPolicy",
    "value": 1
   }
@@ -4932,7 +4941,7 @@
   "page": 595,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\Software\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint",
+   "path": "HKLM:\\Software\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint",
    "name": "NoWarningNoElevationOnInstall",
    "value": 0
   }
@@ -4953,7 +4962,7 @@
   "page": 598,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\Software\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint",
+   "path": "HKLM:\\Software\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint",
    "name": "UpdatePromptSettings",
    "value": 0
   }
@@ -4974,7 +4983,7 @@
   "page": 602,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CurrentVersion\\PushNotifications",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\CurrentVersion\\PushNotifications",
    "name": "NoC",
    "value": 1
   }
@@ -4995,7 +5004,7 @@
   "page": 606,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\Audit",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\Audit",
    "name": "ProcessCreationIncludeCmdLine_Enabled",
    "value": 1
   }
@@ -5016,7 +5025,7 @@
   "page": 609,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\CredSSP\\Parame ters",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\CredSSP\\Parame ters",
    "name": "AllowEncryptionOracle",
    "value": 0
   }
@@ -5037,7 +5046,7 @@
   "page": 611,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CredentialsDelegation",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\CredentialsDelegation",
    "name": "AllowProtectedCreds",
    "value": 1
   }
@@ -5058,7 +5067,7 @@
   "page": 614,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
    "name": "EnableVirtualizationBasedSecurity",
    "value": 1
   }
@@ -5079,7 +5088,7 @@
   "page": 616,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
    "name": "RequirePlatformSecurityFeatures",
    "value": [
     1,
@@ -5104,7 +5113,7 @@
   "page": 618,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
    "name": "HypervisorEnforcedCodeIntegrity",
    "value": 1
   }
@@ -5125,7 +5134,7 @@
   "page": 620,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
    "name": "HVCIMATRequired",
    "value": 1
   }
@@ -5146,7 +5155,7 @@
   "page": 622,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
    "name": "LsaCfgFlags",
    "value": 1
   }
@@ -5167,7 +5176,7 @@
   "page": 625,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
    "name": "LsaCfgFlags",
    "value": 0
   }
@@ -5188,7 +5197,7 @@
   "page": 627,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DeviceGuard",
    "name": "ConfigureSystemGuardLaunch",
    "value": 1
   }
@@ -5209,7 +5218,7 @@
   "page": 631,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Device Metadata",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Device Metadata",
    "name": "PreventDeviceMetadataFromNetwork",
    "value": 1
   }
@@ -5230,7 +5239,7 @@
   "page": 635,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Policies\\EarlyLaunch",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Policies\\EarlyLaunch",
    "name": "DriverLoadPolicy",
    "value": 3
   }
@@ -5251,7 +5260,7 @@
   "page": 639,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SYSTEM\\CurrentControlSet\\Policies",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Policies",
    "name": "ClfsAuthenticationChecking",
    "value": 1
   }
@@ -5272,7 +5281,7 @@
   "page": 643,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Group Policy\\{827D319E-6EAC-11D2- A4EA-00C04F79F83A}",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Group Policy\\{827D319E-6EAC-11D2- A4EA-00C04F79F83A}",
    "name": "NoBackgroundPolicy",
    "value": 0
   }
@@ -5293,7 +5302,7 @@
   "page": 645,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Group Policy\\{827D319E-6EAC-11D2- A4EA-00C04F79F83A}",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Group Policy\\{827D319E-6EAC-11D2- A4EA-00C04F79F83A}",
    "name": "NoGPOListChanges",
    "value": 0
   }
@@ -5314,7 +5323,7 @@
   "page": 647,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
    "name": "EnableCdp",
    "value": 0
   }
@@ -5335,9 +5344,9 @@
   "page": 649,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "DisableBkGndGroupPolicy",
-   "value": null
+   "value": 0
   }
  },
  {
@@ -5351,7 +5360,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 653,
   "family": "manual",
@@ -5368,7 +5377,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 655,
   "family": "manual",
@@ -5385,7 +5394,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 657,
   "family": "manual",
@@ -5402,7 +5411,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 659,
   "family": "manual",
@@ -5419,7 +5428,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 661,
   "family": "manual",
@@ -5436,7 +5445,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 663,
   "family": "manual",
@@ -5453,7 +5462,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 665,
   "family": "manual",
@@ -5470,7 +5479,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 667,
   "family": "manual",
@@ -5487,7 +5496,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 669,
   "family": "manual",
@@ -5504,7 +5513,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 671,
   "family": "manual",
@@ -5526,7 +5535,7 @@
   "page": 673,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Messenger\\Client",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Messenger\\Client",
    "name": "CEIP",
    "value": 2
   }
@@ -5547,7 +5556,7 @@
   "page": 675,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\SQMClient\\Windows",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\SQMClient\\Windows",
    "name": "CEIPEnable",
    "value": 0
   }
@@ -5563,12 +5572,12 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 677,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Error Reporting",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Error Reporting",
    "name": "Disabled",
    "value": "0 (DoReport) and 1 (Disabled)"
   }
@@ -5584,14 +5593,14 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 681,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\ kerberos\\parameters",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\kerberos\\parameters",
    "name": "DevicePKInitBehavior",
-   "value": "0 (DevicePKInitBehavior) and 1 (DevicePKInitEnabled)"
+   "value": 0
   }
  },
  {
@@ -5610,7 +5619,7 @@
   "page": 684,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Kernel DMA Protection",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Kernel DMA Protection",
    "name": "DeviceEnumerationPolicy",
    "value": 0
   }
@@ -5631,7 +5640,7 @@
   "page": 688,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
    "name": "BackupDirectory",
    "value": [
     1,
@@ -5656,7 +5665,7 @@
   "page": 690,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
    "name": "PasswordExpirationProtectionEnabled",
    "value": 1
   }
@@ -5677,7 +5686,7 @@
   "page": 692,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
    "name": "ADPasswordEncryptionEnabled",
    "value": 1
   }
@@ -5698,9 +5707,9 @@
   "page": 694,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
    "name": "PasswordComplexity",
-   "value": "4, 5, 6, 7, or 8"
+   "value": 4
   }
  },
  {
@@ -5719,7 +5728,7 @@
   "page": 697,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
    "name": "PasswordLength",
    "value": 15
   }
@@ -5740,7 +5749,7 @@
   "page": 700,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
    "name": "PasswordAgeDays",
    "value": 30
   }
@@ -5761,7 +5770,7 @@
   "page": 702,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
    "name": "PostAuthenticationActions",
    "value": 8,
    "op": "le"
@@ -5778,12 +5787,12 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 704,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
    "name": "PostAuthenticationActions",
    "value": "3, 5 or 11"
   }
@@ -5804,7 +5813,7 @@
   "page": 709,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Control Panel\\International",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Control Panel\\International",
    "name": "BlockUserInputMethodsForSignIn",
    "value": 1
   }
@@ -5825,7 +5834,7 @@
   "page": 712,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
    "name": "BlockUserFromShowingAccountDetailsOnSignin",
    "value": 1
   }
@@ -5846,7 +5855,7 @@
   "page": 714,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
    "name": "DontDisplayNetworkSelectionUI",
    "value": 1
   }
@@ -5867,7 +5876,7 @@
   "page": 716,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
    "name": "DontEnumerateConnectedUsers",
    "value": 1
   }
@@ -5888,7 +5897,7 @@
   "page": 718,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
    "name": "EnumerateLocalUsers",
    "value": 0
   }
@@ -5909,7 +5918,7 @@
   "page": 720,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
    "name": "DisableLockScreenAppNotifications",
    "value": 1
   }
@@ -5930,7 +5939,7 @@
   "page": 722,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
    "name": "AllowDomainPINLogon",
    "value": 0
   }
@@ -5951,7 +5960,7 @@
   "page": 726,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
    "name": "AllowCrossDeviceClipboard",
    "value": 0
   }
@@ -5972,7 +5981,7 @@
   "page": 728,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
    "name": "UploadUserActivities",
    "value": 0
   }
@@ -5988,7 +5997,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 733,
   "family": "manual",
@@ -6005,7 +6014,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 735,
   "family": "manual",
@@ -6027,7 +6036,7 @@
   "page": 737,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Power\\PowerSettings\\0e796bdb-100d-47d6-a2d5- f7d2daa51f51",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Power\\PowerSettings\\0e796bdb-100d-47d6-a2d5- f7d2daa51f51",
    "name": "DCSettingIndex",
    "value": 1
   }
@@ -6048,7 +6057,7 @@
   "page": 739,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Power\\PowerSettings\\0e796bdb-100d-47d6-a2d5- f7d2daa51f51",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Power\\PowerSettings\\0e796bdb-100d-47d6-a2d5- f7d2daa51f51",
    "name": "ACSettingIndex",
    "value": 1
   }
@@ -6069,7 +6078,7 @@
   "page": 743,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
    "name": "fAllowUnsolicited",
    "value": 0
   }
@@ -6090,7 +6099,7 @@
   "page": 745,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
    "name": "fAllowToGetHelp",
    "value": 0
   }
@@ -6111,7 +6120,7 @@
   "page": 748,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Rpc",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Rpc",
    "name": "EnableAuthEpResolution",
    "value": 1
   }
@@ -6132,7 +6141,7 @@
   "page": 750,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Rpc",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Rpc",
    "name": "RestrictRemoteClients",
    "value": 1
   }
@@ -6148,7 +6157,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 756,
   "family": "manual",
@@ -6165,7 +6174,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 760,
   "family": "manual",
@@ -6187,7 +6196,7 @@
   "page": 764,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\AdvertisingInfo",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\AdvertisingInfo",
    "name": "DisabledByGroupPolicy",
    "value": 1
   }
@@ -6208,7 +6217,7 @@
   "page": 768,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\W32Time\\TimeProviders\\NtpClient",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\W32Time\\TimeProviders\\NtpClient",
    "name": "Enabled",
    "value": 1
   }
@@ -6229,7 +6238,7 @@
   "page": 770,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\W32Time\\TimeProviders\\NtpServer",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\W32Time\\TimeProviders\\NtpServer",
    "name": "Enabled",
    "value": 0
   }
@@ -6250,7 +6259,7 @@
   "page": 774,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CurrentVersion\\AppModel\\StateManager ",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\CurrentVersion\\AppModel\\StateManager ",
    "name": "AllowSharedLocalAppData",
    "value": 0
   }
@@ -6271,7 +6280,7 @@
   "page": 778,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "MSAOptional",
    "value": 1
   }
@@ -6292,7 +6301,7 @@
   "page": 782,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
    "name": "NoAutoplayfornonVolume",
    "value": 1
   }
@@ -6313,7 +6322,7 @@
   "page": 784,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
    "name": "NoAutorun",
    "value": 1
   }
@@ -6334,7 +6343,7 @@
   "page": 786,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explore r",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explore r",
    "name": "NoDriveTypeAutoRun",
    "value": 255
   }
@@ -6350,7 +6359,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 790,
   "family": "manual",
@@ -6372,7 +6381,7 @@
   "page": 794,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Camera",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Camera",
    "name": "AllowCamera",
    "value": 0
   }
@@ -6393,7 +6402,7 @@
   "page": 798,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent",
    "name": "DisableConsumerAccountState",
    "value": 1
   }
@@ -6414,7 +6423,7 @@
   "page": 801,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Connect",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Connect",
    "name": "RequirePinForPairing",
    "value": [
     1,
@@ -6439,7 +6448,7 @@
   "page": 804,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CredUI",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\CredUI",
    "name": "DisablePasswordReveal",
    "value": 1
   }
@@ -6460,7 +6469,7 @@
   "page": 806,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\CredUI",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\CredUI",
    "name": "EnumerateAdministrators",
    "value": 0
   }
@@ -6481,7 +6490,7 @@
   "page": 809,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
    "name": "AllowTelemetry",
    "value": [
     0,
@@ -6506,7 +6515,7 @@
   "page": 812,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
    "name": "DisableEnterpriseAuthProxy",
    "value": 1
   }
@@ -6527,7 +6536,7 @@
   "page": 814,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
    "name": "DoNotShowFeedbackNotifications",
    "value": 1
   }
@@ -6548,7 +6557,7 @@
   "page": 816,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
    "name": "EnableOneSettingsAudit",
    "value": 1
   }
@@ -6569,7 +6578,7 @@
   "page": 818,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
    "name": "LimitDiagnosticLogCollection",
    "value": 1
   }
@@ -6590,7 +6599,7 @@
   "page": 820,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
    "name": "LimitDumpCollection",
    "value": 1
   }
@@ -6611,7 +6620,7 @@
   "page": 824,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppInstaller",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppInstaller",
    "name": "EnableAppInstaller",
    "value": 0
   }
@@ -6632,7 +6641,7 @@
   "page": 826,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppInstaller",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppInstaller",
    "name": "EnableExperimentalFeatures",
    "value": 0
   }
@@ -6653,7 +6662,7 @@
   "page": 828,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppInstaller",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppInstaller",
    "name": "EnableHashOverride",
    "value": 0
   }
@@ -6674,7 +6683,7 @@
   "page": 830,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppInstaller",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppInstaller",
    "name": "EnableLocalArchiveMalwareScanning",
    "value": 0
   }
@@ -6695,7 +6704,7 @@
   "page": 832,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppInstaller",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppInstaller",
    "name": "EnableBypassCertificatePinning",
    "value": 0
   }
@@ -6716,7 +6725,7 @@
   "page": 834,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppInstaller",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppInstaller",
    "name": "EnableMSAppInstallerProtocol",
    "value": 0
   }
@@ -6737,7 +6746,7 @@
   "page": 836,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppInstaller",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\AppInstaller",
    "name": "EnableWindowsPackageManager",
    "value": 0
   }
@@ -6753,7 +6762,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 841,
   "family": "manual",
@@ -6770,7 +6779,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 843,
   "family": "manual",
@@ -6787,7 +6796,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 846,
   "family": "manual",
@@ -6804,7 +6813,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 848,
   "family": "manual",
@@ -6821,7 +6830,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 851,
   "family": "manual",
@@ -6838,7 +6847,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 853,
   "family": "manual",
@@ -6855,7 +6864,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 856,
   "family": "manual",
@@ -6872,7 +6881,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 858,
   "family": "manual",
@@ -6894,7 +6903,7 @@
   "page": 862,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
    "name": "DisableMotWOnInsecurePathCopy",
    "value": 0
   }
@@ -6915,7 +6924,7 @@
   "page": 864,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
    "name": "NoDataExecutionPrevention",
    "value": 0
   }
@@ -6936,7 +6945,7 @@
   "page": 866,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
    "name": "NoHeapTerminationOnCorruption",
    "value": 0
   }
@@ -6957,7 +6966,7 @@
   "page": 868,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
    "name": "PreXPSP2ShellProtocolBehavior",
    "value": 0
   }
@@ -6978,7 +6987,7 @@
   "page": 873,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\LocationAndSensors",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\LocationAndSensors",
    "name": "DisableLocation",
    "value": 1
   }
@@ -6999,7 +7008,7 @@
   "page": 877,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Messaging",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Messaging",
    "name": "AllowMessageSync",
    "value": 0
   }
@@ -7020,7 +7029,7 @@
   "page": 880,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\MicrosoftAccount",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\MicrosoftAccount",
    "name": "DisableUserAuth",
    "value": 1
   }
@@ -7041,7 +7050,7 @@
   "page": 887,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\PushToInstall",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\PushToInstall",
    "name": "DisablePushToInstall",
    "value": 1
   }
@@ -7057,7 +7066,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 891,
   "family": "manual",
@@ -7079,7 +7088,7 @@
   "page": 895,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
    "name": "fSingleSessionPerUser",
    "value": 1
   }
@@ -7095,7 +7104,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 898,
   "family": "manual",
@@ -7112,7 +7121,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 900,
   "family": "manual",
@@ -7129,7 +7138,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 902,
   "family": "manual",
@@ -7146,7 +7155,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 904,
   "family": "manual",
@@ -7163,7 +7172,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 906,
   "family": "manual",
@@ -7185,7 +7194,7 @@
   "page": 910,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
    "name": "fPromptForPassword",
    "value": 1
   }
@@ -7201,7 +7210,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 912,
   "family": "manual",
@@ -7218,7 +7227,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 914,
   "family": "manual",
@@ -7240,7 +7249,7 @@
   "page": 916,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services",
    "name": "UserAuthentication",
    "value": 1
   }
@@ -7256,7 +7265,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 918,
   "family": "manual",
@@ -7273,7 +7282,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 921,
   "family": "manual",
@@ -7290,7 +7299,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 924,
   "family": "manual",
@@ -7307,7 +7316,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 926,
   "family": "manual",
@@ -7329,7 +7338,7 @@
   "page": 929,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Internet Explorer\\Feeds",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Internet Explorer\\Feeds",
    "name": "DisableEnclosureDownload",
    "value": 1
   }
@@ -7345,12 +7354,12 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 931,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\Software\\Policies\\Microsoft\\Internet Explorer\\Feeds",
+   "path": "HKLM:\\Software\\Policies\\Microsoft\\Internet Explorer\\Feeds",
    "name": "AllowBasicAuthInClear",
    "value": "0:"
   }
@@ -7371,7 +7380,7 @@
   "page": 935,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
    "name": "AllowCloudSearch",
    "value": 0
   }
@@ -7392,7 +7401,7 @@
   "page": 937,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
    "name": "AllowIndexingEncryptedStoresOrItems",
    "value": 0
   }
@@ -7413,7 +7422,7 @@
   "page": 939,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
    "name": "EnableDynamicContentInWSB",
    "value": 0
   }
@@ -7434,7 +7443,7 @@
   "page": 943,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\CurrentVersion\\Software Protection Platform",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\CurrentVersion\\Software Protection Platform",
    "name": "NoGenTicket",
    "value": 1
   }
@@ -7450,12 +7459,12 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 949,
   "family": "reg-dword",
   "params": {
-   "path": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
    "name": "EnableSmartScreen",
    "value": "1 (EnableSmartScreen) and REG_SZ value of Block"
   }
@@ -7476,7 +7485,7 @@
   "page": 953,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\WindowsInkWorkspace",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsInkWorkspace",
    "name": "AllowSuggestedAppsInWind",
    "value": 0
   }
@@ -7497,7 +7506,7 @@
   "page": 955,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\WindowsInkWorkspace",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsInkWorkspace",
    "name": "AllowWindowsInkWorkspace",
    "value": [
     0,
@@ -7522,7 +7531,7 @@
   "page": 958,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer",
    "name": "EnableUserControl",
    "value": 0
   }
@@ -7543,7 +7552,7 @@
   "page": 960,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer",
    "name": "AlwaysInstallElevated",
    "value": 0
   }
@@ -7564,7 +7573,7 @@
   "page": 962,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer",
    "name": "SafeForScripting",
    "value": 0
   }
@@ -7585,7 +7594,7 @@
   "page": 965,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "DisableAutomat",
    "value": 1
   }
@@ -7606,7 +7615,7 @@
   "page": 969,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging",
    "name": "Enable",
    "value": 1
   }
@@ -7627,7 +7636,7 @@
   "page": 971,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\Transcription",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\Transcription",
    "name": "EnableTrans",
    "value": 1
   }
@@ -7643,7 +7652,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 975,
   "family": "manual",
@@ -7660,7 +7669,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 977,
   "family": "manual",
@@ -7677,7 +7686,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 979,
   "family": "manual",
@@ -7694,7 +7703,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 982,
   "family": "manual",
@@ -7711,7 +7720,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 984,
   "family": "manual",
@@ -7728,7 +7737,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 986,
   "family": "manual",
@@ -7745,7 +7754,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 988,
   "family": "manual",
@@ -7767,7 +7776,7 @@
   "page": 991,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service\\WinRS",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service\\WinRS",
    "name": "AllowRemoteShell",
    "value": 0
   }
@@ -7788,7 +7797,7 @@
   "page": 995,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows Defender Security Center\\App and Browser protection",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows Defender Security Center\\App and Browser protection",
    "name": "DisallowExploitProtectionOverride",
    "value": 1
   }
@@ -7809,7 +7818,7 @@
   "page": 999,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU",
    "name": "NoAutoRebootWithLog",
    "value": 0
   }
@@ -7825,7 +7834,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 1002,
   "family": "manual",
@@ -7842,7 +7851,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 1005,
   "family": "manual",
@@ -7859,7 +7868,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 1009,
   "family": "manual",
@@ -7876,7 +7885,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 1011,
   "family": "manual",
@@ -7898,7 +7907,7 @@
   "page": 1015,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\WinHttp",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\WinHttp",
    "name": "DisableWpad",
    "value": 1
   }
@@ -7914,7 +7923,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 1021,
   "family": "manual",
@@ -7931,7 +7940,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 1026,
   "family": "manual",
@@ -7948,7 +7957,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 1031,
   "family": "manual",
@@ -7965,7 +7974,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 1033,
   "family": "manual",
@@ -7982,7 +7991,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 1037,
   "family": "manual",
@@ -7999,7 +8008,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 1039,
   "family": "manual",
@@ -8016,7 +8025,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 1041,
   "family": "manual",
@@ -8033,7 +8042,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 1043,
   "family": "manual",
@@ -8050,7 +8059,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 1045,
   "family": "manual",
@@ -8067,7 +8076,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "medium",
   "page": 1052,
   "family": "manual",
@@ -8084,7 +8093,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": true,
+  "automated": false,
   "risk": "safe",
   "page": 1060,
   "family": "manual",
