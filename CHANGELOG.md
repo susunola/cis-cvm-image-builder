@@ -5,6 +5,18 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
+## [0.16.20] — 2026-08-13
+
+### Fixed
+- **userdata's `winrm set` never ran**: winrm.cmd fails inside
+  cloudbase-init's execution context ("resource URI not found") — the
+  build only progressed because Basic was flipped on manually mid-build.
+  The userdata and the re-lock provisioner now use the WSMan: provider
+  (`Set-Item WSMan:\localhost\Service\Auth\Basic`), verified working.
+- **Controller-side ansible needs collections**: `ansible.legacy.setup`
+  redirects to `ansible.windows.setup` — document/install
+  `ansible.windows` + `community.windows` (galaxy) alongside pywinrm.
+
 ## [0.16.19] — 2026-08-13
 
 ### Fixed

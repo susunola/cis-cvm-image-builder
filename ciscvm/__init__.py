@@ -42,7 +42,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.16.19"
+VERSION = "0.16.20"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -1516,8 +1516,8 @@ __ASSUME_ROLE_BLOCK__
   user_data = <<-UDEOF
   <powershell>
   net user Administrator '${var.winrm_password}'
-  winrm set winrm/service/auth '@{Basic="true"}'
-  winrm set winrm/service '@{AllowUnencrypted="true"}'
+  Set-Item -Path WSMan:\localhost\Service\Auth\Basic -Value $true
+  Set-Item -Path WSMan:\localhost\Service\AllowUnencrypted -Value $true
   </powershell>
   UDEOF
   image_name                  = var.image_name
@@ -1561,8 +1561,8 @@ __SMOKE_TEST_BLOCK____TEST_COMPONENTS_BLOCK__
   # needs the communicator.
   provisioner "powershell" {
     inline = [
-      "winrm set winrm/service/auth '@{Basic=\"false\"}'",
-      "winrm set winrm/service '@{AllowUnencrypted=\"false\"}'",
+      "Set-Item -Path WSMan:\\localhost\\Service\\Auth\\Basic -Value $false",
+      "Set-Item -Path WSMan:\\localhost\\Service\\AllowUnencrypted -Value $false",
       "Write-Host '[ciscvm] winrm re-locked: basic auth + unencrypted HTTP off'"
     ]
   }
