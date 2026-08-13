@@ -5,6 +5,35 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
+## [0.16.17] — 2026-08-13
+
+ubuntu2004 post-reboot audit fixes (debugged live on a scratch CVM).
+
+### Fixed
+- **Gate now scores the whole run** (`summary.all.score`): the per-level
+  buckets are level-only — ubuntu2204 L2 gated 69.2% on the L2-exclusive
+  bucket while the run itself scored 90.1%.
+- **journal-upload bootstrap rewritten** (was broken on ubuntu2004):
+  config 0600 made the service fail "Permission denied" (runs as
+  systemd-journal) → 0644; hardened /var/log/journal is 2740
+  root:systemd-journal so the remote user cannot traverse into
+  /var/log/journal/remote; and the stock socket unit double-bound the
+  loopback port.  The bootstrap now ships a standalone
+  systemd-journal-remote.service (direct 127.0.0.1:19532 bind,
+  PrivateNetwork off, archive in a top-level /var/log/journal-remote
+  LogsDirectory) and disables the socket unit.  Verified live: both
+  services active and suid_dumpable=0 survive a reboot; post-reboot scan
+  89.4%.
+- **apport vs suid_dumpable (1.5.3/1.5.5)**: `/etc/init.d/apport` writes
+  `fs.suid_dumpable=2` on every boot, so 1.5.3 could never survive a
+  reboot while apport stayed enabled.  1.5.5 reclassified disruptive→safe
+  (disabling apport is build-safe), which also makes 1.5.3 stick.
+- **catalog contradictions → manual** (ubuntu2004): 6.2.2.1.4 (remote
+  "not in use" contradicts the upload loopback bootstrap), 2.3.3.1/2.3.3.3
+  (chrony path — apt installing chrony removes systemd-timesyncd, breaking
+  2.3.2.2), 2.3.2.1 (site-specific NTP server), 6.2.2.2 (ForwardToSyslog
+  contradicts the applied 6.2.3.3 rsyslog path).
+
 ## [0.16.16] — 2026-08-13
 
 ### Fixed

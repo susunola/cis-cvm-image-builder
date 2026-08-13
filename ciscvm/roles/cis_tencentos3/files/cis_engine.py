@@ -1299,12 +1299,21 @@ def _bootstrap_journal_upload(ctx):
 
     This avoids needing an external log server while making the service
     genuinely active, and leaves a local archived copy of the journal in
-    /var/log/journal/remote/.  Pitfalls handled:
+    /var/log/journal-remote/.  Pitfalls handled:
       1. journal-upload.conf syntax differs by systemd version:
          URL= (>= 245 / RHEL9) vs UploadServer= (< 245 / RHEL8).
       2. the remote archive grows unbounded — a logrotate rule caps it.
-      3. no upload loop: remote stores into /var/log/journal/remote,
+      3. no upload loop: remote stores into /var/log/journal-remote,
          which journal-upload never reads.
+      4. the stock remote unit runs PrivateNetwork=yes — a 127.0.0.1
+         listener inside that netns is unreachable from journal-upload,
+         so the drop-in turns it off.
+      5. after CIS hardening /var/log/journal is 2740 root:systemd-journal,
+         so the systemd-journal-remote user cannot traverse into
+         /var/log/journal/remote and the service dies with "output must be
+         a directory" — the archive lives in a top-level LogsDirectory
+         (/var/log/journal-remote) instead, which systemd creates with the
+         right ownership.
     """
     missing = [p for p in ("systemd-journal-remote",) if not pkg_installed(p)]
     if missing:
@@ -1313,18 +1322,23 @@ def _bootstrap_journal_upload(ctx):
             ctx.add_note("journal-upload: cannot install %s: %s"
                          % (", ".join(missing), err))
             return False, "cannot install systemd-journal-remote: %s" % err
-    # 1. Loopback receiver — drop-in overrides on the stock units.
-    write_file(ctx,
-               "/etc/systemd/system/systemd-journal-remote.socket.d/ciscvm.conf",
-               "[Socket]\nListenStream=\nListenStream=127.0.0.1:19532\n", 0o644)
+    # 1. Loopback receiver — drop-in override on the stock unit.
+    #    The stock socket unit is NOT used: socket activation would hold
+    #    127.0.0.1:19532 before the service binds it ("Address already in
+    #    use"), so the socket is masked and the service binds directly
+    #    (Requires= cleared so the socket is not pulled back in).
     rem = out("command -v systemd-journal-remote 2>/dev/null || "
               "echo /usr/lib/systemd/systemd-journal-remote", 20).strip()
+    os.makedirs("/var/log/journal-remote", exist_ok=True)
     write_file(ctx,
                "/etc/systemd/system/systemd-journal-remote.service.d/ciscvm.conf",
-               "[Service]\nExecStart=\nExecStart=%s --listen-http=127.0.0.1:19532 "
-               "--output=/var/log/journal/remote/ --split-mode=host\n" % rem, 0o644)
+               "[Unit]\nRequires=\n"
+               "[Service]\nPrivateNetwork=no\nLogsDirectory=\n"
+               "LogsDirectory=journal-remote\nExecStart=\n"
+               "ExecStart=%s --listen-http=127.0.0.1:19532 "
+               "--output=/var/log/journal-remote/\n" % rem, 0o644)
     sh(["systemctl", "daemon-reload"], 30)
-    sh(["systemctl", "enable", "--now", "systemd-journal-remote.socket"], 120)
+    sh(["systemctl", "mask", "systemd-journal-remote.socket"], 60)
     sh(["systemctl", "enable", "--now", "systemd-journal-remote.service"], 120)
     # 2. journal-upload target — version-aware syntax.
     ver = as_int((out("systemd --version 2>/dev/null | head -1 | "
@@ -1333,11 +1347,14 @@ def _bootstrap_journal_upload(ctx):
         upload_cfg = "[Upload]\nURL=http://127.0.0.1:19532\n"
     else:
         upload_cfg = "[Upload]\nUploadServer=127.0.0.1:19532\n"
-    write_file(ctx, "/etc/systemd/journal-upload.conf", upload_cfg, 0o600)
+    # NB: world-readable on purpose — systemd-journal-upload runs as the
+    # systemd-journal user and must be able to READ this file; 0600 made
+    # the service fail with "Permission denied" on Ubuntu.
+    write_file(ctx, "/etc/systemd/journal-upload.conf", upload_cfg, 0o644)
     # 3. Cap the archived-copy growth (journald does NOT rotate
-    #    /var/log/journal/remote — this is on us).
+    #    /var/log/journal-remote — this is on us).
     write_file(ctx, "/etc/logrotate.d/ciscvm-journal-remote",
-               "/var/log/journal/remote/*.journal {\n"
+               "/var/log/journal-remote/*.journal {\n"
                "    daily\n    rotate 7\n    maxsize 100M\n    compress\n"
                "    missingok\n    notifempty\n"
                "    postrotate\n"

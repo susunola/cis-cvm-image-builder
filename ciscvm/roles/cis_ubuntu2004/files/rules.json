@@ -973,7 +973,7 @@
     "apport"
    ]
   },
-  "risk": "disruptive",
+  "risk": "safe",
   "page": 159
  },
  {
@@ -1960,19 +1960,11 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "kv_conf",
+  "family": "manual",
   "params": {
-   "files": [
-    "/etc/systemd/timesyncd.conf"
-   ],
-   "globs": [
-    "/etc/systemd/timesyncd.conf.d/*.conf"
-   ],
-   "key": "NTP",
-   "sep": "=",
-   "op": "present"
+   "note": "manual: authorized timeserver is site-specific"
   },
-  "risk": "safe",
+  "risk": "none",
   "page": 285
  },
  {
@@ -2009,18 +2001,11 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "kv_conf",
+  "family": "manual",
   "params": {
-   "files": [
-    "/etc/chrony/chrony.conf"
-   ],
-   "globs": [
-    "/etc/chrony/conf.d/*.conf"
-   ],
-   "key": "server",
-   "op": "present"
+   "note": "manual: site-specific timeserver; timesyncd is the Ubuntu path"
   },
-  "risk": "safe",
+  "risk": "none",
   "page": 292
  },
  {
@@ -2052,16 +2037,11 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
+  "family": "manual",
   "params": {
-   "units": [
-    "chrony.service"
-   ],
-   "packages": [
-    "chrony"
-   ]
+   "note": "manual: chrony conflicts with systemd-timesyncd (Debian packaging removes it) — timesyncd is the Ubuntu 20.04 default path"
   },
-  "risk": "safe",
+  "risk": "none",
   "page": 298
  },
  {
@@ -4759,15 +4739,11 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_disabled",
+  "family": "manual",
   "params": {
-   "units": [
-    "systemd-journal-remote.socket",
-    "systemd-journal-remote.service"
-   ],
-   "packages": []
+   "note": "manual: loopback journal-remote is REQUIRED by the 6.2.2.1.3 upload bootstrap — mutually exclusive"
   },
-  "risk": "disruptive",
+  "risk": "none",
   "page": 716
  },
  {
@@ -4782,20 +4758,11 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "kv_conf",
+  "family": "manual",
   "params": {
-   "files": [
-    "/etc/systemd/journald.conf"
-   ],
-   "globs": [
-    "/etc/systemd/journald.conf.d/*.conf"
-   ],
-   "key": "ForwardToSyslog",
-   "sep": "=",
-   "value": "no",
-   "op": "eq"
+   "note": "manual: mutually exclusive with 6.2.3.3 (journald->rsyslog path is applied)"
   },
-  "risk": "disruptive",
+  "risk": "none",
   "page": 718
  },
  {
