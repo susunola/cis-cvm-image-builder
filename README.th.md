@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-%3E%3D3.11-blue?logo=python&logoColor=white" alt="Python >= 3.11">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT">
-  <img src="https://img.shields.io/badge/profiles-14-orange" alt="14 profiles">
+  <img src="https://img.shields.io/badge/profiles-12-orange" alt="12 profiles">
   <img src="https://img.shields.io/badge/platform-Tencent%20Cloud-0052D9" alt="Tencent Cloud">
   <a href="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
@@ -150,8 +150,7 @@ ciscvm clean
 profile             = "tencentos3"
 #   Linux: ubuntu2004 | ubuntu2204 | ubuntu2404 |
 #          rhel8 | rhel9 | rhel10 |
-#          tencentos3 | tencentos4 |
-#          sles15 | sles16
+#          tencentos3 | tencentos4
 #   Windows: win2016 | win2019 | win2022 | win2025
 region              = "ap-guangzhou"
 zone                = "ap-guangzhou-4"
@@ -184,7 +183,7 @@ benchmark = "CIS-v1.0.0"
 
 | Section | Field | Type | คำอธิบาย |
 |---|---|---|---|
-| `[build]` | `profile` | string | หนึ่งใน 14 profile ที่รองรับ |
+| `[build]` | `profile` | string | หนึ่งใน 12 profile ที่รองรับ |
 | | `region` | string | Region ของ Tencent Cloud เช่น `ap-guangzhou` |
 | | `zone` | string | Availability zone เช่น `ap-guangzhou-4` |
 | | `instance_type` | string | สเปก CVM เช่น `S5.MEDIUM2` |
@@ -255,7 +254,7 @@ Role ที่ให้มาด้วยมี `cis_engine.ps1` (PowerShell) �
 ### การตัดสินใจด้านดีไซน์
 
 **role ที่ให้มาด้วย, ไม่ใช้ Galaxy**
-cis-os engine role ทั้ง 14 ตัวถูกรวมไว้ในแพ็กเกจที่ `ciscvm/roles/` ตอน build
+cis-os engine role ทั้ง 12 ตัวถูกรวมไว้ในแพ็กเกจที่ `ciscvm/roles/` ตอน build
 เครื่องมือจะคัดลอก role ที่เลือกไปยัง workspace ไม่มี dependency ด้าน network
 ไม่มี version drift
 
@@ -290,8 +289,6 @@ AK/SK ผ่าน environment variable เท่านั้น (HCL `sensitive
 | `rhel10` | RHEL 10 | root | dnf | `roles/cis_rhel10/` |
 | `tencentos3` | TencentOS Server 3 | root | dnf | `roles/cis_tencentos3/` |
 | `tencentos4` | TencentOS Server 4 | root | dnf | `roles/cis_tencentos4/` |
-| `sles15` | SLES 15 | root | zypper | `roles/cis_sles15/` |
-| `sles16` | SLES 16 | root | zypper | `roles/cis_sles16/` |
 
 ### Windows (WinRM × controller-side ansible)
 

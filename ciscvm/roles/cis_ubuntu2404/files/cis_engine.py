@@ -464,7 +464,7 @@ _PKG_CACHE_LOCK = threading.Lock()
 def _installed_pkgs():
     """Set of installed package names (one subprocess, cached).
 
-    Queries rpm (RHEL/SLES/TencentOS) or dpkg-query (Debian/Ubuntu),
+    Queries rpm (RHEL/TencentOS) or dpkg-query (Debian/Ubuntu),
     whichever the platform provides.  A timed-out / failed query must
     never be cached as "zero packages installed" — that made Phase 1
     batch-install hundreds of bogus packages and blow the 900s dnf
@@ -1254,7 +1254,7 @@ def c_svc_enabled(ctx, p):
 
 
 def _install_pkgs(ctx, pkgs, timeout=900):
-    """Platform-aware package install (dnf / apt-get / zypper).
+    """Platform-aware package install (dnf / apt-get).
 
     Serialised on ctx._pkg_lock: pkg_* families already hold it inside
     _apply_one (RLock, so re-entry is safe), but svc_enabled fixes and the
@@ -1266,8 +1266,6 @@ def _install_pkgs(ctx, pkgs, timeout=900):
             cmd = ["dnf", "-y", "install"] + pkgs
         elif have("apt-get"):
             cmd = ["apt-get", "-y", "install"] + pkgs
-        elif have("zypper"):
-            cmd = ["zypper", "--non-interactive", "install"] + pkgs
         else:
             return False, "no supported package manager found"
         rc, o, e = sh(cmd, timeout)

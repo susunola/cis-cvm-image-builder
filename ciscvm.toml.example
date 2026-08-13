@@ -4,8 +4,7 @@
 profile             = "tencentos3"
 #   Linux: ubuntu2004 | ubuntu2204 | ubuntu2404 |
 #          rhel8 | rhel9 | rhel10 |
-#          tencentos3 | tencentos4 |
-#          sles15 | sles16
+#          tencentos3 | tencentos4
 #   Windows: win2016 | win2019 | win2022 | win2025
 region              = "ap-guangzhou"
 zone                = "ap-guangzhou-3"

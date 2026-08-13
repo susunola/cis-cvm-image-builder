@@ -184,7 +184,6 @@ Builder, CIS-CAT/LBK and HardeningKitty.
 - Ubuntu 20.04 / 22.04 / 24.04 — CIS Ubuntu Linux LTS Benchmark v1.0.0
 - RHEL 8 / 9 / 10 — CIS Red Hat Enterprise Linux Benchmark v1.0.0
 - TencentOS 3 / 4 — CIS TencentOS Linux Benchmark v1.0.0
-- SLES 15 / 16 — CIS SUSE Linux Enterprise Server Benchmark v1.0.0
 - Windows Server 2016 / 2019 / 2022 / 2025 — CIS Microsoft Windows Server
   Benchmark v1.0.0
 

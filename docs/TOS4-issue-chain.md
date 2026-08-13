@@ -38,15 +38,15 @@ ciscvm 的架构决定了大部分修复**自动覆盖全部 Linux profile**：
 
 ## 三、其他 Linux playbooks 检查结论（2026-08-08）
 
-对 rhel8/9/10、sles15/16、tencentos3、ubuntu2004/2204/2404 逐 role 对比 rules.json 关键规则：
+对 rhel8/9/10、tencentos3、ubuntu2004/2204/2404 逐 role 对比 rules.json 关键规则：
 
 | 检查项 | 涉及 role | 结论 |
 |---|---|---|
-| SELinux `not disabled`（1.7.1.4 L1） | rhel8/9/10、sles16、tencentos3/4 | **都有**。若源镜像 SELinux disabled，同样会触发 autorelabel/根 ro → **guard 修复（删标记 + remount rw）已自动覆盖**，无独立风险 |
+| SELinux `not disabled`（1.7.1.4 L1） | rhel8/9/10、tencentos3/4 | **都有**。若源镜像 SELinux disabled，同样会触发 autorelabel/根 ro → **guard 修复（删标记 + remount rw）已自动覆盖**，无独立风险 |
 | SELinux enforcing（1.7.1.5 L2） | 同上 | L2 不执行（L1），无影响 |
 | auditd（4.1.x L2） | 全部 | L1 均不启用 → smoke 条件式（is-enabled）跳过 ✓ |
 | /dev/shm noexec（1.1.8.2 L1） | 全部 | L1 均 disruptive 跳过 → smoke 条件式（fstab 门控）跳过 ✓ |
-| SSH crypto（1.6.5/1.6.6 L1） | rhel/sles/ubuntu/tos3/4 | engine 共享允许列表 + smoke 新黑名单（只查 CIS 真禁）→ 口径一致 ✓ |
+| SSH crypto（1.6.5/1.6.6 L1） | rhel/ubuntu/tos3/4 | engine 共享允许列表 + smoke 新黑名单（只查 CIS 真禁）→ 口径一致 ✓ |
 | nftables/firewalld（3.4.x） | tos3/4、rhel、ubuntu | guard 的 while-read nft 修复 + 全 zone permanent 规则共享 ✓ |
 | root login（5.2.10） | tos4 等 | guard 的 `PermitRootLogin prohibit-password` 恢复逻辑共享 ✓ |
 | **ssh_port=36000（TOS3）** | tencentos3 | guard 用 `sshd -T` 探测实际端口，`$SSH_PORT` 变量贯穿防火墙规则 → 36000 自适应（已渲染验证） ✓ |
@@ -54,12 +54,12 @@ ciscvm 的架构决定了大部分修复**自动覆盖全部 Linux profile**：
 ### 发现的唯一实质差异（非阻塞）
 
 `tasks/run.yml` 存在版本分叉：**tencentos3/4 共享新版**（cd1347b1，含 `check_mode` 支持、
-`cis_remote_tmp` 显式化），**rhel8/9/10、sles15/16、ubuntu2004/2204/2404 仍是旧版**
+`cis_remote_tmp` 显式化），**rhel8/9/10、ubuntu2004/2204/2404 仍是旧版**
 （1995b739）。该差异是**增强项**（编排层变量命名与 check-mode 行为），不是 TOS4 问题链
 的一部分，旧版各平台历史上构建正常 → **不阻塞，建议后续把 TOS4 的 run.yml 改进回同步**
 （与 engine 的 md5 同步机制一致）。
 
-**结论**：由于 engine 与 HCL 模板全共享，v0.14.14-22 的修复对全部 10 个 Linux profile 自动
+**结论**：由于 engine 与 HCL 模板全共享，v0.14.14-22 的修复对全部 8 个 Linux profile 自动
 生效，逐 role 检查未发现需要单独修复的规则级问题。唯一需要留意的是各镜像的 SELinux 初始
 状态（若为 disabled，guard 的 autorelabel/remount 修复即为兜底）。
 

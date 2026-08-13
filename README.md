@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.12.4-blue?logo=pypi&logoColor=white" alt="Version 0.12.4">
   <img src="https://img.shields.io/badge/python-3.11_|_3.12_|_3.13-blue?logo=python&logoColor=white" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/profiles-14-orange" alt="14 profiles">
+  <img src="https://img.shields.io/badge/profiles-12-orange" alt="12 profiles">
   <img src="https://img.shields.io/badge/platform-Tencent%20Cloud-0052D9" alt="Tencent Cloud">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT">
   <a href="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -22,7 +22,7 @@
 
 **Config-driven CLI that spins up an ephemeral CVM, applies CIS hardening via the bundled cis-os engine, and captures the result as a custom image.** Built for DevOps and security teams who need repeatable, auditable hardened base images — CI pipelines, Auto Scaling launch templates, or Terraform image references.
 
-Zero pip dependencies. 14 OS profiles across Linux and Windows. Build-time gate with configurable score threshold. All roles ship inside the package — no Galaxy, no network drift.
+Zero pip dependencies. 12 OS profiles across Linux and Windows. Build-time gate with configurable score threshold. All roles ship inside the package — no Galaxy, no network drift.
 
 Beyond the build itself, ciscvm covers the full **build → test → distribute** governance loop:
 
@@ -186,8 +186,7 @@ ciscvm clean                              # remove .ciscvm-build/
 profile             = "tencentos3"
 #   Linux: ubuntu2004 | ubuntu2204 | ubuntu2404 |
 #          rhel8 | rhel9 | rhel10 |
-#          tencentos3 | tencentos4 |
-#          sles15 | sles16
+#          tencentos3 | tencentos4
 #   Windows: win2016 | win2019 | win2022 | win2025
 region              = "ap-guangzhou"
 zone                = "ap-guangzhou-4"
@@ -386,7 +385,7 @@ Windows builds use the Packer `ansible` provisioner (controller-side) over WinRM
 
 ### Design
 
-**Bundled roles.** All 14 cis-os engine roles ship inside `ciscvm/roles/`. At build time the tool copies the selected role into the workspace. No Galaxy, no network dependency, no version drift.
+**Bundled roles.** All 12 cis-os engine roles ship inside `ciscvm/roles/`. At build time the tool copies the selected role into the workspace. No Galaxy, no network dependency, no version drift.
 
 **ansible-local (Linux).** Playbooks and roles execute inside the build instance — the Packer controller does not need SSH access into the cloud VPC.
 
@@ -412,8 +411,6 @@ Windows builds use the Packer `ansible` provisioner (controller-side) over WinRM
 | `rhel10` | RHEL 10 | root | dnf | `roles/cis_rhel10/` |
 | `tencentos3` | TencentOS Server 3 | root | dnf | `roles/cis_tencentos3/` |
 | `tencentos4` | TencentOS Server 4 | root | dnf | `roles/cis_tencentos4/` |
-| `sles15` | SLES 15 | root | zypper | `roles/cis_sles15/` |
-| `sles16` | SLES 16 | root | zypper | `roles/cis_sles16/` |
 
 ### Windows (WinRM × controller-side ansible)
 

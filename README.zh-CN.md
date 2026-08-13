@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-%3E%3D3.11-blue?logo=python&logoColor=white" alt="Python >= 3.11">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT">
-  <img src="https://img.shields.io/badge/profiles-14-orange" alt="14 profiles">
+  <img src="https://img.shields.io/badge/profiles-12-orange" alt="12 profiles">
   <img src="https://img.shields.io/badge/platform-Tencent%20Cloud-0052D9" alt="Tencent Cloud">
   <a href="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
@@ -187,8 +187,7 @@ ciscvm clean
 profile             = "tencentos3"
 #   Linux: ubuntu2004 | ubuntu2204 | ubuntu2404 |
 #          rhel8 | rhel9 | rhel10 |
-#          tencentos3 | tencentos4 |
-#          sles15 | sles16
+#          tencentos3 | tencentos4
 #   Windows: win2016 | win2019 | win2022 | win2025
 region              = "ap-guangzhou"
 zone                = "ap-guangzhou-4"
@@ -241,7 +240,7 @@ benchmark = "CIS-v1.0.0"
 
 | 节 | 字段 | 类型 | 说明 |
 |---|---|---|---|
-| `[build]` | `profile` | string | 14 个画像之一 |
+| `[build]` | `profile` | string | 12 个画像之一 |
 | | `region` | string | 腾讯云地域，如 `ap-guangzhou` |
 | | `zone` | string | 可用区，如 `ap-guangzhou-4` |
 | | `instance_type` | string | CVM 实例规格，如 `S5.MEDIUM2` |
@@ -330,7 +329,7 @@ Windows 构建使用 Packer 的 `ansible` provisioner（控制器侧），通过
 ### 设计要点
 
 **捆绑角色，无 Galaxy。**
-14 个 cis-os 引擎角色全部随包发布在 `ciscvm/roles/` 目录下。构建时工具
+12 个 cis-os 引擎角色全部随包发布在 `ciscvm/roles/` 目录下。构建时工具
 将角色复制到工作目录。无网络依赖，无版本漂移。
 
 **`ansible-local`（Linux）— 实例内自包含。**
@@ -361,8 +360,6 @@ AK/SK 仅通过环境变量传入（HCL `sensitive = true`）。临时实例打�
 | `rhel10` | RHEL 10 | root | dnf | `roles/cis_rhel10/` |
 | `tencentos3` | TencentOS Server 3 | root | dnf | `roles/cis_tencentos3/` |
 | `tencentos4` | TencentOS Server 4 | root | dnf | `roles/cis_tencentos4/` |
-| `sles15` | SLES 15 | root | zypper | `roles/cis_sles15/` |
-| `sles16` | SLES 16 | root | zypper | `roles/cis_sles16/` |
 
 ### Windows（WinRM × 控制器侧 ansible）
 

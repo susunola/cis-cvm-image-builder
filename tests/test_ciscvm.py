@@ -402,12 +402,6 @@ class TestRenderInstall:
         assert "apt-get update" in out
         assert "apt-get install" in out
 
-    def test_zypper(self):
-        p = PROFILES["sles15"]
-        out = render_install(p)
-        assert "zypper refresh" in out
-        assert "zypper install" in out
-
 
 class TestRenderSite:
     def test_linux_level1(self):
@@ -1208,8 +1202,8 @@ class TestMain:
 # PROFILES integrity checks
 # ---------------------------------------------------------------------------
 class TestProfiles:
-    def test_count_is_14(self):
-        assert len(PROFILES) == 14, f"Expected 14 profiles, got {len(PROFILES)}"
+    def test_count_is_12(self):
+        assert len(PROFILES) == 12, f"Expected 12 profiles, got {len(PROFILES)}"
 
     def test_all_have_os_tag(self):
         for name, p in PROFILES.items():
@@ -2373,8 +2367,7 @@ class TestRuleIdAndBenchmark:
         hashes = set()
         for role in ("cis_tencentos4", "cis_tencentos3", "cis_rhel8",
                      "cis_rhel9", "cis_rhel10", "cis_ubuntu2004",
-                     "cis_ubuntu2204", "cis_ubuntu2404", "cis_sles15",
-                     "cis_sles16"):
+                     "cis_ubuntu2204", "cis_ubuntu2404"):
             with open(f"ciscvm/roles/{role}/files/cis_engine.py", "rb") as fh:
                 data = fh.read()
             hashes.add(hashlib.sha256(data).hexdigest())

@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-%3E%3D3.11-blue?logo=python&logoColor=white" alt="Python >= 3.11">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT">
-  <img src="https://img.shields.io/badge/profiles-14-orange" alt="14 profiles">
+  <img src="https://img.shields.io/badge/profiles-12-orange" alt="12 profiles">
   <img src="https://img.shields.io/badge/platform-Tencent%20Cloud-0052D9" alt="Tencent Cloud">
   <a href="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
@@ -151,8 +151,7 @@ ciscvm clean
 profile             = "tencentos3"
 #   Linux: ubuntu2004 | ubuntu2204 | ubuntu2404 |
 #          rhel8 | rhel9 | rhel10 |
-#          tencentos3 | tencentos4 |
-#          sles15 | sles16
+#          tencentos3 | tencentos4
 #   Windows: win2016 | win2019 | win2022 | win2025
 region              = "ap-guangzhou"
 zone                = "ap-guangzhou-4"
@@ -185,7 +184,7 @@ benchmark = "CIS-v1.0.0"
 
 | セクション | フィールド | 型 | 説明 |
 |---|---|---|---|
-| `[build]` | `profile` | string | 14 プロファイルのいずれか |
+| `[build]` | `profile` | string | 12 プロファイルのいずれか |
 | | `region` | string | Tencent Cloud リージョン（例：`ap-guangzhou`） |
 | | `zone` | string | アベイラビリティゾーン（例：`ap-guangzhou-4`） |
 | | `instance_type` | string | CVM インスタンス仕様（例：`S5.MEDIUM2`） |
@@ -255,7 +254,7 @@ Windows ビルドは Packer の `ansible` プロビジョナー（コントロ�
 ### 設計上の判断
 
 **ロールは同梱、Galaxy なし。**
-14 種すべての cis-os エンジンロールをパッケージ内の `ciscvm/roles/` に同梱。ビルド
+12 種すべての cis-os エンジンロールをパッケージ内の `ciscvm/roles/` に同梱。ビルド
 時にツールが選択されたロールを作業ディレクトリへコピー。ネットワーク依存なし、
 バージョン漂流なし。
 
@@ -289,8 +288,6 @@ AK/SK は環境変数のみ（HCL の `sensitive = true`）。一時インスタ
 | `rhel10` | RHEL 10 | root | dnf | `roles/cis_rhel10/` |
 | `tencentos3` | TencentOS Server 3 | root | dnf | `roles/cis_tencentos3/` |
 | `tencentos4` | TencentOS Server 4 | root | dnf | `roles/cis_tencentos4/` |
-| `sles15` | SLES 15 | root | zypper | `roles/cis_sles15/` |
-| `sles16` | SLES 16 | root | zypper | `roles/cis_sles16/` |
 
 ### Windows（WinRM × コントローラ側 ansible）
 

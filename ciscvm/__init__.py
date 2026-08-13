@@ -6,7 +6,7 @@ Spins up an ephemeral CVM, applies the bundled cis-os engine role for CIS
 hardening, and captures the result as a custom image.  All configuration is
 driven by ciscvm.toml — no manual template editing.
 
-Supported OS: Ubuntu 20/22/24, RHEL 8/9/10, TencentOS 3/4, SLES 15/16,
+Supported OS: Ubuntu 20/22/24, RHEL 8/9/10, TencentOS 3/4,
               Windows Server 2016/2019/2022/2025
 
 Engine:  Bundled cis_engine.py (Linux) / cis_engine.ps1 (Windows).
@@ -150,16 +150,6 @@ def _tlinux_profile(role_dir: str, os_tag: str, **kw: Any) -> dict[str, Any]:
         "clean_cmd": "sudo dnf clean all", **kw,
     }
 
-def _sles_profile(role_dir: str, os_tag: str, **kw: Any) -> dict[str, Any]:
-    return {
-        "role_dir": role_dir, "ssh_username": "root", "os_tag": os_tag,
-        "benchmark": "CIS-v1.0.0",
-        "pkg_update": "sudo zypper refresh",
-        "pkg_install": "sudo zypper install -y python3-pip python3-venv",
-        "cis_pkg_batch": "sudo zypper --non-interactive install -y sudo pam authselect firewalld chrony rsyslog cronie aide systemd-journal-remote || true",
-        "clean_cmd": "sudo zypper clean --all", **kw,
-    }
-
 PROFILES: dict[str, dict[str, Any]] = {
     "ubuntu2004":  _ubuntu_profile("cis_ubuntu2004", "ubuntu-20.04",
                                    # focal ships python3.8; ansible-core 2.15+
@@ -173,8 +163,6 @@ PROFILES: dict[str, dict[str, Any]] = {
     "rhel10":      _rhel_profile("cis_rhel10", "rhel-10"),
     "tencentos3":  _tlinux_profile("cis_tencentos3", "tencentos-3", ansible_core_spec="ansible-core>=2.11"),
     "tencentos4":  _tlinux_profile("cis_tencentos4", "tencentos-4"),
-    "sles15":      _sles_profile("cis_sles15", "sles-15"),
-    "sles16":      _sles_profile("cis_sles16", "sles-16"),
     # ── Windows Server (winrm + controller-side ansible) ──
     "win2016": {
         "family": "windows",
@@ -215,8 +203,7 @@ SAMPLE_CONFIG = """\
 profile             = "tencentos3"
 #   Linux profiles: ubuntu2004 | ubuntu2204 | ubuntu2404 |
 #                   rhel8 | rhel9 | rhel10 |
-#                   tencentos3 | tencentos4 |
-#                   sles15 | sles16
+#                   tencentos3 | tencentos4
 #   Windows:        win2016 | win2019 | win2022 | win2025
 region              = "ap-guangzhou"
 zone                = "ap-guangzhou-3"
@@ -1348,7 +1335,7 @@ CVE_SCAN_LINUX_BLOCK = r"""  provisioner "shell" {
       "set +e",
       "if ! command -v trivy >/dev/null 2>&1; then",
       "  echo '[ciscvm] cve-scan: installing trivy (pinned v0.57.1)'",
-      "  sudo dnf install -y wget >/dev/null 2>&1 || sudo apt-get install -y wget >/dev/null 2>&1 || sudo zypper --non-interactive install -y wget >/dev/null 2>&1 || true",
+      "  sudo dnf install -y wget >/dev/null 2>&1 || sudo apt-get install -y wget >/dev/null 2>&1 || true",
       "  TARCH=$(uname -m | sed -e 's/x86_64/64bit/' -e 's/aarch64/ARM64/' -e 's/arm64/ARM64/')",
       "  curl -fsSL \"https://github.com/aquasecurity/trivy/releases/download/v0.57.1/trivy_0.57.1_Linux-${TARCH}.tar.gz\" -o /tmp/trivy.tgz 2>/dev/null && sudo tar -C /usr/local/bin -xzf /tmp/trivy.tgz trivy 2>/dev/null && rm -f /tmp/trivy.tgz",
       "fi",
@@ -1623,8 +1610,8 @@ export DEBIAN_FRONTEND=noninteractive
 __HOSTS_FIX__
 
 # 1. System dependencies.
-#    Refreshing package indexes (apt-get update / dnf makecache / zypper
-#    refresh) is one of the slowest steps and is pure waste when the base
+#    Refreshing package indexes (apt-get update / dnf makecache) is one of
+#    the slowest steps and is pure waste when the base
 #    image already ships python3 venv + pip. Probe first, only touch the
 #    package manager when something is actually missing.
 need_pkgs=0
@@ -1635,7 +1622,7 @@ if [ "$need_pkgs" = "1" ]; then
     # Cloud-init (and other boot-time jobs) may still be running apt-get on
     # first connect — grabbing the dpkg lock races them and dies with
     # "Could not get lock /var/lib/dpkg/lock-frontend".  Wait for the lock
-    # instead of failing (up to 5 min; no-op on rpm/zypper systems).
+    # instead of failing (up to 5 min; no-op on rpm systems).
     # NB: use pgrep (procps, preinstalled everywhere) — fuser (psmisc) is
     # NOT installed on ubuntu cloud images, so a fuser-based check would
     # silently no-op and we would race the lock again.
@@ -1668,8 +1655,7 @@ if [ -z "$PY" ]; then
     echo "==> No Python >=3.8 found, trying to install python39..."
     (sudo dnf install -y python39 2>/dev/null || \
      sudo yum install -y python39 2>/dev/null || \
-     (sudo apt-get update -qq && sudo apt-get install -y python3.9 python3.9-venv) 2>/dev/null || \
-     sudo zypper --non-interactive install -y python39 2>/dev/null || true)
+     (sudo apt-get update -qq && sudo apt-get install -y python3.9 python3.9-venv) 2>/dev/null || true)
     for candidate in python3.9 python3.10 python3.11; do
         if command -v "$candidate" &>/dev/null && \
            "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3,8) else 1)' 2>/dev/null; then
