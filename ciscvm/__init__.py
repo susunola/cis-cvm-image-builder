@@ -1542,6 +1542,20 @@ __SPOT_BLOCK__
 build {
   sources = ["source.tencentcloud-cvm.default"]
 
+  # WinRM survival guard — the Windows counterpart of the Linux ssh-guard.
+  # CIS 9.x turns the firewall ON with DefaultInboundAction=Block; if no
+  # enabled inbound rule covers 5985, the smoke-test and re-lock provisioners
+  # (which run AFTER the apply) lose the WinRM channel and the build dies.
+  # Create an explicit allow rule BEFORE the apply; the re-lock provisioner
+  # removes it again so the shipped image stays clean.
+  provisioner "powershell" {
+    inline = [
+      "Enable-NetFirewallRule -DisplayGroup 'Windows Remote Management' -ErrorAction SilentlyContinue",
+      "New-NetFirewallRule -DisplayName 'ciscvm-winrm-build-5985' -Direction Inbound -Protocol TCP -LocalPort 5985 -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null",
+      "Write-Host '[ciscvm] winrm-guard: 5985 allow rule in place before CIS apply'"
+    ]
+  }
+
   # CIS apply via controller-side ansible (winrm — cis_engine.ps1)
   # NOTE: no --tags filter — the bundled Windows roles don't tag tasks,
   # so filtering by level would silently skip every task.
@@ -1573,7 +1587,9 @@ __SMOKE_TEST_BLOCK____TEST_COMPONENTS_BLOCK__
       "# so 'net user' parsing and Windows complexity rules are both satisfied.",
       "$newpass = -join ((48..57)+(65..90)+(97..122) | Get-Random -Count 40 | ForEach-Object {[char]$_})",
       "net user Administrator $newpass | Out-Null",
-      "Write-Host '[ciscvm] winrm re-locked: basic auth + unencrypted HTTP off; Administrator password randomized'"
+      "# Remove the build-time WinRM firewall guard rule (image ships hardened).",
+      "Remove-NetFirewallRule -DisplayName 'ciscvm-winrm-build-5985' -ErrorAction SilentlyContinue",
+      "Write-Host '[ciscvm] winrm re-locked: basic auth + unencrypted HTTP off; Administrator password randomized; guard rule removed'"
     ]
   }
 }
