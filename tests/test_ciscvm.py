@@ -2392,6 +2392,42 @@ class TestRuleIdAndBenchmark:
             hashes.add(hashlib.sha256(data).hexdigest())
         assert len(hashes) == 1, "Linux engines drifted out of sync"
 
+    def test_none_risk_rules_never_applied(self):
+        """v0.16.15: run_rule() must gate risk=none rules out of apply —
+        a none-risk rule with a real fixer (e.g. the /tmp partition rule)
+        was live-applied and mounted tmpfs over /tmp mid-build, covering
+        the running Ansible payload (ubuntu2404 module crash)."""
+        with open("ciscvm/roles/cis_ubuntu2404/files/cis_engine.py", encoding="utf-8") as fh:
+            src = fh.read()
+        assert 'rule.get("risk") == "none"' in src
+        assert '"skipped_manual"' in src
+
+    def test_pkg_fixes_are_platform_aware(self):
+        """v0.16.15: package fix paths must not call dnf directly — they
+        route through _install_pkgs/_remove_pkgs (dnf / apt-get)."""
+        with open("ciscvm/roles/cis_ubuntu2404/files/cis_engine.py", encoding="utf-8") as fh:
+            src = fh.read()
+        assert "_remove_pkgs" in src
+        assert 'DEBIAN_FRONTEND=noninteractive' in src
+        # Only _install_pkgs/_remove_pkgs may invoke dnf.
+        import re
+        direct = [ln for ln in src.splitlines()
+                  if 'sh(["dnf"' in ln]
+        assert not direct, f"direct dnf sh() calls remain: {direct}"
+
+    def test_none_risk_partition_rules_are_manual(self):
+        """v0.16.15: partition/tmpfs decisions are site-specific — every
+        risk=none partition rule must carry family=manual so it is never
+        live-mounted at build time."""
+        import glob as _g
+        for path in _g.glob("ciscvm/roles/cis_*/files/rules.json"):
+            with open(path, encoding="utf-8") as fh:
+                rules = json.load(fh)
+            for r in rules:
+                if r.get("family") == "partition":
+                    assert r.get("risk") != "none", \
+                        f"{path}: {r['id']} partition rule still risk=none"
+
     def test_sarif_carries_benchmark(self):
         from ciscvm import _build_sarif
         out = json.loads(_build_sarif(["  ✗ 1.1.1.1 | X"],

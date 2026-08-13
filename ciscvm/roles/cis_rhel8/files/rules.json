@@ -229,10 +229,10 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "partition",
+  "family": "manual",
   "params": {
    "mount": "/tmp",
-   "allow_tmpfs": true
+   "note": "manual: site-specific partition/tmpfs decision; never live-mount at build time"
   },
   "risk": "none",
   "page": 66

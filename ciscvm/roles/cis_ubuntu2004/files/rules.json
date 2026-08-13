@@ -209,11 +209,11 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "partition",
+  "family": "manual",
   "params": {
    "mount": "/tmp",
    "size_mb": 0,
-   "allow_tmpfs": true
+   "note": "manual: site-specific partition/tmpfs decision; never live-mount at build time"
   },
   "risk": "none",
   "page": 61
@@ -290,10 +290,11 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "partition",
+  "family": "manual",
   "params": {
    "mount": "/dev/shm",
-   "size_mb": 0
+   "size_mb": 0,
+   "note": "manual: site-specific partition/tmpfs decision; never live-mount at build time"
   },
   "risk": "none",
   "page": 71

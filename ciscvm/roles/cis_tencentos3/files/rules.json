@@ -229,10 +229,10 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "partition",
+  "family": "manual",
   "params": {
    "mount": "/tmp",
-   "allow_tmpfs": true
+   "note": "manual: site-specific partition/tmpfs decision; never live-mount at build time"
   },
   "risk": "none",
   "page": 66
@@ -309,10 +309,11 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "partition",
+  "family": "manual",
   "params": {
    "mount": "/dev/shm",
-   "require_tmpfs": true
+   "require_tmpfs": true,
+   "note": "manual: site-specific partition/tmpfs decision; never live-mount at build time"
   },
   "risk": "none",
   "page": 77
@@ -389,9 +390,10 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "partition",
+  "family": "manual",
   "params": {
-   "mount": "/home"
+   "mount": "/home",
+   "note": "manual: site-specific partition/tmpfs decision; never live-mount at build time"
   },
   "risk": "none",
   "page": 86
@@ -448,9 +450,10 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "partition",
+  "family": "manual",
   "params": {
-   "mount": "/var"
+   "mount": "/var",
+   "note": "manual: site-specific partition/tmpfs decision; never live-mount at build time"
   },
   "risk": "none",
   "page": 93
@@ -507,9 +510,10 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "partition",
+  "family": "manual",
   "params": {
-   "mount": "/var/tmp"
+   "mount": "/var/tmp",
+   "note": "manual: site-specific partition/tmpfs decision; never live-mount at build time"
   },
   "risk": "none",
   "page": 100
@@ -586,9 +590,10 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "partition",
+  "family": "manual",
   "params": {
-   "mount": "/var/log"
+   "mount": "/var/log",
+   "note": "manual: site-specific partition/tmpfs decision; never live-mount at build time"
   },
   "risk": "none",
   "page": 109
@@ -665,9 +670,10 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "partition",
+  "family": "manual",
   "params": {
-   "mount": "/var/log/audit"
+   "mount": "/var/log/audit",
+   "note": "manual: site-specific partition/tmpfs decision; never live-mount at build time"
   },
   "risk": "none",
   "page": 118

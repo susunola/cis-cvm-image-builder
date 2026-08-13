@@ -5,6 +5,29 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
+## [0.16.15] — 2026-08-13
+
+Ubuntu build failures root-caused on a live debug instance.
+
+### Fixed
+- **risk=none partition rules were LIVE-APPLIED** (ubuntu2404 L1/L2 crash):
+  `run_rule()` only gated `disruptive`, so a risk=none rule with a real
+  check+fixer ran its fix — `1.1.2.1.1` (/tmp, allow_tmpfs) mounted a fresh
+  tmpfs over /tmp mid-apply, covering the running Ansible payload
+  (`/tmp/ansible_ansible.*_payload_*`) and multiprocessing socket; the
+  module then died at `exit_json` ("Module result deserialization failed").
+  Two-layer fix: `run_rule()` now skips apply for risk=none rules
+  (`skipped_manual`), and every risk=none partition rule in all catalogs is
+  reclassified `family: manual` per the established manual/none convention.
+- **Package fixes hardcoded `dnf`** (ubuntu2004/2204 gate failures):
+  `f_pkg_present` / `f_pkg_absent` / `f_pkg_any_present` and the phase-1
+  batch install called dnf directly — every package rule failed apply on
+  Debian-family targets ("dnf install failed: not found"), dragging
+  ubuntu2004 L1 to 82.1% and L2 gates below 60-70%.  All now route through
+  `_install_pkgs()` / new `_remove_pkgs()` (dnf / apt-get with
+  DEBIAN_FRONTEND=noninteractive).  Package names were already deb-correct
+  in the ubuntu catalogs.
+
 ## [0.16.14] — 2026-08-13
 
 ### Fixed

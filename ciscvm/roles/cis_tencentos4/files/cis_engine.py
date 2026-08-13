@@ -1134,10 +1134,9 @@ def f_pkg_absent(ctx, p):
     present = [x for x in p["packages"] if pkg_installed(x)]
     if not present:
         return False, "already absent"
-    rc, o, e = sh(["dnf", "-y", "remove"] + present, 600)
-    if rc != 0:
-        return False, "dnf remove failed: %s" % (e or o)[:200]
-    _pkg_cache_invalidate()
+    ok, err = _remove_pkgs(ctx, present, 600)
+    if not ok:
+        return False, "package remove failed: %s" % err
     return True, "removed " + ", ".join(present)
 
 
@@ -1154,11 +1153,9 @@ def f_pkg_present(ctx, p):
     missing = [x for x in p["packages"] if not pkg_installed(x)]
     if not missing:
         return False, "already installed"
-    rc, o, e = sh(["dnf", "-y", "install"] + missing, 900)
-    if rc != 0:
-        return False, "dnf install failed: %s" % (e or o)[:200]
-    _pkg_cache_invalidate()
-    _unit_db_invalidate()
+    ok, err = _install_pkgs(ctx, missing, 900)
+    if not ok:
+        return False, "package install failed: %s" % err
     return True, "installed " + ", ".join(missing)
 
 
@@ -1175,11 +1172,9 @@ def f_pkg_any_present(ctx, p):
     if any(pkg_installed(x) for x in p["packages"]):
         return False, "already satisfied"
     tgt = p.get("install") or p["packages"][0]
-    rc, o, e = sh(["dnf", "-y", "install", tgt], 900)
-    if rc != 0:
-        return False, "dnf install %s failed: %s" % (tgt, (e or o)[:200])
-    _pkg_cache_invalidate()
-    _unit_db_invalidate()
+    ok, err = _install_pkgs(ctx, [tgt], 900)
+    if not ok:
+        return False, "package install %s failed: %s" % (tgt, err)
     return True, "installed " + tgt
 
 
@@ -1265,7 +1260,28 @@ def _install_pkgs(ctx, pkgs, timeout=900):
         if have("dnf"):
             cmd = ["dnf", "-y", "install"] + pkgs
         elif have("apt-get"):
-            cmd = ["apt-get", "-y", "install"] + pkgs
+            # DEBIAN_FRONTEND=noninteractive or debconf prompts can stall
+            # the (timeout-bounded) install on fresh cloud images.
+            cmd = ["env", "DEBIAN_FRONTEND=noninteractive",
+                   "apt-get", "-y", "install"] + pkgs
+        else:
+            return False, "no supported package manager found"
+        rc, o, e = sh(cmd, timeout)
+        if rc != 0:
+            return False, (e or o)[:200]
+        _pkg_cache_invalidate()
+        _unit_db_invalidate()
+        return True, None
+
+
+def _remove_pkgs(ctx, pkgs, timeout=600):
+    """Platform-aware package removal (dnf / apt-get); see _install_pkgs."""
+    with ctx._pkg_lock:
+        if have("dnf"):
+            cmd = ["dnf", "-y", "remove"] + pkgs
+        elif have("apt-get"):
+            cmd = ["env", "DEBIAN_FRONTEND=noninteractive",
+                   "apt-get", "-y", "remove"] + pkgs
         else:
             return False, "no supported package manager found"
         rc, o, e = sh(cmd, timeout)
@@ -4764,6 +4780,16 @@ def run_rule(ctx, rule):
             res["apply_status"] = "skipped_disruptive"
             res["apply_detail"] = ("remediation may interrupt services or require a "
                                    "reboot; re-run with cis_allow_disruptive=true")
+        elif rule.get("risk") == "none":
+            # Catalog convention: risk=none means "manual — no automated
+            # remediation".  Must be gated here, not only via family=manual:
+            # a none-risk rule with a REAL check+fixer (e.g. the /tmp
+            # partition rule with allow_tmpfs) would otherwise be live-applied
+            # — mounting tmpfs over /tmp mid-build covers the running Ansible
+            # payload and crashes the module at exit_json.
+            res["apply_status"] = "skipped_manual"
+            res["apply_detail"] = ("manual rule (risk=none); no automated "
+                                   "remediation at build time")
         else:
             try:
                 ok, adetail = ffn(ctx, params)
@@ -4976,11 +5002,9 @@ def main():
             else:
                 sys.stderr.write("cis-engine: phase 1 installing %d packages: %s\n"
                                  % (len(pkg_list), " ".join(pkg_list)))
-                rc, o, e = sh(["dnf", "-y", "install"] + pkg_list, 900)
-                if rc != 0:
-                    sys.stderr.write("batch install warning: %s\n" % ((e or o)[:200]))
-                _pkg_cache_invalidate()
-                _unit_db_invalidate()  # new packages may ship new systemd units
+                ok, err = _install_pkgs(ctx, pkg_list, 900)
+                if not ok:
+                    sys.stderr.write("batch install warning: %s\n" % err)
 
         # ── Phase 2: Parallel apply ──
         # Rules that touch the package manager are serialised via ctx._pkg_lock;
