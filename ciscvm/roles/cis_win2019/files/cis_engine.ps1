@@ -706,6 +706,18 @@ foreach ($rule in $rules) {
     Write-Progress -Activity $activity -Status "$($rule.id): $($rule.title)" -PercentComplete (($count / $total) * 100)
     $rsw = [System.Diagnostics.Stopwatch]::StartNew()
 
+    # Non-automated controls are never remediated by the engine — report them
+    # as manual so they neither count as pass nor are silently "fixed".
+    if (($rule.PSObject.Properties.Name -contains 'automated') -and ($rule.automated -eq $false)) {
+        Write-Result -Id $rule.id -Title $rule.title -Section $rule.section `
+            -Status "manual" -Level ($rule.levels | Select-Object -First 1) `
+            -Assessment $rule.assessment -Family $rule.family `
+            -Risk $rule.risk -Detail "manual control (not automated)" -Page $rule.page `
+            -Levels @($rule.levels)
+        $global:Results[-1].apply_status = "n/a"
+        continue
+    }
+
     # Step 1: Always run the check
     try {
         $result = Invoke-Check -Rule $rule
@@ -731,6 +743,9 @@ foreach ($rule in $rules) {
                 $applyStatus = Invoke-Fix -Rule $rule
                 if ($applyStatus -eq "applied") {
                     $global:Changed += "$($rule.id): $($rule.title)"
+                    # Re-check so the recorded status (and the gate score) reflects
+                    # the post-fix state, not the pre-fix fail.
+                    $result = Invoke-Check -Rule $rule
                 }
             } catch {
                 $applyStatus = "failed: $($_.Exception.Message)"
@@ -759,7 +774,10 @@ function Get-Summary($levelFilter) {
     $error = ($filtered | Where-Object { $_.status -eq "error" }).Count
     $na = ($filtered | Where-Object { $_.status -eq "notapplicable" }).Count
     $total = $filtered.Count
-    $assessed = $pass + $fail
+    # Errors are NOT compliance — count them against the score so a catalog that
+    # cannot evaluate a rule can never fake a passing grade (they'd otherwise be
+    # dropped from the denominator and inflate the score).
+    $assessed = $pass + $fail + $error
     $score = if ($assessed -gt 0) { [math]::Round(100.0 * $pass / $assessed, 1) } else { 0.0 }
 
     # Apply stats
