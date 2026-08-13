@@ -2120,11 +2120,10 @@
   "automated": false,
   "risk": "medium",
   "page": 262,
-  "family": "reg-dword",
+  "family": "manual",
   "params": {
    "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
-   "name": "NullSessionShares",
-   "value": null
+   "name": "NullSessionShares"
   }
  },
  {
