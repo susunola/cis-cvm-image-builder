@@ -116,7 +116,7 @@
   "page": 51,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SAM",
+   "path": "HKLM:\\System\\CurrentControlSet\\Control\\SAM",
    "name": "RelaxMinimumPasswordLengthLimits",
    "value": 1
   }
@@ -1235,7 +1235,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 169,
   "family": "manual",
@@ -1252,7 +1252,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 171,
   "family": "manual",
@@ -1349,15 +1349,11 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 184,
-  "family": "reg-string",
-  "params": {
-   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters",
-   "name": "VulnerableChannelAllowList",
-   "value": "does not exist"
-  }
+  "family": "manual",
+  "params": {}
  },
  {
   "id": "2.3.5.3",
@@ -1624,15 +1620,11 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 215,
-  "family": "reg-string",
-  "params": {
-   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
-   "name": "LegalNoticeText",
-   "value": "text"
-  }
+  "family": "manual",
+  "params": {}
  },
  {
   "id": "2.3.7.5",
@@ -1645,15 +1637,11 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 217,
-  "family": "reg-string",
-  "params": {
-   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
-   "name": "LegalNoticeCaption",
-   "value": "text"
-  }
+  "family": "manual",
+  "params": {}
  },
  {
   "id": "2.3.7.6",
@@ -1673,8 +1661,7 @@
   "params": {
    "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
    "name": "CachedLogonsCount",
-   "value": 4,
-   "op": "le"
+   "value": null
   }
  },
  {
@@ -1695,7 +1682,7 @@
   "params": {
    "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
    "name": "PasswordExpiryWarning",
-   "value": 14
+   "value": null
   }
  },
  {
@@ -1991,7 +1978,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 253,
   "family": "reg-dword",
@@ -2012,15 +1999,11 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 255,
-  "family": "reg-dword",
-  "params": {
-   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
-   "name": "NullSessionPipes",
-   "value": "blank (i"
-  }
+  "family": "manual",
+  "params": {}
  },
  {
   "id": "2.3.10.8",
@@ -2033,7 +2016,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 257,
   "family": "reg-dword",
@@ -2054,7 +2037,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 259,
   "family": "reg-dword",
@@ -2080,8 +2063,8 @@
   "page": 263,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
-   "name": "RestrictNullSessAccess",
+   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Para The recommended state for this setting is",
+   "name": " Enabled.",
    "value": 1
   }
  },
@@ -2117,14 +2100,11 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 268,
   "family": "manual",
-  "params": {
-   "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanManServer\\Parameters",
-   "name": "NullSessionShares"
-  }
+  "params": {}
  },
  {
   "id": "2.3.10.13",
@@ -2655,8 +2635,8 @@
   "page": 323,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
-   "name": "EnableVirtualization",
+   "path": "HKLM:\\SOFTWARE The recommended state for this setting is",
+   "name": " Enabled.",
    "value": 1
   }
  },
@@ -2759,7 +2739,7 @@
   "family": "reg-dword",
   "params": {
    "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile",
-   "name": "DisableNotifications",
+   "name": "DisableNotific",
    "value": 1
   }
  },
@@ -2774,7 +2754,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 337,
   "family": "manual",
@@ -2796,10 +2776,9 @@
   "page": 339,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile\\Logging",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile\\ Logging",
    "name": "LogFileSize",
-   "value": 16384,
-   "op": "ge"
+   "value": 16384
   }
  },
  {
@@ -2819,7 +2798,7 @@
   "family": "reg-dword",
   "params": {
    "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile\\Logging",
-   "name": "LogDroppedPackets",
+   "name": "LogDro",
    "value": 1
   }
  },
@@ -2840,7 +2819,7 @@
   "family": "reg-dword",
   "params": {
    "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile\\Logging",
-   "name": "LogSuccessfulConnections",
+   "name": "LogSuc",
    "value": 1
   }
  },
@@ -2901,7 +2880,7 @@
   "family": "reg-dword",
   "params": {
    "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PrivateProfile",
-   "name": "DisableNotifications",
+   "name": "DisableNotifi",
    "value": 1
   }
  },
@@ -2916,7 +2895,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 352,
   "family": "manual",
@@ -2938,10 +2917,9 @@
   "page": 354,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PrivateProfile\\Logging",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PrivateProfile \\Logging",
    "name": "LogFileSize",
-   "value": 16384,
-   "op": "ge"
+   "value": 16384
   }
  },
  {
@@ -2961,7 +2939,7 @@
   "family": "reg-dword",
   "params": {
    "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PrivateProfile\\Logging",
-   "name": "LogDroppedPackets",
+   "name": "LogDr",
    "value": 1
   }
  },
@@ -2982,7 +2960,7 @@
   "family": "reg-dword",
   "params": {
    "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PrivateProfile\\Logging",
-   "name": "LogSuccessfulConnections",
+   "name": "LogSu",
    "value": 1
   }
  },
@@ -3043,7 +3021,7 @@
   "family": "reg-dword",
   "params": {
    "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile",
-   "name": "DisableNotifications",
+   "name": "DisableNotific",
    "value": 1
   }
  },
@@ -3064,7 +3042,7 @@
   "family": "reg-dword",
   "params": {
    "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile",
-   "name": "AllowLocalPolicyMerge",
+   "name": "AllowLocalPoli",
    "value": 0
   }
  },
@@ -3085,7 +3063,7 @@
   "family": "reg-dword",
   "params": {
    "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile",
-   "name": "AllowLocalIPsecPolicyMerge",
+   "name": "AllowLocalIPse",
    "value": 0
   }
  },
@@ -3100,7 +3078,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 371,
   "family": "manual",
@@ -3122,10 +3100,9 @@
   "page": 373,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile\\Logging",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile\\ Logging",
    "name": "LogFileSize",
-   "value": 16384,
-   "op": "ge"
+   "value": 16384
   }
  },
  {
@@ -3145,7 +3122,7 @@
   "family": "reg-dword",
   "params": {
    "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile\\Logging",
-   "name": "LogDroppedPackets",
+   "name": "LogDro",
    "value": 1
   }
  },
@@ -3166,7 +3143,7 @@
   "family": "reg-dword",
   "params": {
    "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\PublicProfile\\Logging",
-   "name": "LogSuccessfulConnections",
+   "name": "LogSuc",
    "value": 1
   }
  },
@@ -4832,14 +4809,14 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 566,
   "family": "reg-string",
   "params": {
-   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\NetworkProvider\\HardenedPaths",
+   "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\NetworkProvider\\Harden edPaths",
    "name": "\\\\*\\NETLOGON",
-   "value": "RequireMutualAuthentication=1, RequireIntegrity=1, RequirePrivacy=1"
+   "value": "RequireMutualAuthentication=1, RequireIntegrity=1,"
   }
  },
  {
@@ -4853,7 +4830,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 571,
   "family": "manual",
@@ -5704,7 +5681,7 @@
   "params": {
    "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
    "name": "DisableBkGndGroupPolicy",
-   "value": 0
+   "value": null
   }
  },
  {
@@ -5718,7 +5695,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 667,
   "family": "manual",
@@ -5735,7 +5712,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 669,
   "family": "manual",
@@ -5752,7 +5729,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 671,
   "family": "manual",
@@ -5769,7 +5746,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 673,
   "family": "manual",
@@ -5786,7 +5763,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 675,
   "family": "manual",
@@ -5803,7 +5780,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 677,
   "family": "manual",
@@ -5820,7 +5797,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 679,
   "family": "manual",
@@ -5837,7 +5814,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 681,
   "family": "manual",
@@ -5854,7 +5831,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 683,
   "family": "manual",
@@ -5871,7 +5848,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 685,
   "family": "manual",
@@ -5930,7 +5907,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 691,
   "family": "reg-dword",
@@ -5951,14 +5928,14 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 694,
   "family": "reg-dword",
   "params": {
-   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\kerberos\\parameters",
+   "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\ kerberos\\parameters",
    "name": "DevicePKInitBehavior",
-   "value": 0
+   "value": "0 (DevicePKInitBehavior) and 1 (DevicePKInitEnabled)"
   }
  },
  {
@@ -6067,7 +6044,7 @@
   "params": {
    "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
    "name": "PasswordComplexity",
-   "value": 4
+   "value": "4, 5, 6, 7, or 8"
   }
  },
  {
@@ -6145,7 +6122,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 716,
   "family": "reg-dword",
@@ -6418,7 +6395,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 751,
   "family": "manual",
@@ -6435,7 +6412,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 753,
   "family": "manual",
@@ -6641,7 +6618,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 780,
   "family": "manual",
@@ -6658,7 +6635,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 784,
   "family": "manual",
@@ -6864,7 +6841,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 810,
   "family": "manual",
@@ -7288,7 +7265,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 859,
   "family": "manual",
@@ -7305,7 +7282,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 861,
   "family": "manual",
@@ -7322,7 +7299,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 864,
   "family": "manual",
@@ -7339,7 +7316,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 866,
   "family": "manual",
@@ -7356,7 +7333,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 869,
   "family": "manual",
@@ -7373,7 +7350,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 871,
   "family": "manual",
@@ -7390,7 +7367,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 874,
   "family": "manual",
@@ -7407,7 +7384,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 876,
   "family": "manual",
@@ -7571,7 +7548,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 902,
   "family": "manual",
@@ -7609,7 +7586,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 908,
   "family": "manual",
@@ -7626,7 +7603,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 910,
   "family": "manual",
@@ -7643,7 +7620,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 912,
   "family": "manual",
@@ -7660,7 +7637,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 914,
   "family": "manual",
@@ -7677,7 +7654,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 916,
   "family": "manual",
@@ -7694,7 +7671,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 918,
   "family": "manual",
@@ -7711,7 +7688,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 920,
   "family": "manual",
@@ -7728,7 +7705,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 922,
   "family": "manual",
@@ -7766,7 +7743,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 928,
   "family": "manual",
@@ -7783,7 +7760,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 930,
   "family": "manual",
@@ -7821,7 +7798,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 934,
   "family": "manual",
@@ -7838,7 +7815,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 937,
   "family": "manual",
@@ -7855,7 +7832,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 940,
   "family": "manual",
@@ -7872,7 +7849,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 942,
   "family": "manual",
@@ -7994,7 +7971,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 961,
   "family": "reg-dword",
@@ -8208,7 +8185,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 986,
   "family": "manual",
@@ -8225,7 +8202,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 988,
   "family": "manual",
@@ -8242,7 +8219,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 990,
   "family": "manual",
@@ -8259,7 +8236,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 993,
   "family": "manual",
@@ -8276,7 +8253,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 995,
   "family": "manual",
@@ -8293,7 +8270,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 997,
   "family": "manual",
@@ -8310,7 +8287,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 999,
   "family": "manual",
@@ -8390,7 +8367,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 1011,
   "family": "manual",
@@ -8407,7 +8384,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 1014,
   "family": "manual",
@@ -8424,7 +8401,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 1017,
   "family": "manual",
@@ -8441,7 +8418,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 1019,
   "family": "manual",
@@ -8504,7 +8481,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 1031,
   "family": "manual",
@@ -8521,7 +8498,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 1035,
   "family": "manual",
@@ -8538,7 +8515,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 1039,
   "family": "manual",
@@ -8555,7 +8532,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 1041,
   "family": "manual",
@@ -8572,7 +8549,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 1044,
   "family": "manual",
@@ -8589,7 +8566,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 1046,
   "family": "manual",
@@ -8606,7 +8583,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 1048,
   "family": "manual",
@@ -8623,7 +8600,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 1050,
   "family": "manual",
@@ -8640,7 +8617,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 1052,
   "family": "manual",
@@ -8657,7 +8634,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "medium",
   "page": 1058,
   "family": "manual",
@@ -8674,7 +8651,7 @@
    "Server"
   ],
   "assessment": "Automated",
-  "automated": false,
+  "automated": true,
   "risk": "safe",
   "page": 1065,
   "family": "manual",
