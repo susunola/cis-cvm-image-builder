@@ -372,6 +372,26 @@ AK/SK 仅通过环境变量传入（HCL `sensitive = true`）。临时实例打�
 
 切换画像仅需改 `ciscvm.toml` 中的 `[build].profile` 和 `source_image_id`。
 
+## 测试矩阵
+
+已验证的 CIS 加固镜像（OS × 等级全覆盖）。
+所有构建均在腾讯云广州地域、`cis_allow_disruptive: false` 下完成；
+以下镜像均已于 2026-08-13 在控制台复核为 `NORMAL` 状态。
+
+| OS | L1 | L2 |
+|---|---|---|
+| **RHEL 8** | `img-8zfwvl9g` (93.5%) | `img-4d6jxfe2` (93.3%) |
+| **RHEL 9** | `img-25hwnzl8` (95.3%) | `img-8mjw35cy` (95.2%) |
+| **RHEL 10** | `img-1idroc9y` (96.3%) | `img-lzha2io2` (95.3%) |
+| **Ubuntu 20.04** | `img-9xyvohdy` (92.0%) | `img-gut6728y` (90.0%) |
+| **Ubuntu 22.04** | `img-jd3gct8o` (91.5%) | `img-rx4n84w4` (92.1%) |
+| **Ubuntu 24.04** | `img-7ncjcq10` (95.9%) | `img-j9m1fn0u` (96.5%) |
+| **TencentOS 3** | `img-ip62dj1k` (95.7%) | `img-joo4xcis` (94.2%) |
+| **TencentOS 4** | `img-ipw57gea` (96.9%) | `img-fs0hh75w` (96.7%) |
+
+> 分数为重启后复审结果（全量评估规则，门禁 ≥ 85）。
+> kmod 类规则通过持久化 modprobe install-override 生效，构建期无需排除任何规则。
+
 ## 对接 CI/CD
 
 ```bash

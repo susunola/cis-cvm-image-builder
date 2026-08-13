@@ -301,6 +301,27 @@ AK/SK は環境変数のみ（HCL の `sensitive = true`）。一時インスタ
 プロファイルを切り替えるには、`ciscvm.toml` の `[build].profile` と `source_image_id`
 を変更してください。
 
+## テストマトリクス
+
+検証済み CIS  hardened イメージの OS × レベル一覧。
+すべて Tencent Cloud 広州リージョンで `cis_allow_disruptive: false` によりビルドされ、
+以下のイメージは 2026-08-13 にコンソールで `NORMAL` であることを再確認済みです。
+
+| OS | L1 | L2 |
+|---|---|---|
+| **RHEL 8** | `img-8zfwvl9g` (93.5%) | `img-4d6jxfe2` (93.3%) |
+| **RHEL 9** | `img-25hwnzl8` (95.3%) | `img-8mjw35cy` (95.2%) |
+| **RHEL 10** | `img-1idroc9y` (96.3%) | `img-lzha2io2` (95.3%) |
+| **Ubuntu 20.04** | `img-9xyvohdy` (92.0%) | `img-gut6728y` (90.0%) |
+| **Ubuntu 22.04** | `img-jd3gct8o` (91.5%) | `img-rx4n84w4` (92.1%) |
+| **Ubuntu 24.04** | `img-7ncjcq10` (95.9%) | `img-j9m1fn0u` (96.5%) |
+| **TencentOS 3** | `img-ip62dj1k` (95.7%) | `img-joo4xcis` (94.2%) |
+| **TencentOS 4** | `img-ipw57gea` (96.9%) | `img-fs0hh75w` (96.7%) |
+
+> スコアは再起動後の再監査結果です（全評価ルール対象、ゲート ≥ 85）。
+> kmod 系ルールは永続的な modprobe install-override で適用されるため、
+> ビルド時にルールを除外する必要はありません。
+
 ## CI 連携
 
 ```bash
