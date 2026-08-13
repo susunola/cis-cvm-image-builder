@@ -42,7 +42,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.16.13"
+VERSION = "0.16.14"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -1170,7 +1170,7 @@ build {
       "# the guest then cannot soft-shutdown and TencentCloud image creation",
       "# times out (CREATEFAILED).  A bounded stop lets systemd SIGKILL it.",
       "sudo mkdir -p /etc/systemd/system/rc-local.service.d",
-      "sudo printf '[Service]\\nTimeoutStopSec=15s\\n' > /etc/systemd/system/rc-local.service.d/10-ciscvm-stop-timeout.conf",
+      "printf '[Service]\\nTimeoutStopSec=15s\\n' | sudo tee /etc/systemd/system/rc-local.service.d/10-ciscvm-stop-timeout.conf > /dev/null",
       "sudo systemctl daemon-reload || true",
       "rm -rf /tmp/ansible /opt/ciscvm-ansible/staging /opt/ciscvm-ansible/reboot.sh /opt/ciscvm-ansible/ssh-guard.sh /opt/ciscvm-ansible/reconnected.sh /opt/ciscvm-ansible/fix-logperms.sh /opt/ciscvm-ansible/cleanup.sh ~/.ansible/roles 2>/dev/null || true"
     ]

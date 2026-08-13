@@ -5,6 +5,16 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
+## [0.16.14] — 2026-08-13
+
+### Fixed
+- **v0.16.13 broke non-root (ubuntu) builds**: the rc-local drop-in was
+  written with `sudo printf ... > file` — the redirect runs in the
+  *unprivileged* shell, so the cleanup provisioner died with
+  `Permission denied` for every profile whose SSH user is not root
+  (all ubuntu builds failed at the cleanup step).  Now
+  `printf ... | sudo tee file`, matching the surrounding provisioner style.
+
 ## [0.16.13] — 2026-08-13
 
 RHEL 9/10 CREATEFAILED root cause — guest can no longer soft-shutdown after

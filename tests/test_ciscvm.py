@@ -542,6 +542,10 @@ class TestRenderAll:
         hcl = (wd / "packer" / "main.pkr.hcl").read_text()
         assert "/etc/systemd/system/rc-local.service.d" in hcl
         assert "TimeoutStopSec=15s" in hcl
+        # v0.16.14: the write must go through `sudo tee` — with
+        # `sudo printf ... > file` the redirect runs in the *unprivileged*
+        # shell and fails for non-root (ubuntu) build users.
+        assert "sudo tee /etc/systemd/system/rc-local.service.d" in hcl
         assert valid_toml["meta"]["benchmark"] in hcl
 
     def test_windows_has_no_banner_provisioner(self, tmp_path):
