@@ -798,6 +798,9 @@ $output = @{
     engine_notes = @()
 }
 
-$output | ConvertTo-Json -Depth 4 | Out-File -FilePath $Out -Encoding utf8
+# UTF-8 WITHOUT BOM: Windows PowerShell 5.1's `Out-File -Encoding utf8`
+# prefixes a BOM, and Ansible's `from_json` then dies with
+# "Unexpected UTF-8 BOM" when the role parses this file.
+[System.IO.File]::WriteAllText($Out, ($output | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "CIS scan complete: $total rules, score=$overallScore%, pass=$($summary.all.pass), fail=$($summary.all.fail)"
 Write-Host "Result written to: $Out"

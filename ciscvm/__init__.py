@@ -42,7 +42,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.16.20"
+VERSION = "0.16.21"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -1549,6 +1549,10 @@ build {
     playbook_file = "ansible/site.yml"
     user          = var.winrm_username
     use_proxy     = false
+    # Controller-side ansible forks worker processes; on macOS controllers
+    # the ObjC runtime kills forked children ("A worker was found in a
+    # dead state") unless fork-safety is disabled.  Harmless elsewhere.
+    ansible_env_vars = ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES"]
     extra_arguments = [
       "-e", "ansible_connection=winrm",
       "-e", "ansible_winrm_transport=basic"

@@ -5,6 +5,19 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
+## [0.16.21] — 2026-08-13
+
+### Fixed
+- **Windows engine result.json carried a UTF-8 BOM**: PowerShell 5.1's
+  `Out-File -Encoding utf8` writes a BOM, and the role's
+  `b64decode | from_json` then dies with "Unexpected UTF-8 BOM" right
+  after the engine completes.  The engine now writes via
+  `[System.IO.File]::WriteAllText(..., UTF8Encoding($false))` — no BOM.
+- **macOS controllers**: the ansible provisioner sets
+  `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES` — macOS kills forked ObjC
+  children ("A worker was found in a dead state") when ansible runs
+  controller-side.
+
 ## [0.16.20] — 2026-08-13
 
 ### Fixed
