@@ -5,6 +5,17 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
+## [0.16.24] — 2026-08-14
+
+### Added
+- **Windows images now ship the build-time audit result** at
+  `C:\ProgramData\ciscvm\AUDIT-RESULT.json` — the counterpart of Linux
+  `/opt/ciscvm-AUDIT-RESULT.json`.  Previously the Windows engine's
+  `result.json` was fetched to the controller and then deleted with the
+  working directory, so nothing inside the image documented what was
+  assessed.  Implemented as a `cis_ship_result_path` role variable
+  (empty = off), enabled by the ciscvm Windows site template.
+
 ## [0.16.23] — 2026-08-14
 
 ### Fixed

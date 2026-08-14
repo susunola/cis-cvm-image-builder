@@ -22,6 +22,8 @@ cis_report_embed_remediation: true
 cis_powershell: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
 cis_remote_tmp: C:\Windows\Temp
 cis_keep_remote_artifacts: false
+# Ship the engine result.json at this path inside the image (empty = off).
+cis_ship_result_path: ""
 cis_engine_timeout: 1800
 cis_backup_dir: C:\Windows\Temp\cis-backups
 cis_fail_on_findings: false

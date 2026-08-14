@@ -65,6 +65,13 @@
     fail_on_missing: false
   when: cis_report_json | bool
 
+- name: Ship the audit result inside the image
+  ansible.windows.win_copy:
+    src: "{{ cis_remote_tmp }}\\cis-run\\result.json"
+    dest: "{{ cis_ship_result_path }}"
+    remote_src: true
+  when: cis_ship_result_path | length > 0
+
 - name: Remove the working directory
   ansible.windows.win_file:
     path: "{{ cis_remote_tmp }}\\cis-run"

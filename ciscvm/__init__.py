@@ -42,7 +42,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.16.23"
+VERSION = "0.16.24"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -1693,6 +1693,10 @@ SITE_YML_WIN_TEMPLATE = r"""---
     # Fetch result.json back to the controller (ansible/reports/) so build
     # logs don't lose the per-rule detail when the ephemeral VM is destroyed.
     cis_report_json: true
+    # Also ship the audit result inside the image (Windows counterpart of
+    # Linux /opt/ciscvm-AUDIT-RESULT.json) so verify/drift/report tooling
+    # can read the build-time audit without re-running the engine.
+    cis_ship_result_path: C:\ProgramData\ciscvm\AUDIT-RESULT.json
     cis_org_name: ""
   roles:
     - role: __ROLE_DIR__
