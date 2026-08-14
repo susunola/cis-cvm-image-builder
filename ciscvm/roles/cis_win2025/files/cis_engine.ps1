@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-CIS Windows Server Benchmark — assessment engine.
+CIS Windows Server Benchmark - assessment engine.
 Driven by rules.json catalog, outputs result.json.
 
 .PARAMETER Catalog
@@ -30,7 +30,7 @@ $ErrorActionPreference = "Stop"
 $startedAt = (Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz")
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
-# ── Helpers ────────────────────────────────────────────────
+# -- Helpers ------------------------------------------------
 function Write-Result {
     param($Id, $Title, $Section, $Status, $Level, $Assessment = "Automated",
           $Family = "", $Risk = "safe", $Detail = "", $Page = 0, $Levels = @())
@@ -48,7 +48,7 @@ function Protect-TempFile($Path) {
     Restrict a temporary file to the current user. Secedit exports contain
     security-policy settings and user-rights memberships; they should not be
     readable by other users while they exist. NOTE: the file must already
-    exist when this is called — Get-Acl on a missing path is a no-op.
+    exist when this is called - Get-Acl on a missing path is a no-op.
     #>
     try {
         $acl = Get-Acl -Path $Path
@@ -150,7 +150,7 @@ $AuditPolicyRegMap = @{
     "2" = @{ Path = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"; Name = "CrashOnAuditFail"; Value = 0; Summary = "Shut down system if unable to log security audits" }
 }
 
-# ── Checks ─────────────────────────────────────────────────
+# -- Checks -------------------------------------------------
 function Invoke-Check {
     param($Rule, $Ctx)
 
@@ -162,7 +162,7 @@ function Invoke-Check {
 
     switch ($family) {
 
-        # ── 1. Account Policies ──
+        # -- 1. Account Policies --
         "password-policy" {
             $key = $params.key
             $expected = $params.expected
@@ -172,7 +172,7 @@ function Invoke-Check {
                 if ($op -eq "le") { $ok = [int]$val -le [int]$expected }
                 elseif ($op -eq "eq") { $ok = [int]$val -eq [int]$expected }
                 else { $ok = [int]$val -ge [int]$expected }
-                $opText = @{ "ge" = "≥"; "le" = "≤"; "eq" = "=" }[$op]
+                $opText = @{ "ge" = ">="; "le" = "<="; "eq" = "=" }[$op]
                 return @{status=if($ok){"pass"}else{"fail"}; detail="$key=$val (expected $opText$expected)"}
             }
             return @{status="error"; detail="$key not found in security policy"}
@@ -190,7 +190,7 @@ function Invoke-Check {
             return @{status=if($ok){"pass"}else{"fail"}; detail="ClearTextPassword=$val"}
         }
 
-        # ── 2. Account Lockout ──
+        # -- 2. Account Lockout --
         "lockout-policy" {
             $key = $params.key
             $expected = $params.expected
@@ -205,7 +205,7 @@ function Invoke-Check {
             return @{status="error"; detail="$key not found"}
         }
 
-        # ── 3. Audit Policy ──
+        # -- 3. Audit Policy --
         "audit-policy" {
             if ($params.policy) {
                 $m = $AuditPolicyRegMap[$params.policy]
@@ -234,7 +234,7 @@ function Invoke-Check {
             return @{status="error"; detail="Failed to query audit policy: $subcategory"}
         }
 
-        # ── 4. User Rights Assignment ──
+        # -- 4. User Rights Assignment --
         "user-right" {
             $privilege = $params.privilege
             # expected_sid may be a comma-separated list of SIDs/account names;
@@ -255,7 +255,7 @@ function Invoke-Check {
                         # secedit writes SIDs with a leading '*'; strip it
                         $members = $Matches[1].Trim() -split ',' | ForEach-Object { $_.Trim().TrimStart('*') } | Where-Object { $_ }
                     }
-                    # CIS wants exactly the expected set — no missing, no extras
+                    # CIS wants exactly the expected set - no missing, no extras
                     $missing = @($expected | Where-Object { $members -notcontains $_ })
                     $extras  = @($members | Where-Object { $expected -notcontains $_ })
                     $ok = ($missing.Count -eq 0 -and $extras.Count -eq 0)
@@ -269,7 +269,7 @@ function Invoke-Check {
             return @{status="error"; detail="Failed to query $privilege"}
         }
 
-        # ── 5. Security Options (Registry) ──
+        # -- 5. Security Options (Registry) --
         "reg-dword" {
             $path = ConvertTo-RegistryPath $params.path
             $name = $params.name
@@ -282,7 +282,7 @@ function Invoke-Check {
                 return @{status=if($ok){"pass"}else{"fail"}; detail="$path\$name = $val (expected $expected)"}
             } catch {
                 # A policy value that is simply absent is NON-COMPLIANT (fail),
-                # not an engine error — and apply mode can create it.
+                # not an engine error - and apply mode can create it.
                 return @{status="fail"; detail="$path\$name not present (expected $expected)"}
             }
         }
@@ -303,7 +303,7 @@ function Invoke-Check {
             return @{status=if($ok){"pass"}else{"fail"}; detail="$path exists=$ok"}
         }
 
-        # ── 6. Windows Firewall ──
+        # -- 6. Windows Firewall --
         "firewall-profile" {
             $fwProfile = $params.profile
             $direction = if ($params.PSObject.Properties.Name -contains 'direction') { $params.direction } else { "Inbound" }
@@ -321,7 +321,7 @@ function Invoke-Check {
             }
         }
 
-        # ── 7. Service Configuration ──
+        # -- 7. Service Configuration --
         "service-state" {
             $name = $params.name
             $expected = $params.state
@@ -348,7 +348,7 @@ function Invoke-Check {
             }
         }
 
-        # ── 8. Windows Update ──
+        # -- 8. Windows Update --
         "wu-config" {
             $path = ConvertTo-RegistryPath $params.path
             $name = $params.name
@@ -360,7 +360,7 @@ function Invoke-Check {
             } catch { return @{status="fail"; detail="$path\$name not present (expected $expected)"} }
         }
 
-        # ── 9. UAC ──
+        # -- 9. UAC --
         "uac" {
             $path = ConvertTo-RegistryPath $params.path
             $name = $params.name
@@ -372,7 +372,7 @@ function Invoke-Check {
             } catch { return @{status="fail"; detail="$path\$name not present (expected $expected)"} }
         }
 
-        # ── 10. Network Security ──
+        # -- 10. Network Security --
         "lanman-auth" {
             $path = ConvertTo-RegistryPath $params.path
             $name = $params.name
@@ -380,8 +380,8 @@ function Invoke-Check {
             try {
                 $val = Get-ItemProperty -Path $path -Name $name -ErrorAction Stop | Select-Object -ExpandProperty $name
                 $ok = ([int]$val -ge [int]$expected)
-                return @{status=if($ok){"pass"}else{"fail"}; detail="LmCompatibilityLevel = $val (expected ≥$expected)"}
-            } catch { return @{status="fail"; detail="$path\$name not present (expected ≥$expected)"} }
+                return @{status=if($ok){"pass"}else{"fail"}; detail="LmCompatibilityLevel = $val (expected >=$expected)"}
+            } catch { return @{status="fail"; detail="$path\$name not present (expected >=$expected)"} }
         }
 
         "smb-signing" {
@@ -395,7 +395,7 @@ function Invoke-Check {
             } catch { return @{status="fail"; detail="$path\$name not present (expected $expected)"} }
         }
 
-        # ── 11. RDP Security ──
+        # -- 11. RDP Security --
         "rdp-nla" {
             $path = ConvertTo-RegistryPath $params.path
             $name = $params.name
@@ -407,7 +407,7 @@ function Invoke-Check {
             } catch { return @{status="fail"; detail="$path\$name not present (expected $expected)"} }
         }
 
-        # ── 12. Event Log ──
+        # -- 12. Event Log --
         "eventlog-size" {
             $logName = $params.log
             $expectedMB = $params.min_size_mb
@@ -415,11 +415,11 @@ function Invoke-Check {
                 $log = Get-WinEvent -ListLog $logName -ErrorAction Stop
                 $sizeMB = [math]::Round($log.MaximumSizeInBytes / 1MB, 0)
                 $ok = ($sizeMB -ge $expectedMB)
-                return @{status=if($ok){"pass"}else{"fail"}; detail="$logName max=$sizeMB MB (expected ≥$expectedMB MB)"}
+                return @{status=if($ok){"pass"}else{"fail"}; detail="$logName max=$sizeMB MB (expected >=$expectedMB MB)"}
             } catch { return @{status="error"; detail="Event log $logName not found"} }
         }
 
-        # ── 13. PowerShell Security ──
+        # -- 13. PowerShell Security --
         "ps-execution" {
             try {
                 $policy = Get-ExecutionPolicy -Scope LocalMachine
@@ -448,7 +448,7 @@ function Invoke-Check {
     }
 }
 
-# ── Apply (Remediation) ─────────────────────────────────────
+# -- Apply (Remediation) -------------------------------------
 function Invoke-Fix {
     param($Rule)
 
@@ -570,10 +570,10 @@ function Invoke-Fix {
                 $extras  = @($members | Where-Object { $expected -notcontains $_ })
                 if ($missing.Count -eq 0 -and $extras.Count -eq 0) { return "already" }
                 if ($expected.Count -eq 0) {
-                    return "skipped: expected 'No One' — clear '$privilege' assignments manually"
+                    return "skipped: expected 'No One' - clear '$privilege' assignments manually"
                 }
                 # secedit imports SIDs with a leading '*'; account names stay bare.
-                # CIS wants exactly the expected set, so replace — not merge.
+                # CIS wants exactly the expected set, so replace - not merge.
                 $written = $expected | ForEach-Object { if ($_ -match '^S-1-') { "*$_" } else { $_ } }
                 $line = "$privilege = $($written -join ',')"
                 if ($c -match "(?m)^(\s*$([regex]::Escape($privilege))\s*=\s*).*$") {
@@ -669,7 +669,7 @@ function Invoke-Fix {
     }
 }
 
-# ── Load Rules ──────────────────────────────────────────────
+# -- Load Rules ----------------------------------------------
 try {
     $raw = [System.IO.File]::ReadAllText($Catalog)
     $catalog = $raw | ConvertFrom-Json
@@ -694,7 +694,7 @@ foreach ($r in $catalog) {
     if ($CisProfile -eq "L1" -and $r.levels -notcontains 1) { continue }
     # Platform filter
     if ($Platform -and $r.platforms -and $r.platforms -notcontains $Platform) { continue }
-    # Exclude — must check BEFORE adding to $rules
+    # Exclude - must check BEFORE adding to $rules
     $excluded = $false
     foreach ($p in $excludeList) { if ($r.id.StartsWith($p)) { $excluded = $true; break } }
     if ($excluded) { continue }
@@ -719,7 +719,7 @@ foreach ($r in $catalog) {
     $rules += $r
 }
 
-# ── Execute ─────────────────────────────────────────────────
+# -- Execute -------------------------------------------------
 $global:Results = @()
 $global:Changed = @()
 $count = 0
@@ -739,7 +739,7 @@ foreach ($rule in $rules) {
     Write-Progress -Activity $activity -Status "$($rule.id): $($rule.title)" -PercentComplete (($count / $total) * 100)
     $rsw = [System.Diagnostics.Stopwatch]::StartNew()
 
-    # Controls the engine cannot evaluate are never remediated — report them
+    # Controls the engine cannot evaluate are never remediated - report them
     # as manual so they neither count as pass nor are silently "fixed".
     # family "manual" means the catalog has no machine-checkable params.
     if ($rule.family -eq "manual" -or (($rule.PSObject.Properties.Name -contains 'automated') -and ($rule.automated -eq $false))) {
@@ -799,7 +799,7 @@ foreach ($rule in $rules) {
     $global:Results[-1].apply_status = $applyStatus
 }
 
-# ── Summary ─────────────────────────────────────────────────
+# -- Summary -------------------------------------------------
 function Get-Summary($levelFilter) {
     $filtered = if ($levelFilter) { $global:Results | Where-Object { $_.level -eq $levelFilter } } else { $global:Results }
     $pass = ($filtered | Where-Object { $_.status -eq "pass" }).Count
@@ -808,7 +808,7 @@ function Get-Summary($levelFilter) {
     $error = ($filtered | Where-Object { $_.status -eq "error" }).Count
     $na = ($filtered | Where-Object { $_.status -eq "notapplicable" }).Count
     $total = $filtered.Count
-    # Errors are NOT compliance — count them against the score so a catalog that
+    # Errors are NOT compliance - count them against the score so a catalog that
     # cannot evaluate a rule can never fake a passing grade (they'd otherwise be
     # dropped from the denominator and inflate the score).
     $assessed = $pass + $fail + $error
