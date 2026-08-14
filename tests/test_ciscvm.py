@@ -2268,6 +2268,42 @@ class TestShareImages:
         assert "cannot share images" in caplog.text
 
 
+class TestBuildReportArchive:
+    """The per-rule audit JSON is archived on the BUILD machine at
+    ~/.ciscvm/reports/<image>.json — Linux via a gzipped+base64 marker line
+    in the packer log, Windows via the role-fetched result.json."""
+
+    def test_extract_from_linux_marker(self, tmp_path, monkeypatch):
+        import base64, gzip
+        from ciscvm import _save_build_report
+        monkeypatch.setattr("ciscvm._reports_dir", lambda: tmp_path)
+        doc = json.dumps({"summary": {"all": {"score": 95.0}}, "results": []}).encode()
+        blob = base64.b64encode(gzip.compress(doc)).decode()
+        lines = [f'    tencentcloud-cvm.default: __CISCVM_AUDIT_B64__{blob}']
+        out = _save_build_report(None, "img-test", lines, tmp_path)
+        assert out == tmp_path / "img-test.json"
+        assert json.loads(out.read_bytes())["summary"]["all"]["score"] == 95.0
+
+    def test_extract_from_windows_fetched_result(self, tmp_path, monkeypatch):
+        from ciscvm import _save_build_report
+        monkeypatch.setattr("ciscvm._reports_dir", lambda: tmp_path / "out")
+        fetched = tmp_path / "wd" / "ansible" / "reports" / "host" / "raw"
+        fetched.mkdir(parents=True)
+        (fetched / "result.json").write_text('{"summary": {"all": {"score": 99.7}}}')
+        out = _save_build_report(None, "win-img", [], tmp_path / "wd")
+        assert json.loads(out.read_bytes())["summary"]["all"]["score"] == 99.7
+
+    def test_no_report_returns_none(self, tmp_path, monkeypatch):
+        from ciscvm import _save_build_report
+        monkeypatch.setattr("ciscvm._reports_dir", lambda: tmp_path)
+        assert _save_build_report(None, "x", ["no marker here"], tmp_path) is None
+        assert _save_build_report(None, "x", ["__CISCVM_AUDIT_B64__!!!bad"], tmp_path) is None
+
+    def test_linux_hcl_emits_marker(self):
+        from ciscvm import HCL_LINUX_TEMPLATE
+        assert "__CISCVM_AUDIT_B64__" in HCL_LINUX_TEMPLATE
+
+
 class TestWindowsShipAuditResult:
     """Windows images must ship the build-time audit result inside the image
     (C:\\ProgramData\\ciscvm\\AUDIT-RESULT.json) — the counterpart of Linux

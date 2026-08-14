@@ -42,7 +42,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.16.24"
+VERSION = "0.16.25"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -1254,7 +1254,12 @@ build {
       "ENG=$(ls -d /opt/ciscvm-ansible/roles/cis_*/files 2>/dev/null | head -1)",
       "if [ -n \"$ENG\" ] && [ -f \"$ENG/cis_engine.py\" ]; then",
       "  sudo /opt/ciscvm-ansible/bin/python \"$ENG/cis_engine.py\" --catalog \"$ENG/rules.json\" --mode scan --profile '__CIS_PROFILE_SHORT__' --out /tmp/cis-final-scan.json >/dev/null 2>&1 && sudo install -m 0600 -o root -g root /tmp/cis-final-scan.json /opt/ciscvm-AUDIT-RESULT.json && sudo rm -f /tmp/cis-final-scan.json && echo '[ciscvm] final-state audit refreshed' || echo '[ciscvm] WARNING: final-state re-scan failed; keeping pre-finalize audit'",
-      "fi"
+      "fi",
+      "# Archive the audit JSON on the BUILD MACHINE too: emit it as one",
+      "# gzipped+base64 line that ciscvm extracts from the packer log and",
+      "# stores under ~/.ciscvm/reports/<image>.json (the in-image copy at",
+      "# /opt stays — drift/verify-image read it as the baseline).",
+      "echo \"__CISCVM_AUDIT_B64__$(sudo gzip -c /opt/ciscvm-AUDIT-RESULT.json 2>/dev/null | base64 -w0)\""
     ]
   }
 __IDEMPOTENCY_BLOCK____SMOKE_TEST_BLOCK____SUPPLY_CHAIN_BLOCK____TEST_COMPONENTS_BLOCK__
@@ -3024,6 +3029,9 @@ def cmd_build(args: argparse.Namespace) -> int:
                                  sbom_sha=sbom_sha, sbom_count=sbom_count)
         if prov:
             info(f"Provenance written -> {prov}")
+        rep = _save_build_report(r, image_name, result.stdout_lines, workdir)
+        if rep:
+            info(f"Audit report archived -> {rep}")
         # P2#9 — cross-account image sharing (never fails the build).
         # [image].share_org_units (#17) merges into the same call — org
         # sharing uses the identical ModifyImageSharePermission API.
@@ -3117,6 +3125,58 @@ def _extract_sbom_count(stdout_lines: list[str]) -> int | None:
 # of HCP Packer's channels / AWS Image Builder distribution metadata.
 def _lineage_path() -> Path:
     return Path.home() / ".ciscvm" / "lineage.jsonl"
+
+
+def _reports_dir() -> Path:
+    return Path.home() / ".ciscvm" / "reports"
+
+
+def _save_build_report(r: ResolvedConfig, image_name: str,
+                       stdout_lines: list[str], workdir: Path) -> Path | None:
+    """Archive the per-rule audit JSON on the BUILD machine (P-next).
+
+    The in-image copy (/opt/ciscvm-AUDIT-RESULT.json /
+    C:\\ProgramData\\ciscvm\\AUDIT-RESULT.json) travels with the image for
+    drift/verify-image, but the operator's durable record belongs next to
+    the lineage + provenance: ~/.ciscvm/reports/<image-name>.json.
+
+    Linux emits the file as a gzipped+base64 marker line in the packer log
+    (the finalize provisioner); Windows fetches result.json back to
+    <workdir>/ansible/reports/<host>/raw/ via the role's cis_report_json.
+    Returns the saved path, or None when no report was found.
+    """
+    raw: bytes | None = None
+    for line in stdout_lines:
+        m = re.search(r"__CISCVM_AUDIT_B64__([A-Za-z0-9+/=]+)", line)
+        if m:
+            import base64 as _b64
+            import gzip as _gz
+            try:
+                raw = _gz.decompress(_b64.b64decode(m.group(1)))
+            except Exception:
+                raw = None
+            break
+    if raw is None:
+        # Windows path: result.json fetched to the controller by the role.
+        cands = sorted(workdir.glob("ansible/reports/*/raw/result.json"))
+        if cands:
+            try:
+                raw = cands[-1].read_bytes()
+            except OSError:
+                raw = None
+    if not raw:
+        return None
+    try:
+        json.loads(raw)  # don't archive garbage
+    except ValueError:
+        return None
+    try:
+        out = _reports_dir() / f"{image_name}.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(raw)
+        return out
+    except OSError:
+        return None
 
 
 def _record_lineage(r: ResolvedConfig, image_ids: list[str], image_name: str,
@@ -4834,6 +4894,9 @@ def cmd_scan(args: argparse.Namespace) -> int:
         ok(f"Output image ID(s): {', '.join(image_ids)}")
     _record_lineage(r, image_ids, image_name, score, ok=True)
     _write_provenance(r, image_ids, image_name, score)
+    rep = _save_build_report(r, image_name, result.stdout_lines, workdir)
+    if rep:
+        info(f"Audit report archived -> {rep}")
     _send_notification(r, True, image_ids, score, image_name)
     return 0
 

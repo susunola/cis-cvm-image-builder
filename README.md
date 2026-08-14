@@ -594,7 +594,9 @@ distribute pipeline):
 
 - **Lineage (distribute metadata)** — every build appends a record
   (`~/.ciscvm/lineage.jsonl`): source image → output image IDs, level,
-  region, score, version, timestamp. Query it with:
+  region, score, version, timestamp.  The full per-rule audit JSON is
+  archived alongside it on the build machine at
+  `~/.ciscvm/reports/<image-name>.json`.  Query it with:
 
   ```bash
   ciscvm images            # recent builds, newest first
