@@ -1690,6 +1690,9 @@ SITE_YML_WIN_TEMPLATE = r"""---
     cis_min_score: __MIN_SCORE__
     cis_include: __CIS_INCLUDE__
     cis_exclude: __CIS_EXCLUDE__
+    # Fetch result.json back to the controller (ansible/reports/) so build
+    # logs don't lose the per-rule detail when the ephemeral VM is destroyed.
+    cis_report_json: true
     cis_org_name: ""
   roles:
     - role: __ROLE_DIR__
