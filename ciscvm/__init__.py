@@ -3494,10 +3494,13 @@ def _probe_launch(r: ResolvedConfig, image_id: str, instance_name: str) -> str:
          "InstanceType": r.instance_type,
          "InstanceChargeType": "POSTPAID_BY_HOUR",
          "InstanceName": instance_name,
-         "VpcId": r.vpc_id,
-         "SubnetId": r.subnet_id,
+         "Placement": {"Zone": r.zone},
+         "VirtualPrivateCloud": {"VpcId": r.vpc_id,
+                                 "SubnetId": r.subnet_id},
          "SecurityGroupIds": [r.security_group_id],
-         "AssociatePublicIp": r.associate_public_ip,
+         "InternetAccessible": {"PublicIpAssigned": r.associate_public_ip,
+                                "InternetChargeType": "TRAFFIC_POSTPAID_BY_HOUR",
+                                "InternetMaxBandwidthOut": 1},
          "InstanceCount": 1,
          "TagSpecification": [{"ResourceType": "instance",
                                "Tags": [{"Key": "purpose", "Value": "ciscvm-verify"},
@@ -3532,7 +3535,9 @@ def _probe_public_ip(r: ResolvedConfig, instance_id: str) -> str:
                 _time.sleep(10)
                 continue
             inst = insts[0]
-            state = inst.get("InstanceState", {}).get("State", "")
+            # InstanceState is a plain string ("RUNNING"); tolerate a dict too.
+            st = inst.get("InstanceState") or ""
+            state = st.get("State", "") if isinstance(st, dict) else str(st)
             if state == "RUNNING":
                 pub = ""
                 for nic in inst.get("NetworkInterfaceSet") or []:
@@ -3635,6 +3640,10 @@ def cmd_verify_image(args: argparse.Namespace, image_id: str | None = None) -> i
     min_score = float(getattr(args, "min_score", r.min_score or 85))
     if not image_id:
         fail("--image <img-xxx> is required")
+        return 1
+    if r.family == "windows":
+        fail("verify-image boots an SSH probe — Linux images only for now "
+             "(Windows images are gated by the in-build re-audit)")
         return 1
     info(f"Launching verification instance from {image_id} "
          f"({r.profile_name} L{r.level}, {r.region}) …")
