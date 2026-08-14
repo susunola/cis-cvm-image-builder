@@ -694,6 +694,18 @@ def _check_ansible_windows_collection() -> bool:
         return False
 
 
+def _check_pywinrm() -> bool:
+    """Return True when pywinrm is importable (WinRM transport for ansible)."""
+    try:
+        out = subprocess.run(
+            [sys.executable, "-c", "import winrm"],
+            capture_output=True, timeout=15,
+        )
+        return out.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def _apply_rule_overrides(workdir: Path, role_dir: str,
                           overrides: dict[str, dict[str, Any]]) -> None:
     """Deep-merge [cis].overrides into the WORKSPACE copy of rules.json.
@@ -2758,6 +2770,12 @@ def run_preflight(r: ResolvedConfig) -> bool:
         else:
             fail("ansible.windows collection not found — install with: "
                  "ansible-galaxy collection install ansible.windows")
+            all_ok = False
+        if _check_pywinrm():
+            ok("pywinrm importable (WinRM transport)")
+        else:
+            fail("pywinrm not installed for the ansible python — install with: "
+                 "pip install pywinrm")
             all_ok = False
 
     # packer binary
