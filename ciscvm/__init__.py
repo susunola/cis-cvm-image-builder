@@ -4784,6 +4784,15 @@ def cmd_scan(args: argparse.Namespace) -> int:
     _write_xccdf(args, result.stdout_lines, benchmark=r.image_benchmark)
 
     if result.exit_code != 0:
+        # A parsed score below the gate means the in-role score check
+        # deliberately failed the build — report it as a gate failure,
+        # not as an infrastructure/packer error.
+        if score is not None and score < args.min_score:
+            fail(f"scan gate FAILED: score {score:g}% < {args.min_score:g}% "
+                 f"(audit-only, nothing remediated)")
+            _record_lineage(r, image_ids, image_name, score, ok=False)
+            _send_notification(r, False, image_ids, score, image_name)
+            return 1
         fail("packer build failed during scan")
         _record_lineage(r, image_ids, image_name, score, ok=False)
         _send_notification(r, False, image_ids, score, image_name)
