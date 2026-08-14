@@ -100,6 +100,36 @@ function ConvertTo-AccountSid($Name) {
     return $null
 }
 
+function Get-UserRightMembers($Privilege) {
+    <#
+    Export USER_RIGHTS via secedit and return the member list of one
+    privilege as @{ ok = $true; members = @(...) } (SIDs, '*' stripped).
+    Returns @{ ok = $false } when the export itself failed.
+    #>
+    $tmp = "$env:TEMP\urq_$([Guid]::NewGuid()).inf"
+    try {
+        secedit /export /cfg $tmp /areas USER_RIGHTS 2>$null | Out-Null
+        if (-not (Test-Path $tmp)) { return @{ ok = $false } }
+        Protect-TempFile $tmp
+        $content = Get-Content $tmp -Raw
+        $members = @()
+        if ($content -match "(?m)^\s*$([regex]::Escape($Privilege))\s*=\s*(.*)$") {
+            $members = @($Matches[1].Trim() -split ',' | ForEach-Object { $_.Trim().TrimStart('*') } | Where-Object { $_ })
+        }
+        return @{ ok = $true; members = $members }
+    } catch { return @{ ok = $false } }
+    finally {
+        if (Test-Path $tmp) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+function Test-UserRightMatch($ExpectedSids, $Members) {
+    # CIS wants exactly the expected set - no missing, no extras.
+    $missing = @($ExpectedSids | Where-Object { $Members -notcontains $_ })
+    $extras  = @($Members | Where-Object { $ExpectedSids -notcontains $_ })
+    return ($missing.Count -eq 0 -and $extras.Count -eq 0)
+}
+
 function Get-SecPol {
     param($Area, $Key)
     $tmp = $null
@@ -332,28 +362,12 @@ function Invoke-Check {
                 $sid = ConvertTo-AccountSid $_
                 if ($sid) { $sid } else { $_ }
             })
-            $tmp = $null
-            try {
-                $tmp = "$env:TEMP\ur_$([Guid]::NewGuid()).inf"
-                secedit /export /cfg $tmp /areas USER_RIGHTS 2>$null | Out-Null
-                if (Test-Path $tmp) {
-                    Protect-TempFile $tmp
-                    $content = Get-Content $tmp -Raw
-                    $members = @()
-                    if ($content -match "(?m)^\s*$([regex]::Escape($privilege))\s*=\s*(.*)$") {
-                        # secedit writes SIDs with a leading '*'; strip it
-                        $members = $Matches[1].Trim() -split ',' | ForEach-Object { $_.Trim().TrimStart('*') } | Where-Object { $_ }
-                    }
-                    # CIS wants exactly the expected set - no missing, no extras
-                    $missing = @($expectedSids | Where-Object { $members -notcontains $_ })
-                    $extras  = @($members | Where-Object { $expectedSids -notcontains $_ })
-                    $ok = ($missing.Count -eq 0 -and $extras.Count -eq 0)
-                    $expectText = if ($expected.Count -gt 0) { $expected -join ',' } else { "(No One)" }
-                    return @{status=if($ok){"pass"}else{"fail"}; detail="$privilege members: [$($members -join ',')] (expected [$expectText])"}
-                }
-            } catch {}
-            finally {
-                if ($tmp -and (Test-Path $tmp)) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
+            $q = Get-UserRightMembers $privilege
+            if ($q.ok) {
+                $members = $q.members
+                $ok = Test-UserRightMatch $expectedSids $members
+                $expectText = if ($expected.Count -gt 0) { $expected -join ',' } else { "(No One)" }
+                return @{status=if($ok){"pass"}else{"fail"}; detail="$privilege members: [$($members -join ',')] (expected [$expectText])"}
             }
             return @{status="error"; detail="Failed to query $privilege"}
         }
@@ -752,7 +766,13 @@ function Invoke-Fix {
                     secedit /configure /db $seceditDb /cfg $tmp /areas USER_RIGHTS 2>$null | Out-Null
                     $rc = $LASTEXITCODE
                     Remove-Item $seceditDb -Force -ErrorAction SilentlyContinue
-                    if ($rc -ne 0) { return "failed: secedit exit code $rc" }
+                    if ($rc -ne 0) {
+                        # Some localized builds (zh-CN Server 2025) exit 1 even
+                        # when the import succeeded - verify before failing.
+                        $verify = Get-UserRightMembers $privilege
+                        if ($verify.ok -and $verify.members.Count -eq 0) { return "applied" }
+                        return "failed: secedit exit code $rc"
+                    }
                     return "applied"
                 }
                 # secedit imports SIDs with a leading '*'; account names stay
@@ -779,7 +799,13 @@ function Invoke-Fix {
                 secedit /configure /db $seceditDb /cfg $tmp /areas USER_RIGHTS 2>$null | Out-Null
                 $rc = $LASTEXITCODE
                 Remove-Item $seceditDb -Force -ErrorAction SilentlyContinue
-                if ($rc -ne 0) { return "failed: secedit exit code $rc" }
+                if ($rc -ne 0) {
+                    # Some localized builds (zh-CN Server 2025) exit 1 even when
+                    # the import succeeded - verify before failing.
+                    $verify = Get-UserRightMembers $privilege
+                    if ($verify.ok -and (Test-UserRightMatch $expectedSids $verify.members)) { return "applied" }
+                    return "failed: secedit exit code $rc"
+                }
                 return "applied"
             } catch { return "failed: $($_.Exception.Message)" }
             finally {
