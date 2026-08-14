@@ -2268,6 +2268,27 @@ class TestShareImages:
         assert "cannot share images" in caplog.text
 
 
+class TestWindowsShipAuditResult:
+    """Windows images must ship the build-time audit result inside the image
+    (C:\\ProgramData\\ciscvm\\AUDIT-RESULT.json) — the counterpart of Linux
+    /opt/ciscvm-AUDIT-RESULT.json — so report/drift tooling works without
+    re-running the engine."""
+
+    def test_site_template_sets_ship_path(self):
+        from ciscvm import SITE_YML_WIN_TEMPLATE
+        assert "cis_ship_result_path" in SITE_YML_WIN_TEMPLATE
+        assert "AUDIT-RESULT.json" in SITE_YML_WIN_TEMPLATE
+
+    def test_all_windows_roles_support_ship_result(self):
+        import glob
+        for run_yml in glob.glob("ciscvm/roles/cis_win*/tasks/run.yml"):
+            content = open(run_yml, encoding="utf-8").read()
+            assert "cis_ship_result_path" in content, run_yml
+        for defaults in glob.glob("ciscvm/roles/cis_win*/defaults/main.yml"):
+            content = open(defaults, encoding="utf-8").read()
+            assert 'cis_ship_result_path: ""' in content, defaults
+
+
 class TestXccdfReport:
     """P2#8 — scan --xccdf exports an XCCDF 1.2 TestResult."""
 

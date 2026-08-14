@@ -344,6 +344,10 @@ exactly what was done and which admin channel to use:
 | `/opt/ciscvm-AUDIT-RESULT.json` | Raw re-audit JSON (the gate result). |
 | `/usr/local/bin/ciscvm-info` | One-shot summary command: `ciscvm-info`. |
 
+Windows builds ship the same audit evidence at
+`C:\ProgramData\ciscvm\AUDIT-RESULT.json` (raw engine result.json from the
+build-time audit — the Windows counterpart of `/opt/ciscvm-AUDIT-RESULT.json`).
+
 ```bash
 $ ssh ciscvm@<host>
               .---..---.
