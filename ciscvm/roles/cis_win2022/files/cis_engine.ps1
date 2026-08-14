@@ -98,6 +98,34 @@ function Get-SecPol {
     return $null
 }
 
+function Get-AuditPolicyTable {
+    <#
+    auditpol localizes subcategory names AND setting strings on non-English
+    images (e.g. Chinese Windows), so name/scrape matching is useless there.
+    `auditpol /backup` CSV carries the locale-independent Subcategory GUID
+    and a numeric Setting Value (0=none, 1=success, 2=failure, 3=both).
+    Cached per run; Invoke-Fix invalidates the cache after auditpol /set.
+    #>
+    if ($null -ne $global:AuditTable) { return $global:AuditTable }
+    $global:AuditTable = @{}
+    $tmp = "$env:TEMP\auditpol_$([Guid]::NewGuid()).csv"
+    try {
+        auditpol /backup /file:$tmp 2>$null | Out-Null
+        if (Test-Path $tmp) {
+            Protect-TempFile $tmp
+            foreach ($line in (Get-Content $tmp)) {
+                if ($line -match '\{([0-9a-fA-F-]{36})\}.*?,(\d+)\s*$') {
+                    $global:AuditTable[$Matches[1].ToLower()] = [int]$Matches[2]
+                }
+            }
+        }
+    } catch {}
+    finally {
+        if (Test-Path $tmp) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
+    }
+    return $global:AuditTable
+}
+
 function Set-SecPolValue {
     <#
     Set one [System Access] value via secedit export/edit/import.
@@ -134,13 +162,24 @@ function Set-RegValue {
     <# Shared remediation for all registry-backed families. #>
     param($Path, $Name, $Value, $Type = "DWord")
     $regPath = ConvertTo-RegistryPath $Path
+    $setValue = $Value
+    if ($Value -is [array]) {
+        # several acceptable values: compliant if any matches; enforce the
+        # first (CIS-preferred) one
+        try {
+            $current = Get-ItemProperty -Path $regPath -Name $Name -ErrorAction Stop | Select-Object -ExpandProperty $Name
+            if (($Value | Where-Object { "$current" -eq "$_" } | Select-Object -First 1) -ne $null) { return "already" }
+        } catch {}
+        $setValue = $Value[0]
+        $Value = $Value[0]
+    }
     try {
         $current = Get-ItemProperty -Path $regPath -Name $Name -ErrorAction Stop | Select-Object -ExpandProperty $Name
-        if ($current -eq $Value) { return "already" }
+        if ("$current" -eq "$Value") { return "already" }
     } catch {}
     try {
         if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
-        Set-ItemProperty -Path $regPath -Name $Name -Value $Value -Type $Type -Force
+        Set-ItemProperty -Path $regPath -Name $Name -Value $setValue -Type $Type -Force
         return "applied"
     } catch { return "failed: $($_.Exception.Message)" }
 }
@@ -175,7 +214,9 @@ function Invoke-Check {
                 $opText = @{ "ge" = ">="; "le" = "<="; "eq" = "=" }[$op]
                 return @{status=if($ok){"pass"}else{"fail"}; detail="$key=$val (expected $opText$expected)"}
             }
-            return @{status="error"; detail="$key not found in security policy"}
+            # Never-configured keys are absent from the secedit export; that is
+            # non-compliant (fail) and remediable, not an engine error.
+            return @{status="fail"; detail="$key not configured (absent from secedit export)"}
         }
 
         "password-complexity" {
@@ -202,7 +243,8 @@ function Invoke-Check {
                 else { $ok = ([int]$val -eq [int]$expected) }
                 return @{status=if($ok){"pass"}else{"fail"}; detail="$key=$val (expected $op $expected)"}
             }
-            return @{status="error"; detail="$key not found"}
+            # Absent = never configured = non-compliant (remediable)
+            return @{status="fail"; detail="$key not configured (absent from secedit export)"}
         }
 
         # -- 3. Audit Policy --
@@ -217,6 +259,23 @@ function Invoke-Check {
             }
             $subcategory = $params.subcategory
             $expected = if ($params.expected) { $params.expected } else { "Success and Failure" }
+            # Locale-proof path: GUID lookup in the auditpol /backup CSV
+            if ($params.guid) {
+                $g = "$($params.guid)".Trim(' ','{','}').ToLower()
+                $table = Get-AuditPolicyTable
+                if ($table.ContainsKey($g)) {
+                    $bits = $table[$g]
+                    switch ($expected) {
+                        "No Auditing"         { $ok = ($bits -eq 0) }
+                        "Success"             { $ok = [bool]($bits -band 1) }
+                        "Failure"             { $ok = [bool]($bits -band 2) }
+                        "Success and Failure" { $ok = ($bits -eq 3) }
+                        default               { $ok = ($bits -eq 3) }
+                    }
+                    return @{status=if($ok){"pass"}else{"fail"}; detail="$subcategory bits=$bits (expected $expected)"}
+                }
+            }
+            # Fallback: name scrape (only works on English images)
             try {
                 $out = auditpol /get /subcategory:"$subcategory" 2>&1 | Out-String
                 if ($out -match "(?m)$([regex]::Escape($subcategory))\s+(.+)$") {
@@ -276,6 +335,11 @@ function Invoke-Check {
             $expected = $params.value
             try {
                 $val = Get-ItemProperty -Path $path -Name $name -ErrorAction Stop | Select-Object -ExpandProperty $name
+                if ($expected -is [array]) {
+                    # catalog lists several acceptable values ("0 1", "3, 5 or 11")
+                    $ok = ($expected | Where-Object { "$val" -eq "$_" } | Select-Object -First 1) -ne $null
+                    return @{status=if($ok){"pass"}else{"fail"}; detail="$path\$name = $val (expected one of $($expected -join '/'))"}
+                }
                 if ($params.op -eq "le") { $ok = [int]$val -le [int]$expected }
                 elseif ($params.op -eq "ge") { $ok = [int]$val -ge [int]$expected }
                 else { $ok = ("$val" -eq "$expected") }
@@ -295,6 +359,23 @@ function Invoke-Check {
                 $ok = ("$val" -eq "$($params.value)")
                 return @{status=if($ok){"pass"}else{"fail"}; detail="$path\$name = '$val' (expected '$($params.value)')"}
             } catch { return @{status="fail"; detail="$path\$name not present (expected '$($params.value)')"} }
+        }
+
+        "reg-multisz" {
+            $path = ConvertTo-RegistryPath $params.path
+            $name = $params.name
+            # expected is a JSON array of strings; [] means CIS wants it blank
+            $expected = @()
+            if ($null -ne $params.value) { $expected = @($params.value | ForEach-Object { "$_" }) }
+            $actual = @()
+            try {
+                $val = Get-ItemProperty -Path $path -Name $name -ErrorAction Stop | Select-Object -ExpandProperty $name
+                $actual = @($val | ForEach-Object { "$_" } | Where-Object { $_ })
+            } catch { $actual = @() }  # absent == empty
+            $missingE = @($expected | Where-Object { $actual -notcontains $_ })
+            $extraE   = @($actual | Where-Object { $expected -notcontains $_ })
+            $ok = ($missingE.Count -eq 0 -and $extraE.Count -eq 0)
+            return @{status=if($ok){"pass"}else{"fail"}; detail="$path\$name = [$($actual -join ',')] (expected [$($expected -join ',')])"}
         }
 
         "reg-exists" {
@@ -463,10 +544,12 @@ function Invoke-Fix {
             $key = $params.key; $expected = $params.expected
             $op = if ($params.op) { $params.op } else { "ge" }
             $val = Get-SecPol "SECURITYPOLICY" $key
-            if ($null -eq $val) { return "error: cannot read $key" }
-            if ($op -eq "le") { $isOk = [int]$val -le [int]$expected }
-            elseif ($op -eq "eq") { $isOk = [int]$val -eq [int]$expected }
-            else { $isOk = [int]$val -ge [int]$expected }
+            $isOk = $false
+            if ($null -ne $val) {
+                if ($op -eq "le") { $isOk = [int]$val -le [int]$expected }
+                elseif ($op -eq "eq") { $isOk = [int]$val -eq [int]$expected }
+                else { $isOk = [int]$val -ge [int]$expected }
+            }
             if ($isOk) { return "already" }
             try {
                 Set-SecPolValue $key $expected
@@ -496,10 +579,12 @@ function Invoke-Fix {
             $key = $params.key; $expected = $params.expected
             $op = if ($params.op) { $params.op } else { "le" }
             $val = Get-SecPol "SECURITYPOLICY" $key
-            if ($null -eq $val) { return "error: cannot read $key" }
-            if ($op -eq "le") { $isOk = [int]$val -le [int]$expected }
-            elseif ($op -eq "ge") { $isOk = [int]$val -ge [int]$expected }
-            else { $isOk = [int]$val -eq [int]$expected }
+            $isOk = $false
+            if ($null -ne $val) {
+                if ($op -eq "le") { $isOk = [int]$val -le [int]$expected }
+                elseif ($op -eq "ge") { $isOk = [int]$val -ge [int]$expected }
+                else { $isOk = [int]$val -eq [int]$expected }
+            }
             if ($isOk) { return "already" }
             try {
                 Set-SecPolValue $key $expected
@@ -519,6 +604,23 @@ function Invoke-Fix {
             }
             $subcategory = $params.subcategory
             $expected = if ($params.expected) { $params.expected } else { "Success and Failure" }
+            # GUID targets are locale-proof (Chinese images localize names)
+            $target = if ($params.guid) { "{$([IO.Guid]$($params.guid).Trim(' ','{','}'))}" } else { $subcategory }
+            if ($params.guid) {
+                $g = "$($params.guid)".Trim(' ','{','}').ToLower()
+                $table = Get-AuditPolicyTable
+                if ($table.ContainsKey($g)) {
+                    $bits = $table[$g]
+                    $alreadyOk = $false
+                    switch ($expected) {
+                        "Success"             { $alreadyOk = [bool]($bits -band 1) }
+                        "Failure"             { $alreadyOk = [bool]($bits -band 2) }
+                        "Success and Failure" { $alreadyOk = ($bits -eq 3) }
+                        "No Auditing"         { $alreadyOk = ($bits -eq 0) }
+                    }
+                    if ($alreadyOk) { return "already" }
+                }
+            }
             try {
                 $out = auditpol /get /subcategory:"$subcategory" 2>&1 | Out-String
                 if ($out -match "(?m)$([regex]::Escape($subcategory))\s+(.+)$") {
@@ -544,7 +646,8 @@ function Invoke-Fix {
                         $failureArg = if ($expected -like "*Failure*") { "enable" } else { "disable" }
                     }
                 }
-                auditpol /set /subcategory:"$subcategory" /success:$successArg /failure:$failureArg 2>$null | Out-Null
+                auditpol /set /subcategory:"$target" /success:$successArg /failure:$failureArg 2>$null | Out-Null
+                $global:AuditTable = $null  # invalidate the cached backup CSV
                 return "applied"
             } catch { return "failed: $($_.Exception.Message)" }
         }
@@ -570,7 +673,20 @@ function Invoke-Fix {
                 $extras  = @($members | Where-Object { $expected -notcontains $_ })
                 if ($missing.Count -eq 0 -and $extras.Count -eq 0) { return "already" }
                 if ($expected.Count -eq 0) {
-                    return "skipped: expected 'No One' - clear '$privilege' assignments manually"
+                    # CIS "No One": an empty assignment revokes every member
+                    $written = @()
+                    if ($c -match "(?m)^\s*$([regex]::Escape($privilege))\s*=.*$") {
+                        $c = $c -replace "(?m)^\s*$([regex]::Escape($privilege))\s*=.*$", "$privilege ="
+                    } else {
+                        return "already"  # no assignment line means no members
+                    }
+                    [System.IO.File]::WriteAllText($tmp, $c)
+                    $seceditDb = "$env:TEMP\cis-secedit-$([Guid]::NewGuid()).sdb"
+                    secedit /configure /db $seceditDb /cfg $tmp /areas USER_RIGHTS 2>$null | Out-Null
+                    $rc = $LASTEXITCODE
+                    Remove-Item $seceditDb -Force -ErrorAction SilentlyContinue
+                    if ($rc -ne 0) { return "failed: secedit exit code $rc" }
+                    return "applied"
                 }
                 # secedit imports SIDs with a leading '*'; account names stay bare.
                 # CIS wants exactly the expected set, so replace - not merge.
@@ -603,6 +719,26 @@ function Invoke-Fix {
         "lanman-auth" { return Set-RegValue $params.path $params.name $params.value "DWord" }
         "smb-signing" { return Set-RegValue $params.path $params.name $params.value "DWord" }
         "rdp-nla"    { return Set-RegValue $params.path $params.name $params.value "DWord" }
+
+        "reg-multisz" {
+            $regPath = ConvertTo-RegistryPath $params.path
+            $name = $params.name
+            $expected = @()
+            if ($null -ne $params.value) { $expected = @($params.value | ForEach-Object { "$_" }) }
+            $actual = @()
+            try {
+                $val = Get-ItemProperty -Path $regPath -Name $name -ErrorAction Stop | Select-Object -ExpandProperty $name
+                $actual = @($val | ForEach-Object { "$_" } | Where-Object { $_ })
+            } catch {}
+            $missingE = @($expected | Where-Object { $actual -notcontains $_ })
+            $extraE   = @($actual | Where-Object { $expected -notcontains $_ })
+            if ($missingE.Count -eq 0 -and $extraE.Count -eq 0) { return "already" }
+            try {
+                if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+                Set-ItemProperty -Path $regPath -Name $name -Value ([string[]]$expected) -Type MultiString -Force
+                return "applied"
+            } catch { return "failed: $($_.Exception.Message)" }
+        }
 
         "firewall-profile" {
             $fwProfile = $params.profile
@@ -788,7 +924,7 @@ foreach ($rule in $rules) {
                 $applyStatus = "failed: $($_.Exception.Message)"
             }
         }
-    } elseif ($isApply -and $result.status -ne "fail") {
+    } elseif ($isApply -and $result.status -eq "pass") {
         $applyStatus = "already"
     }
 
