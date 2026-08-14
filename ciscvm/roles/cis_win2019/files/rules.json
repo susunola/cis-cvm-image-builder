@@ -156,7 +156,8 @@
   "params": {
    "key": "LockoutBadCount",
    "expected": 5,
-   "op": "le"
+   "op": "le",
+   "not_zero": true
   }
  },
  {

@@ -241,7 +241,9 @@ function Invoke-Check {
                 if ($op -eq "le") { $ok = [int]$val -le [int]$expected }
                 elseif ($op -eq "ge") { $ok = [int]$val -ge [int]$expected }
                 else { $ok = ([int]$val -eq [int]$expected) }
-                return @{status=if($ok){"pass"}else{"fail"}; detail="$key=$val (expected $op $expected)"}
+                if ($ok -and $params.not_zero -and [int]$val -eq 0) { $ok = $false }
+                $suffix = if ($params.not_zero) { ", not 0" } else { "" }
+                return @{status=if($ok){"pass"}else{"fail"}; detail="$key=$val (expected $op $expected$suffix)"}
             }
             # Absent = never configured = non-compliant (remediable)
             return @{status="fail"; detail="$key not configured (absent from secedit export)"}
@@ -588,19 +590,24 @@ function Invoke-Fix {
             if ($isOk) { return "already" }
             # net accounts is the canonical, locale-free path for the three
             # lockout settings (secedit exports omit them until configured, and
-            # the INF key for the threshold is LockoutBadCount).
+            # the INF key for the threshold is LockoutBadCount). Duration and
+            # window do not persist while the threshold is 0 ("Never"), and the
+            # duration may not be below the window -- so apply all three catalog
+            # values together, in a dependency-safe way.
             $netMap = @{ "LockoutDuration" = "lockoutduration"; "LockoutBadCount" = "lockoutthreshold"; "ResetLockoutCount" = "lockoutwindow" }
             if ($netMap.ContainsKey($key)) {
                 try {
-                    $targetVal = [int]$expected
-                    if ($key -eq "LockoutDuration") {
-                        # net accounts rejects a duration below the observation
-                        # window ("The parameter is incorrect")
-                        $win = Get-SecPol "SECURITYPOLICY" "ResetLockoutCount"
-                        $winN = if ($win) { [int]$win } else { 30 }
-                        if ($targetVal -lt $winN) { $targetVal = $winN }
+                    $thr = 5; $win = 15; $dur = 15
+                    foreach ($sib in $script:ruleCatalog) {
+                        if ($sib.family -ne "lockout-policy") { continue }
+                        switch ($sib.params.key) {
+                            "LockoutBadCount"   { $thr = [int]$sib.params.expected }
+                            "ResetLockoutCount" { $win = [int]$sib.params.expected }
+                            "LockoutDuration"   { $dur = [int]$sib.params.expected }
+                        }
                     }
-                    net accounts /"$($netMap[$key]):$targetVal" 2>$null | Out-Null
+                    if ($dur -lt $win) { $dur = $win }
+                    net accounts "/lockoutthreshold:$thr" "/lockoutwindow:$win" "/lockoutduration:$dur" 2>$null | Out-Null
                     if ($LASTEXITCODE -ne 0) { return "failed: net accounts exit $LASTEXITCODE" }
                     return "applied"
                 } catch { return "failed: $($_.Exception.Message)" }
