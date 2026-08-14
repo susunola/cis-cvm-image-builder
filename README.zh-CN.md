@@ -376,7 +376,7 @@ AK/SK 仅通过环境变量传入（HCL `sensitive = true`）。临时实例打�
 
 已验证的 CIS 加固镜像（OS × 等级全覆盖）。
 所有构建均在腾讯云广州地域、`cis_allow_disruptive: false` 下完成；
-以下镜像均已于 2026-08-13 在控制台复核为 `NORMAL` 状态。
+以下镜像均已于 2026-08-14 在控制台复核为 `NORMAL` 状态。
 
 | OS | L1 | L2 |
 |---|---|---|
@@ -388,13 +388,19 @@ AK/SK 仅通过环境变量传入（HCL `sensitive = true`）。临时实例打�
 | **Ubuntu 24.04** | `img-7ncjcq10` (95.9%) | `img-j9m1fn0u` (96.5%) |
 | **TencentOS 3** | `img-ip62dj1k` (95.7%) | `img-joo4xcis` (94.2%) |
 | **TencentOS 4** | `img-ipw57gea` (96.9%) | `img-fs0hh75w` (96.7%) |
-| **Windows Server 2022** | EN `img-b9iwlu30` (100%) · CN `img-b4vcf4aq` (99.0%) | — |
+| **Windows Server 2016** | EN `img-lw9onsqo` (99.7%) · CN `img-bm2kusug` (99.7%) | EN `img-gnedt90i` (99.7%) · CN `img-4t7nd0ne` (99.7%) |
+| **Windows Server 2019** | EN `img-9dfarngo` (99.6%) · CN `img-2h1qdi5c` (99.6%) | EN `img-5gfx1ybo` (99.7%) · CN `img-8u7us60c` (99.7%) |
+| **Windows Server 2022** | EN `img-b9iwlu30` (99.7%) · CN `img-5fwbryp2` (99.7%) | — |
+| **Windows Server 2025** | EN `img-4obl2vj4` (99.7%) · CN `img-pqx9opsw` (99.7%) | EN `img-cvoolqiu` (99.7%) · CN `img-2e5x3xhg` (99.7%) |
 
 > 分数为重启后复审结果（全量评估规则，门禁 ≥ 85）。
 > kmod 类规则通过持久化 modprobe install-override 生效，构建期无需排除任何规则。
-> Windows Server 2022 镜像为 L1 成员服务器配置，基于腾讯云公共镜像（英文版/中文版）构建，
+> Windows 镜像为成员服务器配置，基于腾讯云公共镜像（英文版/中文版）构建，
 > 于 2026-08-14 完成构建与复审；快照前已重新锁定 WinRM（关闭 Basic/明文 HTTP,
 > Administrator 密码已随机化）。
+> 每个 Windows 构建仅剩的一条 fail 为「Deny access to this computer from the
+> network → 包含 S-1-5-114」(2.2.2x)，属故意跳过的 disruptive 规则：应用它会
+> 切断构建所依赖的 WinRM 会话。可在启动后通过 `cis_allow_disruptive: true` 启用。
 
 ## 对接 CI/CD
 

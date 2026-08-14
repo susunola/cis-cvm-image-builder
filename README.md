@@ -429,7 +429,7 @@ To switch profiles, change `[build].profile` and `source_image_id` in `ciscvm.to
 
 Validated CIS-hardened images across the supported OS × level grid.
 All builds ran on Tencent Cloud Guangzhou region with `cis_allow_disruptive: false`;
-every image below was re-verified in the console as `NORMAL` on 2026-08-13.
+every image below was re-verified in the console as `NORMAL` on 2026-08-14.
 
 | OS | L1 | L2 |
 |---|---|---|
@@ -441,14 +441,21 @@ every image below was re-verified in the console as `NORMAL` on 2026-08-13.
 | **Ubuntu 24.04** | `img-7ncjcq10` (95.9%) | `img-j9m1fn0u` (96.5%) |
 | **TencentOS 3** | `img-ip62dj1k` (95.7%) | `img-joo4xcis` (94.2%) |
 | **TencentOS 4** | `img-ipw57gea` (96.9%) | `img-fs0hh75w` (96.7%) |
-| **Windows Server 2022** | EN `img-b9iwlu30` (100%) · CN `img-b4vcf4aq` (99.0%) | — |
+| **Windows Server 2016** | EN `img-lw9onsqo` (99.7%) · CN `img-bm2kusug` (99.7%) | EN `img-gnedt90i` (99.7%) · CN `img-4t7nd0ne` (99.7%) |
+| **Windows Server 2019** | EN `img-9dfarngo` (99.6%) · CN `img-2h1qdi5c` (99.6%) | EN `img-5gfx1ybo` (99.7%) · CN `img-8u7us60c` (99.7%) |
+| **Windows Server 2022** | EN `img-b9iwlu30` (99.7%) · CN `img-5fwbryp2` (99.7%) | — |
+| **Windows Server 2025** | EN `img-4obl2vj4` (99.7%) · CN `img-pqx9opsw` (99.7%) | EN `img-cvoolqiu` (99.7%) · CN `img-2e5x3xhg` (99.7%) |
 
 > Scores are the post-reboot re-audit results (all assessed rules, gate ≥ 85).
 > kmod rules are applied via persistent modprobe install-overrides — no rule
 > exclusions are needed at build time.
-> Windows Server 2022 images are L1 member-server builds from the Tencent Cloud
-> Datacenter EN/CN public images, built and re-audited on 2026-08-14; WinRM is
+> Windows images are member-server builds from the Tencent Cloud Datacenter
+> EN/CN public images, built and re-audited on 2026-08-14; WinRM is
 > re-locked (Basic/unencrypted off, Administrator password randomized) before snapshot.
+> The single remaining Windows fail on every build is "Deny access to this
+> computer from the network → include S-1-5-114" (2.2.2x), which is deliberately
+> skipped as disruptive: applying it would cut off the very WinRM session the
+> build runs on. Enable it post-boot with `cis_allow_disruptive: true`.
 
 ---
 

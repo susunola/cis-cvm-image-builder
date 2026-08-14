@@ -305,7 +305,7 @@ AK/SK は環境変数のみ（HCL の `sensitive = true`）。一時インスタ
 
 検証済み CIS  hardened イメージの OS × レベル一覧。
 すべて Tencent Cloud 広州リージョンで `cis_allow_disruptive: false` によりビルドされ、
-以下のイメージは 2026-08-13 にコンソールで `NORMAL` であることを再確認済みです。
+以下のイメージは 2026-08-14 にコンソールで `NORMAL` であることを再確認済みです。
 
 | OS | L1 | L2 |
 |---|---|---|
@@ -317,14 +317,21 @@ AK/SK は環境変数のみ（HCL の `sensitive = true`）。一時インスタ
 | **Ubuntu 24.04** | `img-7ncjcq10` (95.9%) | `img-j9m1fn0u` (96.5%) |
 | **TencentOS 3** | `img-ip62dj1k` (95.7%) | `img-joo4xcis` (94.2%) |
 | **TencentOS 4** | `img-ipw57gea` (96.9%) | `img-fs0hh75w` (96.7%) |
-| **Windows Server 2022** | EN `img-b9iwlu30` (100%) · CN `img-b4vcf4aq` (99.0%) | — |
+| **Windows Server 2016** | EN `img-lw9onsqo` (99.7%) · CN `img-bm2kusug` (99.7%) | EN `img-gnedt90i` (99.7%) · CN `img-4t7nd0ne` (99.7%) |
+| **Windows Server 2019** | EN `img-9dfarngo` (99.6%) · CN `img-2h1qdi5c` (99.6%) | EN `img-5gfx1ybo` (99.7%) · CN `img-8u7us60c` (99.7%) |
+| **Windows Server 2022** | EN `img-b9iwlu30` (99.7%) · CN `img-5fwbryp2` (99.7%) | — |
+| **Windows Server 2025** | EN `img-4obl2vj4` (99.7%) · CN `img-pqx9opsw` (99.7%) | EN `img-cvoolqiu` (99.7%) · CN `img-2e5x3xhg` (99.7%) |
 
 > スコアは再起動後の再監査結果です（全評価ルール対象、ゲート ≥ 85）。
 > kmod 系ルールは永続的な modprobe install-override で適用されるため、
 > ビルド時にルールを除外する必要はありません。
-> Windows Server 2022 イメージは Tencent Cloud 公開イメージ(英語版/中国語版)からの
-> L1 メンバーサーバー構成で、2026-08-14 にビルド・再監査済み。スナップショット前に
+> Windows イメージは Tencent Cloud 公開イメージ(英語版/中国語版)からの
+> メンバーサーバー構成で、2026-08-14 にビルド・再監査済み。スナップショット前に
 > WinRM は再ロック済み(Basic/平文 HTTP 無効、Administrator パスワードはランダム化)。
+> 各 Windows ビルドで残る唯一の fail は「Deny access to this computer from the
+> network → S-1-5-114 を含む」(2.2.2x) で、disruptive として意図的にスキップして
+> います(適用するとビルドが利用する WinRM セッションが切断されるため)。
+> 起動後に `cis_allow_disruptive: true` で有効化できます。
 
 ## CI 連携
 
