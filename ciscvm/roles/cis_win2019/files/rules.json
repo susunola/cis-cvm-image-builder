@@ -613,7 +613,7 @@
   ],
   "assessment": "Automated",
   "automated": true,
-  "risk": "medium",
+  "risk": "disruptive",
   "page": 103,
   "family": "user-right",
   "params": {
