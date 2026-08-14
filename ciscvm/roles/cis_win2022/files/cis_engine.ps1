@@ -78,6 +78,28 @@ function ConvertTo-RegistryPath($Path) {
     return $Path
 }
 
+function ConvertTo-AccountSid($Name) {
+    <#
+    Resolve an account name from the catalog (e.g. "NT SERVICE\WdiServiceHost")
+    to its SID string so user-right comparisons match the SID-only secedit
+    export. Well-known SIDs pass through unchanged. Returns $null when the
+    name cannot be resolved on this machine.
+    #>
+    if ("$Name" -match '^S-1-') { return "$Name" }
+    try {
+        return (New-Object System.Security.Principal.NTAccount("$Name")).Translate(
+            [System.Security.Principal.SecurityIdentifier]).Value
+    } catch {}
+    # Name-hashed virtual accounts that older Windows builds cannot resolve
+    # through LSA. These SIDs are deterministic (derived from the account
+    # name), so a constant is safe.
+    $known = @{
+        'RESTRICTED SERVICES\PrintSpoolerService' = 'S-1-5-99-216390572-1995538116-3857911515-2404958512-2623887229'
+    }
+    if ($known.ContainsKey("$Name")) { return $known["$Name"] }
+    return $null
+}
+
 function Get-SecPol {
     param($Area, $Key)
     $tmp = $null
@@ -304,6 +326,12 @@ function Invoke-Check {
             if ("$($params.expected_sid)".Trim()) {
                 $expected = "$($params.expected_sid)" -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
             }
+            # The catalog may name accounts (e.g. "NT SERVICE\WdiServiceHost")
+            # while secedit exports SIDs only - resolve names before comparing.
+            $expectedSids = @($expected | ForEach-Object {
+                $sid = ConvertTo-AccountSid $_
+                if ($sid) { $sid } else { $_ }
+            })
             $tmp = $null
             try {
                 $tmp = "$env:TEMP\ur_$([Guid]::NewGuid()).inf"
@@ -317,8 +345,8 @@ function Invoke-Check {
                         $members = $Matches[1].Trim() -split ',' | ForEach-Object { $_.Trim().TrimStart('*') } | Where-Object { $_ }
                     }
                     # CIS wants exactly the expected set - no missing, no extras
-                    $missing = @($expected | Where-Object { $members -notcontains $_ })
-                    $extras  = @($members | Where-Object { $expected -notcontains $_ })
+                    $missing = @($expectedSids | Where-Object { $members -notcontains $_ })
+                    $extras  = @($members | Where-Object { $expectedSids -notcontains $_ })
                     $ok = ($missing.Count -eq 0 -and $extras.Count -eq 0)
                     $expectText = if ($expected.Count -gt 0) { $expected -join ',' } else { "(No One)" }
                     return @{status=if($ok){"pass"}else{"fail"}; detail="$privilege members: [$($members -join ',')] (expected [$expectText])"}
@@ -702,8 +730,14 @@ function Invoke-Fix {
                 if ($c -match "(?m)^\s*$([regex]::Escape($privilege))\s*=\s*(.*)$") {
                     $members = $Matches[1].Trim() -split ',' | ForEach-Object { $_.Trim().TrimStart('*') } | Where-Object { $_ }
                 }
-                $missing = @($expected | Where-Object { $members -notcontains $_ })
-                $extras  = @($members | Where-Object { $expected -notcontains $_ })
+                # Compare in SID space: the catalog may name accounts while the
+                # secedit export lists SIDs only.
+                $expectedSids = @($expected | ForEach-Object {
+                    $sid = ConvertTo-AccountSid $_
+                    if ($sid) { $sid } else { $_ }
+                })
+                $missing = @($expectedSids | Where-Object { $members -notcontains $_ })
+                $extras  = @($members | Where-Object { $expectedSids -notcontains $_ })
                 if ($missing.Count -eq 0 -and $extras.Count -eq 0) { return "already" }
                 if ($expected.Count -eq 0) {
                     # CIS "No One": an empty assignment revokes every member
@@ -721,9 +755,17 @@ function Invoke-Fix {
                     if ($rc -ne 0) { return "failed: secedit exit code $rc" }
                     return "applied"
                 }
-                # secedit imports SIDs with a leading '*'; account names stay bare.
+                # secedit imports SIDs with a leading '*'; account names stay
+                # bare, but resolving names to SIDs first also works on Windows
+                # builds whose secedit cannot resolve the name itself.
                 # CIS wants exactly the expected set, so replace - not merge.
-                $written = $expected | ForEach-Object { if ($_ -match '^S-1-') { "*$_" } else { $_ } }
+                $written = $expected | ForEach-Object {
+                    if ($_ -match '^S-1-') { "*$_" }
+                    else {
+                        $sid = ConvertTo-AccountSid $_
+                        if ($sid) { "*$sid" } else { $_ }
+                    }
+                }
                 $line = "$privilege = $($written -join ',')"
                 if ($c -match "(?m)^(\s*$([regex]::Escape($privilege))\s*=\s*).*$") {
                     $c = $c -replace "(?m)^(\s*$([regex]::Escape($privilege))\s*=\s*).*$", "`${1}$($written -join ',')"
