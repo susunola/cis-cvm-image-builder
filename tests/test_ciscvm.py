@@ -1922,6 +1922,40 @@ class TestIdempotencyAndSarif:
         d = json.loads(out.read_text())
         assert d["runs"][0]["results"][0]["ruleId"] == "1.1.1.9"
 
+    # Real packer output wraps the engine's failed-rule list in ONE Ansible
+    # "msg" JSON string with literal \n escapes — a line-anchored regex never
+    # matches it (observed on a live rhel9 scan: SARIF/XCCDF came out empty
+    # while the console listed 56 failures).  Regression: parse the wrapped
+    # form exactly as it appears in packer stdout.
+    MSG_WRAPPED = (
+        '    tencentcloud-cvm.default:     "msg": "✗ 1.1.1.1 | Ensure cramfs '
+        'kernel module is not available\\n  no \'install cramfs /bin/false\' '
+        'or blacklist entry✗ 1.5.1 | Ensure ASLR is enabled\\n  runtime ok '
+        'but not persisted"'
+    )
+
+    def test_sarif_parses_ansible_msg_wrapped_output(self):
+        from ciscvm import _build_sarif
+        d = json.loads(_build_sarif([self.MSG_WRAPPED]))
+        results = d["runs"][0]["results"]
+        assert [r["ruleId"] for r in results] == ["1.1.1.1", "1.5.1"]
+        assert "blacklist entry" in results[0]["message"]["text"]
+        assert "not persisted" in results[1]["message"]["text"]
+
+    def test_xccdf_parses_ansible_msg_wrapped_output(self):
+        from ciscvm import _build_xccdf
+        out = _build_xccdf(["Score:     60.0%", self.MSG_WRAPPED])
+        assert 'idref="xccdf_org.ciscvm.content_rule_1.1.1.1"' in out
+        assert 'idref="xccdf_org.ciscvm.content_rule_1.5.1"' in out
+        # Real score, not the old hard-coded 100.
+        assert "<score max=\"100\">60.000000</score>" in out
+
+    def test_xccdf_score_zero_when_audit_never_ran(self):
+        from ciscvm import _build_xccdf
+        out = _build_xccdf(["==> packer: some infrastructure error"])
+        assert "<score max=\"100\">0.000000</score>" in out
+        assert "rule-result" not in out
+
 
 class TestAuditRuleMatching:
     """v0.14.28: auditctl -l renders rules differently from rules.d input

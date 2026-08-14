@@ -42,7 +42,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.16.22"
+VERSION = "0.16.23"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -4063,6 +4063,44 @@ def cmd_test(args: argparse.Namespace) -> int:
     return 0
 
 
+_RULE_FAIL_RE = re.compile(r"✗\s+([0-9][0-9.]+)\s*\|\s*([^\n✗]*)")
+
+
+def _parse_failed_rules(stdout_lines: list[str]) -> list[dict[str, str]]:
+    """Extract {id, title, detail} for each failed rule in engine output.
+
+    The engine emits the failed-rule list as ONE Ansible ``msg`` string
+    with literal ``\\n`` escapes (each rule's detail glued directly to the
+    next ``✗`` marker), so a line-anchored regex over raw packer stdout
+    never matches.  Decode any ``"msg": "..."`` JSON payloads first, then
+    split the blob on rule markers — plain and msg-wrapped output parse
+    identically.
+    """
+    texts: list[str] = []
+    for line in stdout_lines:
+        for m in re.findall(r'"msg":\s*"((?:[^"\\]|\\.)*)"', line):
+            try:
+                texts.append(json.loads(f'"{m}"'))
+            except ValueError:
+                texts.append(m)
+        texts.append(line)
+    blob = "\n".join(texts)
+    matches = list(_RULE_FAIL_RE.finditer(blob))
+    rules: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for i, m in enumerate(matches):
+        rid, title = m.group(1), m.group(2).strip()
+        if rid in seen:
+            continue
+        seen.add(rid)
+        # Detail = text between this rule's title and the next rule marker
+        # (the engine prints it as indented line(s) right after the title).
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(blob)
+        detail = re.sub(r"\s*\n\s*", " ", blob[m.end():end]).strip()
+        rules.append({"id": rid, "title": title, "detail": detail})
+    return rules
+
+
 def _build_sarif(stdout_lines: list[str], benchmark: str = "") -> str:
     """Build a SARIF 2.1.0 document from the engine's 'List failed rules' output.
 
@@ -4072,27 +4110,8 @@ def _build_sarif(stdout_lines: list[str], benchmark: str = "") -> str:
     """
     rules: list[dict[str, Any]] = []
     results: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    _rule_re = re.compile(r"\s*✗\s+([0-9][0-9.]+)\s*\|\s*(.*?)\s*$")
-    for i, line in enumerate(stdout_lines):
-        m = _rule_re.match(line)
-        if not m:
-            continue
-        rid, title = m.group(1), m.group(2).strip()
-        if rid in seen:
-            continue
-        seen.add(rid)
-        # Collect the detail: the indented line(s) directly after this rule
-        # line, stopping at the next rule line or a blank line.  (The old
-        # `stdout_lines[i+1]` grabbed whatever was next — often the next
-        # rule header instead of the actual failure detail.)
-        detail_parts: list[str] = []
-        for j in range(i + 1, min(i + 4, len(stdout_lines))):
-            nxt = stdout_lines[j].strip()
-            if not nxt or _rule_re.match(stdout_lines[j]):
-                break
-            detail_parts.append(nxt)
-        detail = " ".join(detail_parts)
+    for parsed in _parse_failed_rules(stdout_lines):
+        rid, title, detail = parsed["id"], parsed["title"], parsed["detail"]
         rule_obj: dict[str, Any] = {"id": rid, "shortDescription": {"text": title}}
         if benchmark:
             rule_obj["properties"] = {"benchmark": benchmark}
@@ -4146,20 +4165,17 @@ def _build_xccdf(stdout_lines: list[str], benchmark: str = "") -> str:
     from xml.sax.saxutils import escape
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     rows = []
-    seen: set[str] = set()
-    for line in stdout_lines:
-        m = re.match(r"\s*✗\s+([0-9][0-9.]+)\s*\|\s*(.*?)\s*$", line)
-        if not m:
-            continue
-        rid = m.group(1)
-        if rid in seen:
-            continue
-        seen.add(rid)
+    for parsed in _parse_failed_rules(stdout_lines):
+        rid = parsed["id"]
         rows.append(
             f'  <rule-result idref="xccdf_org.ciscvm.content_rule_{rid}">\n'
             f'    <result>fail</result>\n'
-            f'    <message>{escape((m.group(2) or "").strip()[:200])}</message>\n'
+            f'    <message>{escape((parsed["detail"] or parsed["title"])[:200])}</message>\n'
             f'  </rule-result>')
+    # Real audit score when the engine printed one; 0 when the build never
+    # reached the audit (a hard-coded 100 here made failed builds look
+    # compliant to GRC ingestion).
+    score = _extract_score(stdout_lines)
     bm = escape(benchmark) if benchmark else "ciscvm"
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -4167,7 +4183,7 @@ def _build_xccdf(stdout_lines: list[str], benchmark: str = "") -> str:
         f'id="ciscvm-{escape(benchmark) if benchmark else "benchmark"}">\n'
         f'  <TestResult id="ciscvm-scan" start-time="{now}" end-time="{now}" '
         f'benchmark-reference="{bm}">\n'
-        f'    <score max="100">{100.0:.6f}</score>\n'
+        f'    <score max="100">{score if score is not None else 0.0:.6f}</score>\n'
         + "\n".join(rows) + "\n"
         '  </TestResult>\n</Benchmark>\n')
 

@@ -5,6 +5,23 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
+## [0.16.23] — 2026-08-14
+
+### Fixed
+- **`scan --sarif` / `--xccdf` reports came out empty on real builds**: the
+  engine's failed-rule list reaches packer stdout as ONE Ansible
+  `"msg": "...✗ 1.1.1.1 | ...\n..."` JSON string (literal `\n` escapes,
+  each rule's detail glued to the next `✗` marker), so the line-anchored
+  `✗`-rule regex never matched — the SARIF had zero results and the XCCDF
+  showed zero rule-results even with dozens of failures on the console.
+  Both builders now share `_parse_failed_rules`, which decodes msg
+  payloads first and splits on rule markers.  Verified against a live
+  rhel9 scan (56 failed rules now present in both reports).
+- **XCCDF hard-coded `<score>100</score>`**: the TestResult now carries
+  the real re-audit score parsed from the engine output, and `0` when the
+  build never reached the audit — a failed build no longer ingests into
+  GRC tooling as a perfect pass.
+
 ## [0.16.21] — 2026-08-13
 
 ### Fixed
