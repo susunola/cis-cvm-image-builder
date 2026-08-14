@@ -1618,7 +1618,7 @@ __SMOKE_TEST_BLOCK____TEST_COMPONENTS_BLOCK__
       "$u = 1..4 | ForEach-Object { [char](Get-Random -Minimum 65 -Maximum 91) }",
       "$l = 1..4 | ForEach-Object { [char](Get-Random -Minimum 97 -Maximum 123) }",
       "$d = 1..4 | ForEach-Object { [char](Get-Random -Minimum 48 -Maximum 58) }",
-      "$s = 1..4 | ForEach-Object { [char]@(33,35,36,37,38,42,43,45,61,63,64,95)[Get-Random -Maximum 12] }",
+      "$s = 1..4 | ForEach-Object { [char]@(33,35,36,37,38,42,43,45,61,63,64,95)[(Get-Random -Maximum 12)] }",
       "$newpass = -join (($u + $l + $d + $s) | Sort-Object { Get-Random })",
       "net user Administrator $newpass | Out-Null",
       "if ($LASTEXITCODE -ne 0) { Write-Error '[ciscvm] FAILED to set Administrator password (exit ' + $LASTEXITCODE + ')'; exit 1 }",
