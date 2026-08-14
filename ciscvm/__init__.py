@@ -3416,7 +3416,8 @@ def _source_image_created(r: ResolvedConfig) -> str:
     imgs = resp.get("Response", {}).get("ImageSet") or []
     if not imgs:
         return ""
-    return str(imgs[0].get("CreatedTime", ""))
+    # Public images report CreatedTime as null — treat as unavailable.
+    return str(imgs[0].get("CreatedTime") or "")
 
 
 def cmd_check_source(args: argparse.Namespace) -> int:
