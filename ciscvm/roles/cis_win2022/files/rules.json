@@ -1721,7 +1721,7 @@
   "automated": true,
   "risk": "medium",
   "page": 222,
-  "family": "reg-string",
+  "family": "reg-dword",
   "params": {
    "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
    "name": "ScRemoveOption",

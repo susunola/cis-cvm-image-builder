@@ -38,7 +38,7 @@ function Write-Result {
         id = $Id; title = $Title; section = $Section; status = $Status
         level = $Level; assessment = $Assessment; family = $Family
         risk = $Risk; detail = $Detail; page = $Page; levels = $Levels
-        duration_ms = 0; apply_status = "n/a"
+        duration_ms = 0; apply_status = "n/a"; apply_detail = ""
     }
 }
 
@@ -588,6 +588,10 @@ function Invoke-Fix {
             if ($isOk) { return "already" }
             try {
                 Set-SecPolValue $key $expected
+                # secedit applies lockout values unreliably on some images;
+                # net accounts is the canonical, locale-free path for these
+                $netMap = @{ "LockoutDuration" = "lockoutduration"; "LockoutThreshold" = "lockoutthreshold"; "ResetLockoutCount" = "lockoutwindow" }
+                if ($netMap.ContainsKey($key)) { net accounts /"$($netMap[$key]):$expected" 2>$null | Out-Null }
                 return "applied"
             } catch { return "failed: $($_.Exception.Message)" }
         }
@@ -605,7 +609,7 @@ function Invoke-Fix {
             $subcategory = $params.subcategory
             $expected = if ($params.expected) { $params.expected } else { "Success and Failure" }
             # GUID targets are locale-proof (Chinese images localize names)
-            $target = if ($params.guid) { "{$([IO.Guid]$($params.guid).Trim(' ','{','}'))}" } else { $subcategory }
+            $target = if ($params.guid) { "{$("$($params.guid)".Trim(' ','{','}'))}" } else { $subcategory }
             if ($params.guid) {
                 $g = "$($params.guid)".Trim(' ','{','}').ToLower()
                 $table = Get-AuditPolicyTable
