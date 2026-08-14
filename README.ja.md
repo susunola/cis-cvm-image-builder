@@ -317,10 +317,14 @@ AK/SK は環境変数のみ（HCL の `sensitive = true`）。一時インスタ
 | **Ubuntu 24.04** | `img-7ncjcq10` (95.9%) | `img-j9m1fn0u` (96.5%) |
 | **TencentOS 3** | `img-ip62dj1k` (95.7%) | `img-joo4xcis` (94.2%) |
 | **TencentOS 4** | `img-ipw57gea` (96.9%) | `img-fs0hh75w` (96.7%) |
+| **Windows Server 2022** | EN `img-b9iwlu30` (100%) · CN `img-b4vcf4aq` (99.0%) | — |
 
 > スコアは再起動後の再監査結果です（全評価ルール対象、ゲート ≥ 85）。
 > kmod 系ルールは永続的な modprobe install-override で適用されるため、
 > ビルド時にルールを除外する必要はありません。
+> Windows Server 2022 イメージは Tencent Cloud 公開イメージ(英語版/中国語版)からの
+> L1 メンバーサーバー構成で、2026-08-14 にビルド・再監査済み。スナップショット前に
+> WinRM は再ロック済み(Basic/平文 HTTP 無効、Administrator パスワードはランダム化)。
 
 ## CI 連携
 

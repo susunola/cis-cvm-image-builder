@@ -388,9 +388,13 @@ AK/SK 仅通过环境变量传入（HCL `sensitive = true`）。临时实例打�
 | **Ubuntu 24.04** | `img-7ncjcq10` (95.9%) | `img-j9m1fn0u` (96.5%) |
 | **TencentOS 3** | `img-ip62dj1k` (95.7%) | `img-joo4xcis` (94.2%) |
 | **TencentOS 4** | `img-ipw57gea` (96.9%) | `img-fs0hh75w` (96.7%) |
+| **Windows Server 2022** | EN `img-b9iwlu30` (100%) · CN `img-b4vcf4aq` (99.0%) | — |
 
 > 分数为重启后复审结果（全量评估规则，门禁 ≥ 85）。
 > kmod 类规则通过持久化 modprobe install-override 生效，构建期无需排除任何规则。
+> Windows Server 2022 镜像为 L1 成员服务器配置，基于腾讯云公共镜像（英文版/中文版）构建，
+> 于 2026-08-14 完成构建与复审；快照前已重新锁定 WinRM（关闭 Basic/明文 HTTP,
+> Administrator 密码已随机化）。
 
 ## 对接 CI/CD
 

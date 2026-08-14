@@ -441,10 +441,14 @@ every image below was re-verified in the console as `NORMAL` on 2026-08-13.
 | **Ubuntu 24.04** | `img-7ncjcq10` (95.9%) | `img-j9m1fn0u` (96.5%) |
 | **TencentOS 3** | `img-ip62dj1k` (95.7%) | `img-joo4xcis` (94.2%) |
 | **TencentOS 4** | `img-ipw57gea` (96.9%) | `img-fs0hh75w` (96.7%) |
+| **Windows Server 2022** | EN `img-b9iwlu30` (100%) · CN `img-b4vcf4aq` (99.0%) | — |
 
 > Scores are the post-reboot re-audit results (all assessed rules, gate ≥ 85).
 > kmod rules are applied via persistent modprobe install-overrides — no rule
 > exclusions are needed at build time.
+> Windows Server 2022 images are L1 member-server builds from the Tencent Cloud
+> Datacenter EN/CN public images, built and re-audited on 2026-08-14; WinRM is
+> re-locked (Basic/unencrypted off, Administrator password randomized) before snapshot.
 
 ---
 
