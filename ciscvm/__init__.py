@@ -169,28 +169,28 @@ PROFILES: dict[str, dict[str, Any]] = {
         "role_dir": "cis_win2016",
         "winrm_username": "Administrator",
         "os_tag": "windows-2016",
-        "benchmark": "CIS-v1.0.0",
+        "benchmark": "CIS-v4.0.0",
     },
     "win2019": {
         "family": "windows",
         "role_dir": "cis_win2019",
         "winrm_username": "Administrator",
         "os_tag": "windows-2019",
-        "benchmark": "CIS-v1.0.0",
+        "benchmark": "CIS-v5.0.0",
     },
     "win2022": {
         "family": "windows",
         "role_dir": "cis_win2022",
         "winrm_username": "Administrator",
         "os_tag": "windows-2022",
-        "benchmark": "CIS-v1.0.0",
+        "benchmark": "CIS-v5.1.0",
     },
     "win2025": {
         "family": "windows",
         "role_dir": "cis_win2025",
         "winrm_username": "Administrator",
         "os_tag": "windows-2025",
-        "benchmark": "CIS-v1.0.0",
+        "benchmark": "CIS-v2.1.0",
     },
 }
 
@@ -675,6 +675,23 @@ def _check_bundled_role(role_dir: str) -> bool:
     except ValueError:
         return False
     return src.is_dir()
+
+
+def _check_ansible_windows_collection() -> bool:
+    """Return True when the ansible.windows collection is visible to ansible.
+
+    Windows roles run controller-side with win_command/win_copy/win_file —
+    without this collection the playbook dies at Gathering Facts with the
+    opaque "ansible.legacy.setup was redirected ... could not be loaded".
+    """
+    try:
+        out = subprocess.run(
+            ["ansible-galaxy", "collection", "list", "ansible.windows"],
+            capture_output=True, text=True, timeout=30,
+        )
+        return out.returncode == 0 and "ansible.windows" in out.stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def _apply_rule_overrides(workdir: Path, role_dir: str,
@@ -2735,6 +2752,12 @@ def run_preflight(r: ResolvedConfig) -> bool:
             ok(f"WinRM password env var {r.winrm_password_env} is set")
         else:
             fail(f"WinRM password env var {r.winrm_password_env} is not set")
+            all_ok = False
+        if _check_ansible_windows_collection():
+            ok("ansible.windows collection installed")
+        else:
+            fail("ansible.windows collection not found — install with: "
+                 "ansible-galaxy collection install ansible.windows")
             all_ok = False
 
     # packer binary
