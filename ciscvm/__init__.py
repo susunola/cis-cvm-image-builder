@@ -3336,6 +3336,7 @@ def _tc3_api(service: str, action: str, version: str, region: str,
         "X-TC-Action": action,
         "X-TC-Version": version,
         "X-TC-Region": region,
+        "X-TC-Timestamp": str(timestamp),
     }
     if token:
         headers["X-TC-Token"] = token
@@ -4947,7 +4948,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"ciscvm {VERSION}")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging")
 
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
 
     p_init = sub.add_parser("init", help="Generate sample ciscvm.toml")
     p_init.add_argument("--target", default=".", help="Output directory (default: current)")
@@ -5102,6 +5103,9 @@ def main(argv: list[str] | None = None) -> int:
     _setup_logging()
     parser = build_parser()
     args = parser.parse_args(argv)
+    if not getattr(args, "func", None):
+        parser.print_help()
+        return 0
     _setup_logging(verbose=args.verbose)
     try:
         return int(args.func(args))
