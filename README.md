@@ -471,6 +471,38 @@ Point downstream CVM / Auto Scaling / Terraform at the output `image_id`. Pin th
 
 ---
 
+## Security model (for enterprise review)
+
+What auditors usually ask about, and where each control lives:
+
+- **No long-lived credentials for humans.** The person (or pipeline)
+  triggering a build holds only cloud API permissions — OIDC/STS
+  short-lived credentials in CI, a least-privilege sub-account, or an
+  `assume_role` chain for group accounts. Nobody needs a VM password or
+  SSH key to run a build. See [Group accounts](#group-accounts-organization).
+- **Ephemeral, isolated build VM.** The build instance lives for the
+  duration of one build (~10 min), sits in a dedicated VPC with a
+  security group source-restricted to the build machine's egress IP,
+  uses a Packer-generated throwaway keypair that is deleted when the
+  build ends, and is terminated automatically — success or failure.
+- **The build VM runs as root — deliberately.** This follows AWS EC2
+  Image Builder / Azure Image Builder / Packer's own examples, where the
+  ephemeral build instance is driven as root (or a NOPASSWD-sudo default
+  user, which is the same privilege set under another name). There is no
+  production data, no multi-user access, and no persistence on this VM;
+  least-privilege controls apply to *who can trigger the pipeline*, not
+  to a throwaway VM nobody can log into. The shipped artifact is what
+  matters — and it is hardened: root SSH login is disabled
+  (`PermitRootLogin no`) before the snapshot, per CIS.
+- **Auditable output.** Every build records lineage (source image →
+  output image IDs, score, version), can emit a GPG-signed SLSA-style
+  provenance statement, an SBOM pinned into the provenance, and
+  SARIF/XCCDF reports for GRC ingestion. The image itself carries the
+  audit result (`/opt/ciscvm-AUDIT-RESULT.json`) and a full report
+  (`/opt/ciscvm-REPORT.md`).
+
+---
+
 ## Group accounts (organization)
 
 ciscvm supports the Tencent Cloud group-account (企业组织) pattern for
