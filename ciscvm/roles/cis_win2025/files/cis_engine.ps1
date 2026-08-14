@@ -672,8 +672,11 @@ function Invoke-Fix {
 # -- Load Rules ----------------------------------------------
 try {
     $raw = [System.IO.File]::ReadAllText($Catalog)
-    $catalog = $raw | ConvertFrom-Json
-    if (-not $catalog -or $catalog.Count -eq 0) {
+    # NOTE: do NOT name this $catalog -- the [string]$Catalog param is a typed
+    # variable and PowerShell names are case-insensitive, so the assignment
+    # would coerce the parsed array back into a string (0 rules evaluated).
+    $ruleCatalog = $raw | ConvertFrom-Json
+    if (-not $ruleCatalog -or $ruleCatalog.Count -eq 0) {
         Write-Error "Catalog is empty or failed to parse: $Catalog"
         exit 1
     }
@@ -689,7 +692,7 @@ $familyList  = if ($Families)  { $Families  -split ',' | % { $_.Trim() } } else 
 
 # Filter rules
 $rules = @()
-foreach ($r in $catalog) {
+foreach ($r in $ruleCatalog) {
     # Level filter
     if ($CisProfile -eq "L1" -and $r.levels -notcontains 1) { continue }
     # Platform filter
