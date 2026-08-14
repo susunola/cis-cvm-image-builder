@@ -5,6 +5,19 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
+## [0.16.25] — 2026-08-14
+
+### Added
+- **Audit reports archived on the build machine** — every successful
+  `build` / `scan` now saves the per-rule audit JSON to
+  `~/.ciscvm/reports/<image-name>.json`, next to the lineage and
+  provenance records.  Linux emits the file as a gzipped+base64 marker
+  line in the packer log (extracted by ciscvm); Windows copies the
+  role-fetched `result.json`.  The in-image copy
+  (`/opt/ciscvm-AUDIT-RESULT.json` /
+  `C:\ProgramData\ciscvm\AUDIT-RESULT.json`) still ships — drift and
+  verify-image use it as the baseline.
+
 ## [0.16.24] — 2026-08-14
 
 ### Added
