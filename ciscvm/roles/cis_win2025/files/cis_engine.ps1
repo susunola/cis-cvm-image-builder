@@ -277,7 +277,7 @@ function Invoke-Check {
             }
             # Fallback: name scrape (only works on English images)
             try {
-                $out = auditpol /get /subcategory:"$subcategory" 2>&1 | Out-String
+                $out = auditpol /get /subcategory:"$subcategory" 2>$null | Out-String
                 if ($out -match "(?m)$([regex]::Escape($subcategory))\s+(.+)$") {
                     $actual = $Matches[1].Trim()
                     switch ($expected) {
@@ -586,12 +586,27 @@ function Invoke-Fix {
                 else { $isOk = [int]$val -eq [int]$expected }
             }
             if ($isOk) { return "already" }
+            # net accounts is the canonical, locale-free path for the three
+            # lockout settings (secedit exports omit them until configured, and
+            # the INF key for the threshold is LockoutBadCount).
+            $netMap = @{ "LockoutDuration" = "lockoutduration"; "LockoutBadCount" = "lockoutthreshold"; "ResetLockoutCount" = "lockoutwindow" }
+            if ($netMap.ContainsKey($key)) {
+                try {
+                    $targetVal = [int]$expected
+                    if ($key -eq "LockoutDuration") {
+                        # net accounts rejects a duration below the observation
+                        # window ("The parameter is incorrect")
+                        $win = Get-SecPol "SECURITYPOLICY" "ResetLockoutCount"
+                        $winN = if ($win) { [int]$win } else { 30 }
+                        if ($targetVal -lt $winN) { $targetVal = $winN }
+                    }
+                    net accounts /"$($netMap[$key]):$targetVal" 2>$null | Out-Null
+                    if ($LASTEXITCODE -ne 0) { return "failed: net accounts exit $LASTEXITCODE" }
+                    return "applied"
+                } catch { return "failed: $($_.Exception.Message)" }
+            }
             try {
                 Set-SecPolValue $key $expected
-                # secedit applies lockout values unreliably on some images;
-                # net accounts is the canonical, locale-free path for these
-                $netMap = @{ "LockoutDuration" = "lockoutduration"; "LockoutThreshold" = "lockoutthreshold"; "ResetLockoutCount" = "lockoutwindow" }
-                if ($netMap.ContainsKey($key)) { net accounts /"$($netMap[$key]):$expected" 2>$null | Out-Null }
                 return "applied"
             } catch { return "failed: $($_.Exception.Message)" }
         }
@@ -625,19 +640,25 @@ function Invoke-Fix {
                     if ($alreadyOk) { return "already" }
                 }
             }
-            try {
-                $out = auditpol /get /subcategory:"$subcategory" 2>&1 | Out-String
-                if ($out -match "(?m)$([regex]::Escape($subcategory))\s+(.+)$") {
-                    $actual = $Matches[1].Trim()
-                    $alreadyOk = $false
-                    switch ($expected) {
-                        "Success"             { $alreadyOk = ($actual -eq "Success" -or $actual -eq "Success and Failure") }
-                        "Failure"             { $alreadyOk = ($actual -eq "Failure" -or $actual -eq "Success and Failure") }
-                        "Success and Failure" { $alreadyOk = ($actual -eq "Success and Failure") }
-                        "No Auditing"         { $alreadyOk = ($actual -eq "No Auditing") }
+            # The name-scrape below only works on English images; skip it when a
+            # locale-proof GUID is available (the bits check above already ran).
+            if (-not $params.guid) {
+                try {
+                    $out = auditpol /get /subcategory:"$subcategory" 2>$null | Out-String
+                    if ($out -match "(?m)$([regex]::Escape($subcategory))\s+(.+)$") {
+                        $actual = $Matches[1].Trim()
+                        $alreadyOk = $false
+                        switch ($expected) {
+                            "Success"             { $alreadyOk = ($actual -eq "Success" -or $actual -eq "Success and Failure") }
+                            "Failure"             { $alreadyOk = ($actual -eq "Failure" -or $actual -eq "Success and Failure") }
+                            "Success and Failure" { $alreadyOk = ($actual -eq "Success and Failure") }
+                            "No Auditing"         { $alreadyOk = ($actual -eq "No Auditing") }
+                        }
+                        if ($alreadyOk) { return "already" }
                     }
-                    if ($alreadyOk) { return "already" }
-                }
+                } catch {}
+            }
+            try {
                 $successArg = "disable"
                 $failureArg = "disable"
                 switch ($expected) {
@@ -651,6 +672,7 @@ function Invoke-Fix {
                     }
                 }
                 auditpol /set /subcategory:"$target" /success:$successArg /failure:$failureArg 2>$null | Out-Null
+                if ($LASTEXITCODE -ne 0) { return "failed: auditpol /set exit $LASTEXITCODE" }
                 $global:AuditTable = $null  # invalidate the cached backup CSV
                 return "applied"
             } catch { return "failed: $($_.Exception.Message)" }

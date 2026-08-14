@@ -154,7 +154,7 @@
   "page": 55,
   "family": "lockout-policy",
   "params": {
-   "key": "LockoutThreshold",
+   "key": "LockoutBadCount",
    "expected": 5,
    "op": "le"
   }
