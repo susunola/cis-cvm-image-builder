@@ -1016,12 +1016,15 @@ foreach ($rule in $rules) {
 # -- Summary -------------------------------------------------
 function Get-Summary($levelFilter) {
     $filtered = if ($levelFilter) { $global:Results | Where-Object { $_.level -eq $levelFilter } } else { $global:Results }
-    $pass = ($filtered | Where-Object { $_.status -eq "pass" }).Count
-    $fail = ($filtered | Where-Object { $_.status -eq "fail" }).Count
-    $manual = ($filtered | Where-Object { $_.status -eq "manual" }).Count
-    $error = ($filtered | Where-Object { $_.status -eq "error" }).Count
-    $na = ($filtered | Where-Object { $_.status -eq "notapplicable" }).Count
-    $total = $filtered.Count
+    # NOTE: @(...) is mandatory - a pipeline yielding exactly one PSCustomObject
+    # has no .Count member in Windows PowerShell 5.1, which turned a lone fail
+    # into $null and silently dropped it from the score arithmetic.
+    $pass = @($filtered | Where-Object { $_.status -eq "pass" }).Count
+    $fail = @($filtered | Where-Object { $_.status -eq "fail" }).Count
+    $manual = @($filtered | Where-Object { $_.status -eq "manual" }).Count
+    $error = @($filtered | Where-Object { $_.status -eq "error" }).Count
+    $na = @($filtered | Where-Object { $_.status -eq "notapplicable" }).Count
+    $total = @($filtered).Count
     # Errors are NOT compliance - count them against the score so a catalog that
     # cannot evaluate a rule can never fake a passing grade (they'd otherwise be
     # dropped from the denominator and inflate the score).
@@ -1029,10 +1032,10 @@ function Get-Summary($levelFilter) {
     $score = if ($assessed -gt 0) { [math]::Round(100.0 * $pass / $assessed, 1) } else { 0.0 }
 
     # Apply stats
-    $applied = ($filtered | Where-Object { $_.apply_status -eq "applied" }).Count
-    $applyFailed = ($filtered | Where-Object { $_.apply_status -match "^failed" }).Count
-    $skippedRisk = ($filtered | Where-Object { $_.apply_status -eq "skipped_disruptive" }).Count
-    $already = ($filtered | Where-Object { $_.apply_status -eq "already" }).Count
+    $applied = @($filtered | Where-Object { $_.apply_status -eq "applied" }).Count
+    $applyFailed = @($filtered | Where-Object { $_.apply_status -match "^failed" }).Count
+    $skippedRisk = @($filtered | Where-Object { $_.apply_status -eq "skipped_disruptive" }).Count
+    $already = @($filtered | Where-Object { $_.apply_status -eq "already" }).Count
     $appliedPending = 0  # Windows changes take effect immediately (no reboot needed for most)
 
     return @{
