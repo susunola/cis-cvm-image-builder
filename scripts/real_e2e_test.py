@@ -87,7 +87,7 @@ from cis_image import PROFILES, ConfigError, _tc3_api, banner, fail, info, ok, w
 
 DEFAULT_IMAGE_ID = "img-31d8ynuj"
 DEFAULT_INSTANCE_TYPE = "SA5.MEDIUM2"
-REPO_URL = "https://github.com/susunola/cis-cvm-image-builder.git"
+REPO_URL = "https://github.com/susunola/cis-image.git"
 LAST_INSTANCE_FILE = REPO_ROOT / "logs" / "e2e_last_instance.json"
 BOOT_TIMEOUT_SECONDS = 900
 # The jump box is a freshly-launched AlmaLinux CVM; boot + cloud-init + SSH
@@ -165,6 +165,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--keep-on-failure", action="store_true",
                     help="Do not terminate the instance if the remote test run fails "
                          "(useful for logging in to debug)")
+    p.add_argument("--timeout", type=int, default=BOOT_TIMEOUT_SECONDS,
+                   metavar="SECONDS",
+                   help=f"Boot/poll timeout for a public IP (default {BOOT_TIMEOUT_SECONDS}s)")
+    p.add_argument("--ssh-timeout", type=int, default=SSH_READY_TIMEOUT_SECONDS,
+                   metavar="SECONDS",
+                   help=f"Timeout for SSH to become reachable (default {SSH_READY_TIMEOUT_SECONDS}s)")
     p.add_argument("--target-mode", choices=["toolchain", "single", "all-linux", "all"],
                     default="toolchain",
                     help="toolchain (default): only test this repo's own toolchain "
@@ -424,13 +430,59 @@ def generate_keypair(tmpdir: Path) -> tuple[Path, Path]:
     return priv, pub
 
 
+# Tencent Cloud API codes that are transient (throttling / internal blips) and
+# worth retrying with backoff.  Deterministic errors (auth, bad params) are not.
+_RETRYABLE_CODES = {"RequestLimitExceeded", "RequestLimitExceeded.UinLimitExceeded",
+                    "InternalError", "InternalError.RequestTimeout", "ResourceInUse"}
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """True when *exc* looks like a transient, retry-worthy failure."""
+    if isinstance(exc, (OSError, TimeoutError)):  # socket/DNS/conn from _tc3_api
+        return True
+    msg = str(exc).lower()
+    # _tc3_api converts transport failures (URLError / socket / DNS / conn
+    # reset) into a ConfigError whose message is not an OSError subclass — so
+    # match those message shapes explicitly.  Throttling codes are retryable too.
+    if any(pat in msg for pat in ("request failed", "network error")):
+        return True
+    return any(code.lower() in msg for code in _RETRYABLE_CODES)
+
+
+def _with_retry(fn, *args, retries: int = 3, base_delay: float = 1.0,
+                retry_on: list[type] | None = None, **kwargs):
+    """Call *fn* with exponential backoff on transient failures.
+
+    Retries *retries* times (default 3 → waits 1s/2s/4s) when the failure is
+    retryable (network error, throttling, or an exception in *retry_on*).
+    Non-retryable exceptions propagate immediately.
+    """
+    delay = base_delay
+    last_exc: Exception | None = None
+    for attempt in range(retries):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - centralised retry policy
+            last_exc = exc
+            if not _is_retryable(exc) and not (retry_on and isinstance(exc, tuple(retry_on))):
+                raise
+            if attempt < retries - 1:
+                info(f"  retryable failure ({exc}); retrying in {delay:g}s "
+                     f"({attempt + 1}/{retries - 1})")
+                time.sleep(delay)
+                delay *= 2
+    assert last_exc is not None
+    raise last_exc
+
+
 def import_keypair(region: str, sid: str, skey: str, tok: str | None, pub_path: Path) -> str:
     pub_key = pub_path.read_text().strip()
-    resp = _tc3_api("cvm", "ImportKeyPair", "2017-03-12", region,
-                     {"KeyName": f"cis_image_e2e_{int(time.time())}",
-                      "ProjectId": 0,
-                      "PublicKey": pub_key},
-                     sid, skey, tok)
+    resp = _with_retry(
+        _tc3_api, "cvm", "ImportKeyPair", "2017-03-12", region,
+        {"KeyName": f"cis_image_e2e_{int(time.time())}",
+         "ProjectId": 0,
+         "PublicKey": pub_key},
+        sid, skey, tok)
     resp_r = resp.get("Response", {})
     if "Error" in resp_r:
         raise ConfigError(f"ImportKeyPair failed: {resp_r['Error']}")
@@ -442,7 +494,8 @@ def import_keypair(region: str, sid: str, skey: str, tok: str | None, pub_path: 
 
 def run_instance(args: argparse.Namespace, sid: str, skey: str, tok: str | None,
                   key_id: str) -> str:
-    resp = _tc3_api(
+    resp = _with_retry(
+        _tc3_api,
         "cvm", "RunInstances", "2017-03-12", args.region,
         {"ImageId": args.image_id,
          "InstanceType": args.instance_type,
@@ -480,20 +533,35 @@ def clear_last_instance() -> None:
 
 
 def wait_for_public_ip(region: str, sid: str, skey: str, tok: str | None,
-                        instance_id: str) -> str:
-    deadline = time.time() + BOOT_TIMEOUT_SECONDS
+                        instance_id: str, timeout: int = BOOT_TIMEOUT_SECONDS,
+                        max_consecutive_errors: int = 10) -> str:
+    """Poll DescribeInstances for a public IP.
+
+    *timeout* bounds the total wait.  If the poll hits *max_consecutive_errors*
+    transport failures in a row (e.g. sustained network outage) it aborts early
+    instead of silently polling for the whole *timeout* window.
+    """
+    deadline = time.time() + timeout
+    consecutive_errors = 0
     while time.time() < deadline:
         try:
             resp = _tc3_api("cvm", "DescribeInstances", "2017-03-12", region,
                             {"InstanceIds": [instance_id]}, sid, skey, tok)
         except Exception:
+            consecutive_errors += 1
+            if consecutive_errors >= max_consecutive_errors:
+                raise ConfigError(
+                    f"Instance {instance_id} public-IP poll hit {max_consecutive_errors} "
+                    f"consecutive API/network errors — aborting instead of polling to timeout"
+                ) from None
             time.sleep(10)
             continue
+        consecutive_errors = 0
         resp_r = resp.get("Response", {})
         error = resp_r.get("Error")
         if error:
             # Auth/permission errors are not transient — surface them
-            # immediately instead of silently polling for 15 minutes.
+            # immediately instead of silently polling.
             raise ConfigError(f"DescribeInstances failed: {error}")
         insts = resp_r.get("InstanceSet") or []
         if insts:
@@ -508,8 +576,9 @@ def wait_for_public_ip(region: str, sid: str, skey: str, tok: str | None,
     return ""
 
 
-def wait_for_ssh(host: str, ssh_user: str, key_path: Path) -> None:
-    deadline = time.time() + SSH_READY_TIMEOUT_SECONDS
+def wait_for_ssh(host: str, ssh_user: str, key_path: Path,
+                 timeout: int = SSH_READY_TIMEOUT_SECONDS) -> None:
+    deadline = time.time() + timeout
     while time.time() < deadline:
         cp = subprocess.run(
             ["ssh", "-i", str(key_path), "-o", "StrictHostKeyChecking=no",
@@ -520,14 +589,13 @@ def wait_for_ssh(host: str, ssh_user: str, key_path: Path) -> None:
         if cp.returncode == 0:
             return
         time.sleep(5)
-    raise ConfigError(f"SSH to {host} did not become ready within "
-                      f"{SSH_READY_TIMEOUT_SECONDS}s")
+    raise ConfigError(f"SSH to {host} did not become ready within {timeout}s")
 
 
 # Kept outside the repo checkout dir on purpose: step_clone does `rm -rf`
 # on REPO_DIR, which would otherwise wipe out earlier steps' own logs.
 REMOTE_LOG_DIR = "/root/cis-e2e-logs"
-REMOTE_REPO_DIR = "/root/cis-cvm-image-builder"
+REMOTE_REPO_DIR = "/root/cis-image"
 
 # AlmaLinux 10 (the img-31d8ynuj default) ships Python 3.12, not 3.11 —
 # RHEL 10 dropped the python3.11 package name entirely.
@@ -1338,8 +1406,8 @@ def render_html_report(
 def terminate_instance(region: str, sid: str, skey: str, tok: str | None,
                         instance_id: str) -> None:
     try:
-        _tc3_api("cvm", "TerminateInstances", "2017-03-12", region,
-                 {"InstanceIds": [instance_id]}, sid, skey, tok)
+        _with_retry(_tc3_api, "cvm", "TerminateInstances", "2017-03-12", region,
+                    {"InstanceIds": [instance_id]}, sid, skey, tok)
         ok(f"Instance terminated: {instance_id}")
     except Exception as exc:
         warn(f"Failed to terminate instance {instance_id}: {exc} — "
@@ -1348,12 +1416,37 @@ def terminate_instance(region: str, sid: str, skey: str, tok: str | None,
 
 def delete_keypair(region: str, sid: str, skey: str, tok: str | None, key_id: str) -> None:
     try:
-        _tc3_api("cvm", "DeleteKeyPairs", "2017-03-12", region,
-                 {"KeyIds": [key_id]}, sid, skey, tok)
+        _with_retry(_tc3_api, "cvm", "DeleteKeyPairs", "2017-03-12", region,
+                    {"KeyIds": [key_id]}, sid, skey, tok)
         ok(f"Key pair deleted: {key_id}")
     except Exception as exc:
         warn(f"Failed to delete key pair {key_id}: {exc} — "
              f"please delete it manually")
+
+
+def verify_instance_terminated(region: str, sid: str, skey: str, tok: str | None,
+                                instance_id: str, timeout: int = 120) -> bool:
+    """Poll DescribeInstances to confirm *instance_id* is gone after terminate.
+
+    TerminateInstances is async — the instance may still show RUNNING for a
+    short window.  Returns True when it disappears (or errors out) within
+    *timeout*; False if it's still around (so the operator knows it may keep
+    incurring cost).
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            resp = _with_retry(_tc3_api, "cvm", "DescribeInstances", "2017-03-12",
+                               region, {"InstanceIds": [instance_id]}, sid, skey, tok)
+        except Exception:
+            # DescribeInstances failing (e.g. instance no longer queryable) is
+            # a good sign it's gone — treat as terminated.
+            return True
+        resp_r = resp.get("Response", {})
+        if "Error" in resp_r or not resp_r.get("InstanceSet"):
+            return True
+        time.sleep(5)
+    return False
 
 
 def delete_batch_images(region: str, sid: str, skey: str, tok: str | None,
@@ -1365,8 +1458,8 @@ def delete_batch_images(region: str, sid: str, skey: str, tok: str | None,
     if not image_ids:
         return
     try:
-        _tc3_api("cvm", "DeleteImages", "2017-03-12", region,
-                 {"ImageIds": image_ids}, sid, skey, tok)
+        _with_retry(_tc3_api, "cvm", "DeleteImages", "2017-03-12", region,
+                    {"ImageIds": image_ids}, sid, skey, tok)
         ok(f"Deleted {len(image_ids)} batch image(s): {', '.join(image_ids)}")
     except Exception as exc:
         warn(f"Failed to delete batch images {image_ids}: {exc} — "
@@ -1407,15 +1500,16 @@ def main() -> int:
             ok(f"InstanceId: {instance_id}")
 
             banner("Waiting for instance to reach RUNNING with a public IP")
-            public_ip = wait_for_public_ip(args.region, sid, skey, tok, instance_id)
+            public_ip = wait_for_public_ip(args.region, sid, skey, tok, instance_id,
+                                           timeout=args.timeout)
             if not public_ip:
                 raise ConfigError(
                     f"Instance {instance_id} did not get a public IP within "
-                    f"{BOOT_TIMEOUT_SECONDS}s")
+                    f"{args.timeout}s")
             ok(f"Public IP: {public_ip}")
 
             banner("Waiting for SSH to become reachable")
-            wait_for_ssh(public_ip, args.ssh_user, priv_key)
+            wait_for_ssh(public_ip, args.ssh_user, priv_key, timeout=args.ssh_timeout)
             ok("SSH is up")
 
             needs_windows = any(c.family == "windows" for c in combos)
@@ -1505,6 +1599,9 @@ def main() -> int:
             keep = args.keep_on_failure and not overall_passed
             if instance_id and not keep:
                 terminate_instance(args.region, sid, skey, tok, instance_id)
+                if not verify_instance_terminated(args.region, sid, skey, tok, instance_id):
+                    warn(f"Jump box {instance_id} still reported running after terminate — "
+                         f"it may continue to incur cost. Check the Tencent Cloud console.")
             elif instance_id and keep:
                 warn(f"--keep-on-failure set: instance NOT destroyed. "
                      f"InstanceId={instance_id} region={args.region} — "
