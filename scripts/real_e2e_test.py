@@ -53,7 +53,7 @@ DEFAULT_IMAGE_ID = "img-31d8ynuj"
 DEFAULT_REGION = "ap-guangzhou"
 DEFAULT_ZONE = "ap-guangzhou-3"
 DEFAULT_INSTANCE_TYPE = "S5.MEDIUM2"
-REPO_URL = "https://github.com/susunola/cis-cvm-image-builder.git"
+REPO_URL = "https://github.com/susunola/cis-image.git"
 LAST_INSTANCE_FILE = REPO_ROOT / "logs" / "e2e_last_instance.json"
 BOOT_TIMEOUT_SECONDS = 900
 SSH_READY_TIMEOUT_SECONDS = 180
@@ -224,9 +224,9 @@ fi
 command -v git >/dev/null 2>&1 || dnf install -y git >/dev/null
 
 echo "[remote 2/5] Cloning {branch}"
-rm -rf /root/cis-cvm-image-builder
-git clone --branch {branch} --depth 1 {repo_url} /root/cis-cvm-image-builder
-cd /root/cis-cvm-image-builder
+rm -rf /root/cis-image
+git clone --branch {branch} --depth 1 {repo_url} /root/cis-image
+cd /root/cis-image
 echo "     commit: $(git rev-parse --short HEAD)"
 
 echo "[remote 3/5] Creating venv + installing dev deps"
