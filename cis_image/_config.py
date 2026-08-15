@@ -40,6 +40,7 @@ class ResolvedConfig:
     winrm_password_env: str
     image_name_prefix: str
     image_name_override: str            # [image].name — fixed image name ("" = auto)
+    instance_name: str                  # [build].instance_name — build CVM instance name ("" = plugin auto)
     image_copy_regions: list[str]
     image_share_accounts: list[str]     # [image].share_accounts — share built image with other uins
     image_share_org_units: list[str]    # [image].share_org_units — org-level sharing (same API as share_accounts)
@@ -68,6 +69,7 @@ class ResolvedConfig:
     sign_key: str                       # [sign].gpg_key — GPG key id/fingerprint for SLSA provenance signing ("" = off)
     test_components: list[str]          # [meta].test_components — user-defined test scripts run before snapshot
     verify_boot: bool                   # [meta].verify_boot — boot a probe instance from the produced image and re-audit before declaring success (default false)
+    packer_extra: dict[str, Any] = field(default_factory=dict)  # [build.packer] — arbitrary packer tencentcloud-cvm builder args (passthrough)
 
 def _validate_value_present(label: str, value: Any) -> str | None:
     """Return an error message if *value* looks like a placeholder, else None."""
@@ -215,6 +217,31 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
                 f"[image].name contains invalid characters: {image_name_override!r}. "
                 "Use letters, digits, dot, dash, underscore only.")
 
+    # [build].instance_name — optional explicit name for the temporary build
+    # CVM (the machine Packer launches and hardens before snapshotting). Empty
+    # means the Packer plugin auto-generates it. Used by the E2E runner to tag
+    # target machines with a recognizable CIS_E2E_* prefix.
+    instance_name = str(data.get("build", {}).get("instance_name", "")).strip()
+    if instance_name:
+        if len(instance_name) > 60:
+            raise ConfigError(
+                f"[build].instance_name must be <= 60 characters, "
+                f"got {len(instance_name)}")
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", instance_name):
+            raise ConfigError(
+                f"[build].instance_name contains invalid characters: {instance_name!r}. "
+                "Use letters, digits, dot, dash, underscore only.")
+
+    # [build.packer] — passthrough of arbitrary packer tencentcloud-cvm builder
+    # args (e.g. disk_type, disk_size, data_disks, internet_max_bandwidth_out).
+    # The user's own toml is trusted; value legality is enforced at render time
+    # by _format_hcl_value. This lets cis-image inherit the full packer
+    # capability set without hardcoding each argument.
+    packer_extra = dict(data.get("build", {}).get("packer", {}) or {})
+    for k in packer_extra:
+        if not isinstance(k, str):
+            raise ConfigError("[build.packer] keys must be strings")
+
     # [cloud].assume_role_* — group-account (organization) cross-account builds.
     # When set, Packer assumes the target account's CAM role with the local
     # AK/SK before launching the build instance.
@@ -328,6 +355,8 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         winrm_password_env=str(data.get("cloud", {}).get("winrm_password_env", "WINRM_PASSWORD")),
         image_name_prefix=str(data["image"]["name_prefix"]),
         image_name_override=image_name_override,
+        instance_name=instance_name,
+        packer_extra=packer_extra,
         image_copy_regions=copy_regions,
         image_share_accounts=share_accounts,
         image_share_org_units=share_org_units,

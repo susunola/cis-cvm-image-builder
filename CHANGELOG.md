@@ -5,7 +5,40 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
-## [0.16.25] — 2026-08-14
+## [Unreleased] — build-CVM naming, packer passthrough, API retries, real E2E
+
+### Added
+- **`[build].instance_name`** — optional explicit name for the temporary
+  build CVM (the machine Packer launches and hardens before snapshotting).
+  Empty means the plugin auto-generates it. Used by the E2E runner to tag
+  target machines with a recognizable `CIS_E2E_*` prefix.
+- **`[build.packer]` passthrough** — arbitrary `tencentcloud-cvm` Packer
+  builder args can now be injected verbatim into the generated HCL source
+  block (e.g. `disk_type`, `disk_size`, `data_disks`,
+  `internet_max_bandwidth_out`), so cis-image inherits the full Packer
+  capability set without hardcoding each argument. Values are rendered via
+  the existing `_format_hcl_value` (now dict-aware) and spliced in through
+  a new `__EXTRA_ARGS_BLOCK__` marker.
+- **`_tc3_api` resilience** — Tencent Cloud API calls now retry rate-limit
+  (429) and gateway (5xx) responses and network-layer failures
+  (DNS/reset/timeout) up to 3 attempts with exponential backoff, and wrap
+  every terminal failure in a `ConfigError` with a clear, actionable
+  message. Bad-request/auth errors and non-JSON responses are never
+  retried. Credential reads are de-duplicated via a shared `_creds`
+  helper.
+- **Real E2E runner overhaul** (`scripts/real_e2e_test.py`) — supports
+  `--target-mode single|all-linux|all` to trigger real `cis-image build`
+  against profile+level combinations; the E2E build CVM can be tagged via
+  `[build].instance_name`. New `scripts/e2e.env.example` documents the
+  required Tencent Cloud / network variables; the live `scripts/e2e.env`
+  (and any `e2e.env-bak`) is git-ignored so credentials never leak.
+- **`tests/test_real_e2e.py`** — integration harness for the real E2E flow.
+
+### Fixed
+- `_audit_results_xccdf` now emits a timezone-aware, UTC-normalized
+  timestamp instead of a naive `datetime.utcnow().isoformat()`.
+
+
 
 ### Added
 - **Audit reports archived on the build machine** — every successful

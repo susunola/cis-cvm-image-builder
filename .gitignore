@@ -3,6 +3,10 @@ variables.pkrvars.hcl
 *.pkrvars.hcl
 *.tfvars
 
+# Real e2e test credentials/variables (see scripts/e2e.env.example)
+scripts/e2e.env
+scripts/e2e.env-bak
+
 # Packer artifacts
 *.box
 packer_cache/

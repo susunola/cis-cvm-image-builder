@@ -50,20 +50,48 @@ automatically (success, failure, or Ctrl-C).
 
 This is **not** a CI-required step — it's a manual/optional check to run
 when you suspect an environment-specific issue, or before a larger release.
-It does **not** run a real `cis-image build`/`verify-image`/`cleanup-images`
-against a profile; it only validates that the checkout itself installs and
-tests cleanly on a real machine.
+By default (no `--target-mode`, or `--target-mode toolchain`) it only
+validates that the checkout itself installs and tests cleanly on a real
+machine — it does **not** run a real `cis-image build`/`verify-image`/
+`cleanup-images` against a profile.
+
+To additionally trigger a REAL `cis-image build` against one or more
+profile+level combinations (e.g. "RHEL 8, CIS Level 1"), pass
+`--target-mode single|all-linux|all` — see "Triggering a real profile
+build" below.
 
 ```bash
 export TENCENTCLOUD_SECRET_ID=...
 export TENCENTCLOUD_SECRET_KEY=...
 python3 scripts/real_e2e_test.py \
+    --region ap-guangzhou --zone ap-guangzhou-3 \
     --vpc-id vpc-xxxxxxxx --subnet-id subnet-xxxxxxxx \
     --security-group-id sg-xxxxxxxx
 ```
 
-- Defaults to image `img-31d8ynuj` in `ap-guangzhou` — override with
-  `--image-id` / `--region` / `--zone` / `--instance-type` as needed.
+To avoid retyping credentials/IDs every run, copy `scripts/e2e.env.example`
+to `scripts/e2e.env` (gitignored — never commit it), fill in real values,
+then:
+
+```bash
+source scripts/e2e.env
+python3 scripts/real_e2e_test.py \
+    --region "$E2E_REGION" --zone "$E2E_ZONE" \
+    --vpc-id "$E2E_VPC_ID" --subnet-id "$E2E_SUBNET_ID" \
+    --security-group-id "$E2E_SG_ID" --yes
+```
+
+- `--region` and `--zone` are **required**, with no default — they must
+  match the region/zone your `--vpc-id`/`--subnet-id`/`--security-group-id`/
+  `--image-id` actually live in. There used to be an `ap-guangzhou` default
+  here; it silently broke runs against resources in other regions with a
+  confusing "security group id is `None`" error from the CVM API, so it was
+  removed in favor of an explicit, required flag.
+- Defaults to image `img-31d8ynuj` (an AlmaLinux 10.2 build) — override with
+  `--image-id` / `--instance-type` as needed. Confirm the image is actually
+  available in your target region first (`cis-image images --region ...`
+  or `DescribeImages`) since custom images don't automatically replicate
+  across regions.
 - The security group you pass must already allow inbound TCP/22 from this
   machine's public IP; the script does not modify security group rules.
 - Requires `cis-image` to already be installed in editable mode on the
@@ -73,6 +101,84 @@ python3 scripts/real_e2e_test.py \
   5-10 minutes) — this incurs real cloud cost, however small.
 - Pass `--keep-on-failure` to leave a failed instance running for
   debugging; otherwise it's always destroyed, even on `Ctrl-C`.
+- Installs `python3.12` on the remote box (AlmaLinux 10's default Python —
+  RHEL 10 dropped the `python3.11` package name entirely). If you change the
+  default `--image-id` to a different OS family, update the `python3.12`
+  references in `REMOTE_SCRIPT` accordingly.
+- Every remote step (Python/git check, clone, venv + install, `ruff`,
+  `mypy`, `pytest`) runs independently and records its own exit code — an
+  early failure (e.g. a missing package) does **not** abort the remaining
+  steps, so you always get a complete picture instead of just "the first
+  thing that broke".
+- After the run, in addition to the plain-text `logs/e2e-<timestamp>.log`,
+  the script writes a self-contained `logs/e2e-<timestamp>.html` report
+  (no external assets, safe to open offline) showing the PASS/FAIL status
+  of every step plus the full `pytest` results (including per-test
+  failure/error messages parsed from the JUnit XML). This is the report to
+  check first — "did it run" and "did everything pass" are two different
+  questions, and the HTML report answers both.
+
+### Triggering a real profile build
+
+`--target-mode` (default `toolchain`) opts into triggering a REAL
+`cis-image build` for one or more profile+level combinations, each on its
+own temporary build CVM (with a public IP) reached from the jump box over
+the public internet:
+
+- `single` — one combination, e.g.
+  `--target-mode single --profile rhel8 --level 1`.
+- `all-linux` — every Linux profile x the configured CIS Levels (default
+  Level 1 + Level 2, up to 16 real builds).
+- `all` — every Linux **and** Windows profile x the configured levels (up
+  to 24 real builds).
+
+In matrix mode (`single`/`all-linux`/`all`) the jump box skips
+`ruff`/`mypy`/`pytest` (that's the `toolchain` mode's job) and instead
+installs `packer` + `ansible-core` (+ `ansible.windows` if any Windows
+profile is in scope), then drives up to `--max-parallel-builds` (default 4)
+concurrent `cis-image build` subprocesses. The HTML report gets an
+additional "Profile Build Matrix" section (profile, level, status, score,
+image ID(s)) alongside the existing step table.
+
+Two batch-mode knobs can be set either on the CLI or in `scripts/e2e.env`:
+
+- **Which levels to build** — `--levels {1,2,both}` or `E2E_LEVELS`
+  (default `both`). For example `--target-mode all-linux --levels 1` runs
+  only the Level-1 combination of every Linux profile (8 builds instead of
+  16). This only applies to `all-linux`/`all`; `single` mode always uses
+  `--level`.
+- **How many concurrent builds** — `--max-parallel-builds` or
+  `E2E_MAX_PARALLEL_BUILDS` (default `4`).
+
+Additional requirements for matrix mode:
+
+- Set `E2E_TARGET_IMAGE_<PROFILE>` in `scripts/e2e.env` for every profile
+  you want built (see `scripts/e2e.env.example`) — this is the **target**
+  image for that profile's build CVM, a **different** image than
+  `E2E_IMAGE_ID` (which is only the AlmaLinux jump box). In `single` mode a
+  missing image for the chosen `--profile` is a hard error; in
+  `all-linux`/`all` mode an unconfigured profile is skipped and reported as
+  "skipped: no image configured" — the rest of the batch still runs.
+- All profile **target** build CVMs share ONE uniform placement
+  (`E2E_TARGET_REGION` / `E2E_TARGET_ZONE` / `E2E_TARGET_VPC_ID` /
+  `E2E_TARGET_SUBNET_ID` / `E2E_TARGET_SG_ID`), not a per-profile one — only
+  the image is per-profile. Any of these left unset falls back to the jump
+  box's `--region`/`--zone`/`--vpc-id`/`--subnet-id`/`--security-group-id`,
+  so the target machines use the jump box's placement unless overridden
+  (e.g. when the target images only exist in another region).
+- The security group used for a profile must allow inbound TCP/22 (Linux
+  builds) and TCP/5986 (Windows builds) from the jump box's **public** IP —
+  each build CVM gets a public IP and is reached from the jump box over the
+  public internet. The jump box and targets may live in different
+  regions/VPCs (e.g. jump box in ap-hongkong, targets in ap-guangzhou).
+  This script does not modify security group rules, same as the existing
+  public-IP TCP/22 requirement for the jump box itself.
+- `WINRM_PASSWORD` must be set if any Windows profile is in scope
+  (`single --profile winXXXX`, or `--target-mode all`).
+- Every combination is a REAL, billed CVM (auto-destroyed by packer at the
+  end of its own build). The image(s) produced are ALWAYS deleted by this
+  script right after the batch finishes — it never leaves a billed golden
+  image behind.
 
 ## Hard constraints
 

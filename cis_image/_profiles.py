@@ -100,6 +100,13 @@ subnet_id           = "subnet-xxxxxxxx"
 security_group_id   = "sg-xxxxxxxx"
 associate_public_ip = false               # set to true only if a public IP is required
 # spot = true                             # use a spot instance for the build VM — up to ~90% cheaper, may be repossessed mid-build (default false)
+# instance_name = "my-build-cvm"          # optional explicit name for the temporary build CVM ("" = plugin auto)
+# # [build.packer] — passthrough of arbitrary packer tencentcloud-cvm builder
+# # args (inherits the full packer capability set). E.g. some SA-series
+# # instance types do not support the default CLOUD_PREMIUM root disk:
+# #   [build.packer]
+# #   disk_type = "CLOUD_SSD"
+# #   disk_size = 100
 
 [image]
 name_prefix  = "tencentos3-cis"

@@ -40,11 +40,21 @@ def _image_ids_still_exist(region: str, image_ids: list[str]) -> bool:
 
 def _tc3_api(service: str, action: str, version: str, region: str,
              params: dict[str, Any], secret_id: str, secret_key: str,
-             token: str | None = None) -> dict[str, Any]:
-    """Call a Tencent Cloud API v3 endpoint with TC3-HMAC-SHA256 signing."""
+             token: str | None = None, max_retries: int = 3) -> dict[str, Any]:
+    """Call a Tencent Cloud API v3 endpoint with TC3-HMAC-SHA256 signing.
+
+    Retries transient failures — connection resets, timeouts, and 429/5xx
+    gateway responses — up to *max_retries* attempts with exponential
+    backoff (1s, 2s, ...). Client errors (4xx other than 429) and non-network
+    failures (e.g. a malformed JSON response body) are never retried, since
+    retrying would not change the outcome.  Every terminal failure is raised
+    as a ConfigError with a clear, actionable message so callers degrade
+    gracefully instead of crashing on a raw urllib/OSError.
+    """
     import hashlib
     import hmac
     import time
+    import urllib.error
     from datetime import datetime
 
     host = f"{service}.tencentcloudapi.com"
@@ -86,15 +96,32 @@ def _tc3_api(service: str, action: str, version: str, region: str,
         headers["X-TC-Token"] = token
     req = urllib.request.Request(f"https://{host}", data=payload.encode("utf-8"),
                                  headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return cast("dict[str, Any]", json.loads(resp.read().decode("utf-8")))
-    except urllib.error.URLError as exc:
-        raise ConfigError(f"Tencent Cloud API {action} ({service}) request failed: {exc.reason}") from exc
-    except OSError as exc:  # socket.timeout / connection reset / DNS
-        raise ConfigError(f"Tencent Cloud API {action} ({service}) network error: {exc}") from exc
-    except json.JSONDecodeError as exc:
-        raise ConfigError(f"Tencent Cloud API {action} ({service}) returned invalid JSON") from exc
+    for attempt in range(max_retries):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return cast("dict[str, Any]", json.loads(resp.read().decode("utf-8")))
+        except urllib.error.HTTPError as exc:
+            # Only retry rate-limit/gateway errors; a real 4xx (bad request,
+            # auth failure, ...) won't be fixed by trying again.
+            if exc.code not in (429, 500, 502, 503, 504) or attempt == max_retries - 1:
+                raise ConfigError(
+                    f"Tencent Cloud API {action} ({service}) request failed: HTTP {exc.code}") from exc
+        except urllib.error.URLError as exc:
+            # Network-layer failure (DNS, reset, timeout) — worth a retry.
+            if attempt == max_retries - 1:
+                raise ConfigError(
+                    f"Tencent Cloud API {action} ({service}) request failed: {exc.reason}") from exc
+        except (TimeoutError, ConnectionError, OSError) as exc:  # socket.timeout / conn reset
+            if attempt == max_retries - 1:
+                raise ConfigError(
+                    f"Tencent Cloud API {action} ({service}) network error: {exc}") from exc
+        except json.JSONDecodeError as exc:
+            raise ConfigError(
+                f"Tencent Cloud API {action} ({service}) returned invalid JSON") from exc
+        time.sleep(2 ** attempt)
+    # The loop always returns or raises above; this guards against a
+    # non-exhaustive-path static-analysis warning.
+    raise AssertionError("unreachable")
 
 def _my_public_ip() -> str | None:
     """Best-effort discovery of the outbound public IP `cis-image` runs from.
