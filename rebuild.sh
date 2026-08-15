@@ -37,9 +37,9 @@ echo "[4/6] Fresh-installing cis-image"
 pip install --no-cache-dir --force-reinstall --root-user-action=ignore .
 
 echo "[5/6] Verifying code/binary version match"
-# Single source of truth for the version: cis_image/__init__.py VERSION
-# (pyproject reads it dynamically).
-CODE_VERSION=$(grep -m1 '^VERSION = ' cis_image/__init__.py | sed 's/^VERSION = "//;s/"$//')
+# Single source of truth for the version: cis_image/_logging.py VERSION
+# (pyproject reads it dynamically via the same file).
+CODE_VERSION=$(grep -m1 '^VERSION = ' cis_image/_logging.py | sed 's/^VERSION = "//;s/"$//')
 BIN_VERSION=$(cis-image --version | awk '{print $2}')
 echo "     code version: $CODE_VERSION | binary version: $BIN_VERSION"
 if [ "$CODE_VERSION" != "$BIN_VERSION" ]; then

@@ -11,16 +11,29 @@ clean AlmaLinux box", "is the real network path from a CVM reachable", or
 "did we drift from the real Tencent Cloud API contract". Those only show up
 by running against something real.
 
-Usage:
+Usage (default — just tests this repo's own toolchain on the jump box):
     export TENCENTCLOUD_SECRET_ID=...
     export TENCENTCLOUD_SECRET_KEY=...
     python3 scripts/real_e2e_test.py \\
+        --region ap-guangzhou --zone ap-guangzhou-3 \\
         --vpc-id vpc-xxxxxxxx --subnet-id subnet-xxxxxxxx \\
         --security-group-id sg-xxxxxxxx [--yes]
 
+Usage (opt-in — also trigger a REAL `cis-image build` for one or more
+profile+level combinations, each on its OWN temporary build CVM reached
+from the jump box over the private network):
+    python3 scripts/real_e2e_test.py --target-mode single \\
+        --profile rhel8 --level 1 ... (same region/zone/vpc/... flags)
+    python3 scripts/real_e2e_test.py --target-mode all-linux ...   # 8 profiles x --levels (default L1+L2)
+    python3 scripts/real_e2e_test.py --target-mode all ...         # +4 Windows profiles (default up to 24 builds)
+    # To restrict which CIS Level(s) run, pass --levels 1 / --levels 2 /
+    # --levels both, or set E2E_LEVELS / E2E_MAX_PARALLEL_BUILDS in scripts/e2e.env.
+
 The instance and temporary SSH key pair are ALWAYS torn down on exit
 (success, failure, or Ctrl-C) unless --keep-on-failure is passed and the
-remote run actually failed.
+remote run actually failed. Any images produced by --target-mode
+single/all-linux/all are ALWAYS deleted at the end of the run — this script
+never leaves a billed golden image behind.
 
 Hard requirements (see CONTRIBUTING.md "Running the real end-to-end test"):
   - cis-image must already be installed in editable mode on THIS machine
@@ -31,39 +44,116 @@ Hard requirements (see CONTRIBUTING.md "Running the real end-to-end test"):
     modify security group rules.
   - This creates a REAL, billed CVM instance. It is destroyed automatically
     at the end of the run.
+  - --target-mode single/all-linux/all additionally requires:
+      * one E2E_TARGET_IMAGE_<PROFILE> env var per profile to build (see
+        scripts/e2e.env.example) — profiles left unset are skipped in
+        all-linux/all mode, or a hard error in single mode.
+      * the security group must ALSO allow inbound TCP/22 (Linux builds) /
+        TCP/5986 (Windows builds) from the jump box's PUBLIC IP — each build
+        CVM gets a public IP and is reached from the jump box over the public
+        internet (the jump box and targets may be in DIFFERENT regions/VPCs).
+        All target build CVMs share ONE uniform placement
+        (E2E_TARGET_REGION / E2E_TARGET_ZONE / E2E_TARGET_VPC_ID /
+        E2E_TARGET_SUBNET_ID / E2E_TARGET_SG_ID), each field falling back to
+        the jump box's --region/--zone/--vpc-id/--subnet-id/
+        --security-group-id when unset. Only the target IMAGE is per-profile
+        (E2E_TARGET_IMAGE_<PROFILE>).
+      * WINRM_PASSWORD set if any Windows profile is in scope.
+    Each combination is a REAL, billed CVM (auto-destroyed by packer at the
+    end of its own build); the resulting image is deleted by this script
+    right after the batch finishes.
 """
 
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
+import re
+import shlex
 import subprocess
 import sys
 import tempfile
 import time
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from cis_image import ConfigError, _tc3_api, banner, fail, info, ok, warn  # noqa: E402
+from cis_image import PROFILES, ConfigError, _tc3_api, banner, fail, info, ok, warn  # noqa: E402
 
 DEFAULT_IMAGE_ID = "img-31d8ynuj"
-DEFAULT_REGION = "ap-guangzhou"
-DEFAULT_ZONE = "ap-guangzhou-3"
-DEFAULT_INSTANCE_TYPE = "S5.MEDIUM2"
+DEFAULT_INSTANCE_TYPE = "SA5.MEDIUM2"
 REPO_URL = "https://github.com/susunola/cis-cvm-image-builder.git"
 LAST_INSTANCE_FILE = REPO_ROOT / "logs" / "e2e_last_instance.json"
 BOOT_TIMEOUT_SECONDS = 900
-SSH_READY_TIMEOUT_SECONDS = 180
+# The jump box is a freshly-launched AlmaLinux CVM; boot + cloud-init + SSH
+# startup can occasionally exceed 3 minutes. 360s avoids spurious "SSH not
+# ready" failures on a slow-but-healthy instance.
+SSH_READY_TIMEOUT_SECONDS = 360
+
+# Same list-comprehension pattern as tests/test_cis_image.py's LINUX_PROFILES
+# — used by --target-mode all-linux to enumerate every non-Windows profile.
+LINUX_PROFILES = [k for k, v in PROFILES.items() if v.get("family") != "windows"]
+
+# Ordered (name, human label) for every step recorded by REMOTE_SCRIPT when
+# --target-mode is "toolchain" (the default / original behaviour).
+TOOLCHAIN_STEPS = [
+    ("python_check", "Python 3.12 / git check"),
+    ("clone", "Clone repository"),
+    ("venv", "Create venv + install dev deps"),
+    ("ruff", "ruff check"),
+    ("mypy", "mypy"),
+    ("pytest", "pytest"),
+]
+
+# Steps recorded when --target-mode is single/all-linux/all — the matrix
+# mode skips ruff/mypy/pytest (those are covered by the toolchain mode) and
+# instead prepares packer + ansible-core (+ ansible.windows when any
+# Windows profile is in scope) before handing off to run_matrix.py.
+MATRIX_BASE_STEPS = [
+    ("python_check", "Python 3.12 / git check"),
+    ("clone", "Clone repository"),
+    ("venv", "Create venv + install dev deps"),
+    ("packer_install", "Install packer"),
+    ("ansible_install", "Install ansible-core"),
+]
+MATRIX_WINDOWS_STEP = ("ansible_windows_collection", "Install ansible.windows collection")
+MATRIX_FINAL_STEP = ("profile_matrix", "Run profile+level build matrix")
+
+
+def build_steps(target_mode: str, needs_windows: bool) -> list[tuple[str, str]]:
+    """Return the ordered (name, label) steps REMOTE_SCRIPT will record for
+    this run. Must match what REMOTE_SCRIPT actually executes for the same
+    (target_mode, needs_windows) — see fetch_remote_reports()/
+    build_step_results(), which rely on this same list to know which log
+    files to expect. A step that's never going to run must not appear here,
+    otherwise it comes back "not run" and incorrectly fails the whole run
+    (see compute_overall_passed())."""
+    if target_mode == "toolchain":
+        return list(TOOLCHAIN_STEPS)
+    steps = list(MATRIX_BASE_STEPS)
+    if needs_windows:
+        steps.append(MATRIX_WINDOWS_STEP)
+    steps.append(MATRIX_FINAL_STEP)
+    return steps
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--image-id", default=DEFAULT_IMAGE_ID)
-    p.add_argument("--region", default=DEFAULT_REGION)
-    p.add_argument("--zone", default=DEFAULT_ZONE)
+    # region/zone have no default: the image, VPC, subnet, and security
+    # group are all region-scoped, and a stale ap-guangzhou default here
+    # previously caused a confusing "security group id is None" error when
+    # the caller's actual resources lived in a different region.
+    p.add_argument("--region", required=True,
+                    help="Must match the region your --vpc-id/--subnet-id/"
+                         "--security-group-id/--image-id actually live in.")
+    p.add_argument("--zone", required=True,
+                    help="Availability zone within --region for the instance.")
     p.add_argument("--instance-type", default=DEFAULT_INSTANCE_TYPE)
     p.add_argument("--vpc-id", required=True)
     p.add_argument("--subnet-id", required=True)
@@ -75,10 +165,218 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--keep-on-failure", action="store_true",
                     help="Do not terminate the instance if the remote test run fails "
                          "(useful for logging in to debug)")
-    return p.parse_args()
+    p.add_argument("--target-mode", choices=["toolchain", "single", "all-linux", "all"],
+                    default="toolchain",
+                    help="toolchain (default): only test this repo's own toolchain "
+                         "(venv/ruff/mypy/pytest) on the jump box. single: trigger one "
+                         "real `cis-image build` for --profile/--level. all-linux: every "
+                         "Linux profile x --levels (up to 16 real builds). all: +every "
+                         "Windows profile x --levels (up to 24 real builds).")
+    p.add_argument("--profile", choices=list(PROFILES),
+                    help="Required (and only used) with --target-mode single.")
+    p.add_argument("--level", type=int, choices=[1, 2],
+                    help="Required (and only used) with --target-mode single — which "
+                         "CIS Level to build (1 or 2).")
+    p.add_argument("--levels", type=_parse_levels, default=None,
+                    help="Which CIS Levels to build in --target-mode all-linux/all. "
+                         "One of '1', '2', or 'both'/'1,2'. Ignored in single mode "
+                         "(use --level there). Default 'both'. "
+                         "May also be set via E2E_LEVELS in scripts/e2e.env.")
+    p.add_argument("--max-parallel-builds", type=int,
+                    help="Max concurrent `cis-image build` subprocesses on the jump "
+                         "box in all-linux/all mode. Defaults to $E2E_MAX_PARALLEL_BUILDS "
+                         "if set, otherwise 4.")
+    p.add_argument("--build-instance-type", default=DEFAULT_INSTANCE_TYPE,
+                    help="Instance type for each profile's temporary build CVM "
+                         "(independent of --instance-type, which is the jump box).")
+    args = p.parse_args()
+
+    # --max-parallel-builds default comes from env, else 4. (Default is
+    # resolved here rather than in add_argument so an unset env var can't
+    # accidentally override an explicit CLI flag — argparse's default= would
+    # otherwise always win when the flag is omitted.)
+    if args.max_parallel_builds is None:
+        env_parallel = os.environ.get("E2E_MAX_PARALLEL_BUILDS", "")
+        try:
+            args.max_parallel_builds = int(env_parallel) if env_parallel.strip() else 4
+        except ValueError:
+            fail(f"E2E_MAX_PARALLEL_BUILDS must be an integer, got {env_parallel!r}")
+            sys.exit(1)
+
+    # --levels default comes from env, else "both". Same reasoning as above.
+    if args.levels is None:
+        env_levels = os.environ.get("E2E_LEVELS", "")
+        if env_levels.strip():
+            try:
+                args.levels = _parse_levels(env_levels)
+            except argparse.ArgumentTypeError as exc:
+                fail(str(exc))
+                sys.exit(1)
+        else:
+            args.levels = (1, 2)
+
+    if args.target_mode == "single":
+        if not args.profile or not args.level:
+            fail("--target-mode single requires both --profile and --level")
+            sys.exit(1)
+    else:
+        if args.profile or args.level:
+            fail(f"--profile/--level are only valid with --target-mode single "
+                 f"(got --target-mode {args.target_mode})")
+            sys.exit(1)
+        # --levels is only meaningful in batch modes; leave it as-is there.
+        args.levels = tuple(sorted(set(args.levels)))
+
+    return args
 
 
-def confirm_cost(args: argparse.Namespace) -> None:
+def _parse_levels(value: str) -> tuple[int, ...]:
+    """Parse --levels / E2E_LEVELS ('1', '2', 'both', '1,2') into a tuple of
+    {1,2}. Raises argparse.ArgumentTypeError so invalid CLI values fail
+    cleanly; invalid env values are handled by the caller."""
+    v = (value or "").strip().lower()
+    if v in ("1", "l1"):
+        return (1,)
+    if v in ("2", "l2"):
+        return (2,)
+    if v in ("both", "1,2", "2,1", "12", "all"):
+        return (1, 2)
+    raise argparse.ArgumentTypeError(
+        f"invalid levels {value!r} — expected '1', '2', or 'both'")
+
+
+@dataclass
+class ProfileCombo:
+    profile: str
+    level: int
+    image_id: str
+    family: str  # "linux" / "windows"
+    skip_reason: str = ""  # set only for combos that are skipped, never built
+
+
+@dataclass
+class ProfileBuildResult:
+    profile: str
+    level: int
+    status: str  # "passed" / "failed" / "skipped"
+    exit_code: int | None
+    score: float | None
+    image_ids: list[str]
+    log_tail: str
+    skip_reason: str = ""
+    instance_type: str = ""  # actual build CVM type used (after any stockout fallback)
+
+
+def target_placement(args: argparse.Namespace) -> dict[str, str]:
+    """Resolve the ONE shared cloud placement used for every profile's
+    TARGET build CVM.
+
+    The target placement is UNIFORM across all profiles — it is read from
+    the global env vars E2E_TARGET_REGION / E2E_TARGET_ZONE /
+    E2E_TARGET_VPC_ID / E2E_TARGET_SUBNET_ID / E2E_TARGET_SG_ID, falling
+    back to the jump box's --region/--zone/--vpc-id/--subnet-id/
+    --security-group-id when any of them is unset.
+
+    The "TARGET_" prefix distinguishes these from the JUMP box's own
+    placement (E2E_REGION / E2E_VPC_ID / ...) — the jump box is the compile
+    machine that runs the suite and drives the builds; each profile's target
+    build CVM is the machine that actually gets hardened. Only the target
+    IMAGE id is per-profile (E2E_TARGET_IMAGE_<PROFILE>); the placement is
+    shared so all target machines live in the same region/VPC/etc."""
+    return {
+        "region": os.environ.get("E2E_TARGET_REGION", args.region),
+        "zone": os.environ.get("E2E_TARGET_ZONE", args.zone),
+        "vpc_id": os.environ.get("E2E_TARGET_VPC_ID", args.vpc_id),
+        "subnet_id": os.environ.get("E2E_TARGET_SUBNET_ID", args.subnet_id),
+        "security_group_id": os.environ.get("E2E_TARGET_SG_ID", args.security_group_id),
+    }
+
+
+def resolve_combos(args: argparse.Namespace) -> tuple[list[ProfileCombo], list[ProfileCombo]]:
+    """Work out which profile+level combinations --target-mode wants to
+    build, using only this process's own os.environ (scripts/e2e.env is
+    `source`d by the caller before this script runs, so
+    E2E_TARGET_IMAGE_<PROFILE> is already present here).
+
+    Returns (combos_to_build, skipped). Skipped combos never reach the
+    remote host at all — they are reported directly from local state.
+    """
+    if args.target_mode == "single":
+        profile, level = args.profile, args.level
+        family = "windows" if PROFILES[profile].get("family") == "windows" else "linux"
+        image_id = os.environ.get(f"E2E_TARGET_IMAGE_{profile.upper()}", "")
+        if not image_id:
+            fail(f"--target-mode single requires E2E_TARGET_IMAGE_{profile.upper()} to be set "
+                 f"(see scripts/e2e.env.example)")
+            sys.exit(1)
+        combos = [ProfileCombo(profile, level, image_id, family)]
+        skipped: list[ProfileCombo] = []
+    else:
+        profile_names = LINUX_PROFILES if args.target_mode == "all-linux" else list(PROFILES)
+        levels = args.levels if getattr(args, "levels", None) else (1, 2)
+        combos = []
+        skipped = []
+        for profile in profile_names:
+            family = "windows" if PROFILES[profile].get("family") == "windows" else "linux"
+            image_id = os.environ.get(f"E2E_TARGET_IMAGE_{profile.upper()}", "")
+            for level in (1, 2):  # always enumerate both; filter below
+                combo = ProfileCombo(profile, level, image_id, family)
+                if not image_id:
+                    combo.skip_reason = "no image configured"
+                    skipped.append(combo)
+                elif level not in levels:
+                    combo.skip_reason = "level not requested"
+                    skipped.append(combo)
+                else:
+                    combos.append(combo)
+
+    if any(c.family == "windows" for c in combos) and not os.environ.get("WINRM_PASSWORD"):
+        fail("WINRM_PASSWORD must be set — at least one Windows profile is in scope")
+        sys.exit(1)
+
+    return combos, skipped
+
+
+def ensure_nonempty_combos(args: argparse.Namespace,
+                            combos: list[ProfileCombo],
+                            skipped: list[ProfileCombo]) -> None:
+    """Abort before any CVM is launched if a matrix run would build nothing.
+
+    In --target-mode single/all-linux/all, a run where ZERO profile+level
+    combinations are configured is almost always a misconfiguration, not a
+    deliberate "run nothing" — most commonly the E2E_TARGET_IMAGE_<PROFILE>
+    vars exist in scripts/e2e.env but were NOT exported (or `set -a` was not
+    used before `source`), so this process never received them. Launching the
+    jump box anyway would waste time and cloud cost on a run that reports
+    only "skipped: no image configured".
+
+    Partial configuration is still allowed: if at least one combo builds, the
+    unconfigured profiles are skipped as before. Only the all-empty case is
+    treated as a hard error.
+    """
+    if combos:
+        return  # at least one build will run — fine
+
+    if args.target_mode == "single":
+        # single mode already fails inside resolve_combos() on a missing
+        # image; this guard is only reached for the batch modes.
+        return
+
+    missing = sorted({c.profile for c in skipped})
+    if not missing:
+        return  # nothing configured and nothing skipped → nothing to do
+    fail(f"--target-mode {args.target_mode}: no profile has a configured target "
+         f"image, so nothing would be built. Found no E2E_TARGET_IMAGE_<PROFILE> "
+         f"in the environment for: {', '.join(missing)}.")
+    fail("This is usually a `source`/export issue, not a missing value: the "
+         "E2E_TARGET_IMAGE_* vars are in scripts/e2e.env but were not exported "
+         "into this process. Run `set -a` before `source scripts/e2e.env` (then "
+         "`set +a`), or add `export` to those lines in e2e.env.")
+    sys.exit(1)
+
+
+def confirm_cost(args: argparse.Namespace, combos: list[ProfileCombo],
+                  skipped: list[ProfileCombo]) -> None:
     if args.yes:
         return
     banner("Real end-to-end test — cost confirmation")
@@ -87,6 +385,18 @@ def confirm_cost(args: argparse.Namespace) -> None:
          f"region={args.region}  zone={args.zone}")
     info("The instance is automatically destroyed once the test run finishes "
          "(expect ~5-10 minutes total).")
+    if combos:
+        combo_list = ", ".join(f"{c.profile} L{c.level}" for c in combos)
+        info(f"This will ALSO create {len(combos)} additional REAL, billed build "
+             f"CVM(s) — one per profile+level combination, each auto-destroyed by "
+             f"packer at the end of its own build, up to "
+             f"{args.max_parallel_builds} running concurrently:")
+        info(f"  {combo_list}")
+        info("Expect ~10-30 minutes PER combination. The resulting image(s) are "
+             "deleted automatically once the batch finishes.")
+    if skipped:
+        skip_list = ", ".join(f"{c.profile} L{c.level}" for c in skipped)
+        warn(f"Skipping (no image configured): {skip_list}")
     reply = input("Proceed? [y/N] ").strip().lower()
     if reply != "y":
         fail("Aborted by user")
@@ -117,7 +427,7 @@ def generate_keypair(tmpdir: Path) -> tuple[Path, Path]:
 def import_keypair(region: str, sid: str, skey: str, tok: str | None, pub_path: Path) -> str:
     pub_key = pub_path.read_text().strip()
     resp = _tc3_api("cvm", "ImportKeyPair", "2017-03-12", region,
-                     {"KeyName": f"cis-image-e2e-{int(time.time())}",
+                     {"KeyName": f"cis_image_e2e_{int(time.time())}",
                       "ProjectId": 0,
                       "PublicKey": pub_key},
                      sid, skey, tok)
@@ -137,7 +447,7 @@ def run_instance(args: argparse.Namespace, sid: str, skey: str, tok: str | None,
         {"ImageId": args.image_id,
          "InstanceType": args.instance_type,
          "InstanceChargeType": "POSTPAID_BY_HOUR",
-         "InstanceName": "cis-image-e2e-test",
+         "InstanceName": f"CIS_E2E_jumpbox_{int(time.time())}",
          "Placement": {"Zone": args.zone},
          "VirtualPrivateCloud": {"VpcId": args.vpc_id, "SubnetId": args.subnet_id},
          "SecurityGroupIds": [args.security_group_id],
@@ -147,7 +457,7 @@ def run_instance(args: argparse.Namespace, sid: str, skey: str, tok: str | None,
                                 "InternetMaxBandwidthOut": 5},
          "InstanceCount": 1,
          "TagSpecification": [{"ResourceType": "instance",
-                               "Tags": [{"Key": "purpose", "Value": "cis-image-e2e-test"},
+                               "Tags": [{"Key": "purpose", "Value": "cis-e2e-jumpbox"},
                                         {"Key": "ephemeral", "Value": "true"}]}]},
         sid, skey, tok)
     resp_r = resp.get("Response", {})
@@ -214,39 +524,454 @@ def wait_for_ssh(host: str, ssh_user: str, key_path: Path) -> None:
                       f"{SSH_READY_TIMEOUT_SECONDS}s")
 
 
-REMOTE_SCRIPT = """
-set -euo pipefail
-echo "[remote 1/5] Checking python3 version"
-if ! command -v python3.11 >/dev/null 2>&1; then
-    echo "[remote]   installing python3.11"
-    dnf install -y python3.11 python3.11-pip git >/dev/null
-fi
-command -v git >/dev/null 2>&1 || dnf install -y git >/dev/null
+# Kept outside the repo checkout dir on purpose: step_clone does `rm -rf`
+# on REPO_DIR, which would otherwise wipe out earlier steps' own logs.
+REMOTE_LOG_DIR = "/root/cis-e2e-logs"
+REMOTE_REPO_DIR = "/root/cis-cvm-image-builder"
 
-echo "[remote 2/5] Cloning {branch}"
-rm -rf /root/cis-cvm-image-builder
-git clone --branch {branch} --depth 1 {repo_url} /root/cis-cvm-image-builder
-cd /root/cis-cvm-image-builder
-echo "     commit: $(git rev-parse --short HEAD)"
+# AlmaLinux 10 (the img-31d8ynuj default) ships Python 3.12, not 3.11 —
+# RHEL 10 dropped the python3.11 package name entirely.
+TOOLCHAIN_REMOTE_SCRIPT = """
+set -uo pipefail
+LOGDIR={log_dir}
+REPO_DIR={repo_dir}
+mkdir -p "$LOGDIR"
 
-echo "[remote 3/5] Creating venv + installing dev deps"
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install --quiet --upgrade pip
-pip install --quiet -e ".[dev]"
+# Each step is captured to its own log file and always reports EXIT:<code>
+# as its last line, then run_step itself always "succeeds" (no `set -e`
+# abort) so every later step still gets a chance to run and be recorded —
+# a single early failure (e.g. a missing package) must not hide whether
+# ruff/mypy/pytest would otherwise have passed.
+run_step() {{
+    local name="$1"
+    shift
+    echo
+    echo "[remote] ==== $name ===="
+    "$@" > "$LOGDIR/$name.log" 2>&1
+    local code=$?
+    echo "EXIT:$code" >> "$LOGDIR/$name.log"
+    cat "$LOGDIR/$name.log"
+    echo "[remote] ==== $name exit=$code ===="
+}}
 
-echo "[remote 4/5] ruff + mypy"
-ruff check cis_image
-mypy cis_image --ignore-missing-imports
+step_python_check() {{
+    if ! command -v python3.12 >/dev/null 2>&1; then
+        echo "installing python3.12"
+        dnf install -y python3.12 python3.12-pip git
+    fi
+    command -v git >/dev/null 2>&1 || dnf install -y git
+}}
 
-echo "[remote 5/5] pytest"
-pytest -v --tb=short
+step_clone() {{
+    rm -rf "$REPO_DIR"
+    git clone --branch {branch} --depth 1 {repo_url} "$REPO_DIR"
+    cd "$REPO_DIR" && git rev-parse HEAD > "$LOGDIR/commit.txt"
+}}
+
+step_venv() {{
+    cd "$REPO_DIR" || return 1
+    python3.12 -m venv .venv
+    source .venv/bin/activate
+    pip install --quiet --upgrade pip
+    pip install --quiet -e ".[dev]"
+}}
+
+step_ruff() {{
+    cd "$REPO_DIR" || return 1
+    source .venv/bin/activate
+    ruff check cis_image
+}}
+
+step_mypy() {{
+    cd "$REPO_DIR" || return 1
+    source .venv/bin/activate
+    mypy cis_image --ignore-missing-imports
+}}
+
+step_pytest() {{
+    cd "$REPO_DIR" || return 1
+    source .venv/bin/activate
+    pytest -v --tb=short --junitxml="$LOGDIR/pytest_junit.xml"
+}}
+
+run_step python_check step_python_check
+run_step clone step_clone
+run_step venv step_venv
+run_step ruff step_ruff
+run_step mypy step_mypy
+run_step pytest step_pytest
+echo
+echo "[remote] all steps complete"
+"""
+
+# run_matrix.py is written to the remote host and driven from
+# MATRIX_REMOTE_SCRIPT below. It fans out `cis-image build` (one per
+# profile+level combo) with a bounded thread pool, using cis_image's own
+# packer-output parsers so score/image_id extraction never drifts from what
+# `cis-image build` itself considers authoritative.
+RUN_MATRIX_PY = '''
+import json
+import os
+import re
+import subprocess
+import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+sys.path.insert(0, "REPO_DIR_PLACEHOLDER")
+from cis_image import _extract_image_ids  # noqa: E402
+
+TOML_TEMPLATE = """[build]
+profile = "{profile}"
+region = "{region}"
+zone = "{zone}"
+instance_type = "{instance_type}"
+source_image_id = "{image_id}"
+vpc_id = "{vpc_id}"
+subnet_id = "{subnet_id}"
+security_group_id = "{security_group_id}"
+# Target build CVMs get a public IP and are reached from the jump box over
+# the public internet (the jump box and targets may live in different
+# regions/VPCs where private routing does not exist, e.g. jump box in
+# ap-hongkong, targets in ap-guangzhou). The target security group must
+# allow inbound TCP/22 (Linux) / TCP/5986 (Windows) from the jump box.
+associate_public_ip = true
+instance_name = "CIS_E2E_{profile}_L{level}"
+{disk_block}
+[image]
+name_prefix = "e2e-{profile}-l{level}"
+copy_regions = []
+
+[cis]
+level = {level}
+
+[cloud]
+secret_id_env = "TENCENTCLOUD_SECRET_ID"
+secret_key_env = "TENCENTCLOUD_SECRET_KEY"
+{winrm_line}
+"""
+
+WORKDIR = Path("MATRIX_WORKDIR_PLACEHOLDER")
+CIS_IMAGE_BIN = "CIS_IMAGE_BIN_PLACEHOLDER"
+BUILD_INSTANCE_TYPE = "BUILD_INSTANCE_TYPE_PLACEHOLDER"
+
+# Fallback target build instance types, tried in order when the primary
+# (BUILD_INSTANCE_TYPE) fails with ResourceInsufficient.SpecifiedInstanceType
+# (the instance type is understocked in the target zone — a transient Tencent
+# Cloud inventory condition, not a config error). Override with the
+# E2E_BUILD_INSTANCE_TYPES env var (comma-separated, e.g. "S6.MEDIUM2,SA2.MEDIUM2").
+DEFAULT_FALLBACK_INSTANCE_TYPES = ["S6.MEDIUM2", "SA2.MEDIUM2"]
+
+# Shared placement for every target build CVM (see target_placement() in
+# real_e2e_test.py) — the same region/VPC/etc. is used for all profiles.
+TARGET_REGION = "REGION_PLACEHOLDER"
+TARGET_ZONE = "ZONE_PLACEHOLDER"
+TARGET_VPC_ID = "VPC_ID_PLACEHOLDER"
+TARGET_SUBNET_ID = "SUBNET_ID_PLACEHOLDER"
+TARGET_SG_ID = "SECURITY_GROUP_ID_PLACEHOLDER"
+
+
+def _redact(text):
+    """Strip secrets that this process received from stdout/stderr before
+    they land in the HTML report. build_one runs on the jump box where
+    WINRM_PASSWORD / the cloud secret key live in env — if packer or
+    ansible ever echoes one of them, we must not persist it."""
+    for name in ("WINRM_PASSWORD", "TENCENTCLOUD_SECRET_KEY"):
+        val = os.environ.get(name, "")
+        if val:
+            text = text.replace(val, "***")
+    return text
+
+
+def _parse_score(all_lines):
+    """cis-image build reports the score as "Re-audit score: 94.8%" (not
+    packer's bare "Score: 91.5%"), so _extract_score won't match — extract it
+    from the combined stream here."""
+    for line in all_lines:
+        if m := re.search(r"re-audit score:\\s*(\\d+(?:\\.\\d+)?)\\s*%", line, re.IGNORECASE):
+            return float(m.group(1))
+    return None
+
+
+def _instance_types():
+    """Ordered list of target build instance types to try: the primary
+    (BUILD_INSTANCE_TYPE) first, then fallbacks. E2E_BUILD_INSTANCE_TYPES
+    overrides the whole list."""
+    env_types = os.environ.get("E2E_BUILD_INSTANCE_TYPES", "").strip()
+    if env_types:
+        return [t.strip() for t in env_types.split(",") if t.strip()]
+    return [BUILD_INSTANCE_TYPE] + DEFAULT_FALLBACK_INSTANCE_TYPES
+
+
+def _disk_block(instance_type):
+    """TOML block setting a root disk type for the target build CVM when the
+    instance type needs it. Some SA-series types do not support the packer
+    default CLOUD_PREMIUM root disk (they fail with "CVM not support the
+    required disk"); give them CLOUD_SSD. Other series keep the default
+    (empty block). Uses the [build.packer] passthrough added to cis-image."""
+    if instance_type.upper().startswith("SA"):
+        return "\\n[build.packer]\\ndisk_type = \\"CLOUD_SSD\\""
+    return ""
+
+
+def _attempt_build(combo, instance_type, attempt_dir):
+    """Run one `cis-image build` for combo using instance_type. Returns a
+    result dict with the combined output already parsed."""
+    profile, level = combo["profile"], combo["level"]
+    image_id = combo["image_id"]
+    family = combo["family"]
+    attempt_dir.mkdir(parents=True, exist_ok=True)
+    toml_path = attempt_dir / "cis-image.toml"
+    winrm_line = "winrm_password_env = \\"WINRM_PASSWORD\\"" if family == "windows" else ""
+    toml_path.write_text(TOML_TEMPLATE.format(
+        profile=profile, level=level, image_id=image_id,
+        region=TARGET_REGION, zone=TARGET_ZONE,
+        instance_type=instance_type,
+        vpc_id=TARGET_VPC_ID, subnet_id=TARGET_SUBNET_ID,
+        security_group_id=TARGET_SG_ID,
+        winrm_line=winrm_line,
+        disk_block=_disk_block(instance_type),
+    ))
+    cp = subprocess.run(
+        [CIS_IMAGE_BIN, "build", "--config", str(toml_path),
+         "--workdir", str(attempt_dir / "workdir"), "--yes"],
+        capture_output=True, text=True, cwd=str(attempt_dir),
+    )
+    # `cis-image build` writes nearly all readable output to STDERR: packer
+    # output is printed via print(file=sys.stderr) inside run_packer, and the
+    # ok()/info() summary lines go through the logging handler (stderr). The
+    # produced image ID and score only appear in that combined stream, so we
+    # must parse stdout+stderr together, not stdout alone.
+    combined = cp.stdout + "\\n" + cp.stderr
+    all_lines = combined.splitlines()
+    return {
+        "profile": profile, "level": level,
+        "exit_code": cp.returncode,
+        "score": _parse_score(all_lines),
+        "image_ids": _extract_image_ids(all_lines),
+        "log_tail": _redact(combined[-12000:]),
+        "instance_type": instance_type,
+    }
+
+
+def build_one(combo):
+    profile, level = combo["profile"], combo["level"]
+    types = _instance_types()
+    last = None
+    for idx, instance_type in enumerate(types):
+        attempt_dir = WORKDIR / f"{profile}-l{level}" if idx == 0 else WORKDIR / f"{profile}-l{level}-{idx}"
+        result = _attempt_build(combo, instance_type, attempt_dir)
+        last = result
+        if result["exit_code"] == 0:
+            return result
+        # Only a stockout (ResourceInsufficient.SpecifiedInstanceType) is
+        # worth retrying with a different instance type; any other failure is
+        # a real problem and should surface immediately.
+        if "ResourceInsufficient.SpecifiedInstanceType" not in result["log_tail"]:
+            return result
+        print(f"[matrix] {profile} L{level}: instance type {instance_type} "
+              f"understocked — trying next ({len(types)-idx-1} left)", flush=True)
+    return last
+
+
+def main():
+    combos = json.loads(Path(sys.argv[1]).read_text())
+    max_workers = int(sys.argv[3])
+    results_path = Path(sys.argv[2])
+    total = len(combos)
+    lock = threading.Lock()
+    done = {"n": 0}
+    results = []
+
+    def record(combo, result):
+        # Thread-safe incremental persistence + progress line so the caller
+        # (and the streamed remote log) can watch builds land one by one
+        # instead of waiting for the whole batch. Each result is appended to
+        # matrix_results.json as soon as its build finishes.
+        with lock:
+            done["n"] += 1
+            results.append(result)
+            status = "passed" if result["exit_code"] == 0 else "FAILED"
+            score = f"{result['score']:g}%" if result.get("score") is not None else "-"
+            imgs = ",".join(result["image_ids"]) or "-"
+            print(f"[matrix] {done['n']}/{total} {combo['profile']} L{combo['level']} "
+                  f"-> {status} (score {score}, image {imgs})", flush=True)
+            # Rewrite the whole file each time (small N) so it always holds
+            # a valid JSON array the caller can parse even mid-run.
+            results_path.write_text(json.dumps(results))
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(build_one, combo): combo for combo in combos}
+        for fut, combo in futures.items():
+            record(combo, fut.result())
+    print(f"[matrix] all {total} build(s) complete", flush=True)
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+MATRIX_REMOTE_SCRIPT = """
+set -uo pipefail
+LOGDIR={log_dir}
+REPO_DIR={repo_dir}
+mkdir -p "$LOGDIR"
+
+export TENCENTCLOUD_SECRET_ID={secret_id}
+export TENCENTCLOUD_SECRET_KEY={secret_key}
+export TENCENTCLOUD_SECURITY_TOKEN={secret_token}
+export WINRM_PASSWORD={winrm_password}
+
+run_step() {{
+    local name="$1"
+    shift
+    echo
+    echo "[remote] ==== $name ===="
+    # tee so output streams LIVE to the SSH stdout (and thus the local
+    # console / log) as it is produced, not only when the step finishes —
+    # otherwise a multi-build matrix looks "stuck" for tens of minutes.
+    "$@" 2>&1 | tee "$LOGDIR/$name.log"
+    local code=${{PIPESTATUS[0]}}
+    echo "EXIT:$code" >> "$LOGDIR/$name.log"
+    echo "[remote] ==== $name exit=$code ===="
+}}
+
+step_python_check() {{
+    if ! command -v python3.12 >/dev/null 2>&1; then
+        echo "installing python3.12"
+        dnf install -y python3.12 python3.12-pip git
+    fi
+    command -v git >/dev/null 2>&1 || dnf install -y git
+}}
+
+step_clone() {{
+    rm -rf "$REPO_DIR"
+    git clone --branch {branch} --depth 1 {repo_url} "$REPO_DIR"
+    cd "$REPO_DIR" && git rev-parse HEAD > "$LOGDIR/commit.txt"
+}}
+
+step_venv() {{
+    cd "$REPO_DIR" || return 1
+    python3.12 -m venv .venv
+    source .venv/bin/activate
+    pip install --quiet --upgrade pip
+    pip install --quiet -e ".[dev]"
+}}
+
+step_packer_install() {{
+    if ! command -v packer >/dev/null 2>&1; then
+        dnf install -y dnf-plugins-core
+        dnf config-manager --add-repo https://rpm.releases.hashicorp.com/RHEL/hashicorp.repo
+        dnf install -y packer
+    fi
+}}
+
+step_ansible_install() {{
+    cd "$REPO_DIR" || return 1
+    source .venv/bin/activate
+    pip install --quiet "ansible-core>=2.15"
+}}
+
+step_ansible_windows_collection() {{
+    cd "$REPO_DIR" || return 1
+    source .venv/bin/activate
+    ansible-galaxy collection install ansible.windows
+}}
+
+step_profile_matrix() {{
+    cd "$REPO_DIR" || return 1
+    source .venv/bin/activate
+    cat > "$LOGDIR/combos.json" <<'COMBOS_EOF'
+{combos_json}
+COMBOS_EOF
+    cat > "$LOGDIR/run_matrix.py" <<'MATRIX_EOF'
+{run_matrix_py}
+MATRIX_EOF
+    python3.12 "$LOGDIR/run_matrix.py" "$LOGDIR/combos.json" \\
+        "$LOGDIR/matrix_results.json" {max_parallel}
+}}
+
+run_step python_check step_python_check
+run_step clone step_clone
+run_step venv step_venv
+run_step packer_install step_packer_install
+run_step ansible_install step_ansible_install
+{windows_collection_step}
+run_step profile_matrix step_profile_matrix
+echo
+echo "[remote] all steps complete"
 """
 
 
 def run_remote_suite(host: str, ssh_user: str, key_path: Path, branch: str,
                       log_path: Path) -> int:
-    script = REMOTE_SCRIPT.format(branch=branch, repo_url=REPO_URL)
+    script = TOOLCHAIN_REMOTE_SCRIPT.format(
+        branch=branch, repo_url=REPO_URL,
+        log_dir=REMOTE_LOG_DIR, repo_dir=REMOTE_REPO_DIR)
+    return _run_remote_script(host, ssh_user, key_path, script, log_path)
+
+
+def run_remote_matrix(host: str, ssh_user: str, key_path: Path, branch: str,
+                       log_path: Path, combos: list[ProfileCombo],
+                       target_placement: dict[str, str],
+                       build_instance_type: str,
+                       max_parallel: int, sid: str, skey: str, tok: str | None) -> int:
+    needs_windows = any(c.family == "windows" for c in combos)
+    winrm_password = os.environ.get("WINRM_PASSWORD", "") if needs_windows else ""
+
+    # Every target build CVM shares ONE placement (see target_placement()) —
+    # only the per-profile image differs. Pass the shared placement into
+    # run_matrix.py as globals rather than per-combo.
+    combos_json = json.dumps([
+        {"profile": c.profile, "level": c.level, "image_id": c.image_id,
+         "family": c.family}
+        for c in combos
+    ])
+
+    run_matrix_py = (
+        RUN_MATRIX_PY
+        .replace("REPO_DIR_PLACEHOLDER", REMOTE_REPO_DIR)
+        .replace("MATRIX_WORKDIR_PLACEHOLDER", f"{REMOTE_LOG_DIR}/matrix-builds")
+        .replace("CIS_IMAGE_BIN_PLACEHOLDER", f"{REMOTE_REPO_DIR}/.venv/bin/cis-image")
+        .replace("BUILD_INSTANCE_TYPE_PLACEHOLDER", build_instance_type)
+        .replace("REGION_PLACEHOLDER", target_placement["region"])
+        .replace("ZONE_PLACEHOLDER", target_placement["zone"])
+        .replace("VPC_ID_PLACEHOLDER", target_placement["vpc_id"])
+        .replace("SUBNET_ID_PLACEHOLDER", target_placement["subnet_id"])
+        .replace("SECURITY_GROUP_ID_PLACEHOLDER", target_placement["security_group_id"])
+    )
+
+    windows_collection_step = (
+        "run_step ansible_windows_collection step_ansible_windows_collection"
+        if needs_windows else ""
+    )
+
+    script = MATRIX_REMOTE_SCRIPT.format(
+        branch=branch, repo_url=REPO_URL,
+        log_dir=REMOTE_LOG_DIR, repo_dir=REMOTE_REPO_DIR,
+        secret_id=shlex.quote(sid), secret_key=shlex.quote(skey),
+        secret_token=shlex.quote(tok or ""), winrm_password=shlex.quote(winrm_password),
+        combos_json=combos_json, run_matrix_py=run_matrix_py,
+        max_parallel=max_parallel, windows_collection_step=windows_collection_step,
+    )
+    return _run_remote_script(host, ssh_user, key_path, script, log_path)
+
+
+def _redact_line(line: str) -> str:
+    """Strip secrets this process holds from a streamed/printed line before
+    it is persisted. Guards against a secret leaking into the plain-text
+    remote log or the HTML report if packer/ansible ever echoes it."""
+    for name in ("WINRM_PASSWORD", "TENCENTCLOUD_SECRET_KEY",
+                 "TENCENTCLOUD_SECRET_ID"):
+        val = os.environ.get(name, "")
+        if val and val in line:
+            line = line.replace(val, "***")
+    return line
+
+
+def _run_remote_script(host: str, ssh_user: str, key_path: Path, script: str,
+                        log_path: Path) -> int:
     log_path.parent.mkdir(exist_ok=True)
     with subprocess.Popen(
         ["ssh", "-i", str(key_path), "-o", "StrictHostKeyChecking=no",
@@ -259,10 +984,355 @@ def run_remote_suite(host: str, ssh_user: str, key_path: Path, branch: str,
         proc.stdin.close()
         assert proc.stdout is not None
         for line in proc.stdout:
-            sys.stdout.write(line)
-            log_f.write(line)
+            safe = _redact_line(line)
+            sys.stdout.write(safe)
+            log_f.write(safe)
         proc.wait()
         return proc.returncode
+
+
+def fetch_remote_reports(host: str, ssh_user: str, key_path: Path,
+                          steps: list[tuple[str, str]]) -> dict[str, str]:
+    """Best-effort pull of every step's log, the commit hash, and (in
+    toolchain mode) the pytest JUnit XML / (in matrix mode) matrix_results.json
+    from the remote host in a single SSH round-trip.
+
+    A step whose log file doesn't exist (it never ran, e.g. because the
+    instance died mid-run) comes back as an empty string rather than
+    raising — the caller treats an empty/missing report as "not run".
+    """
+    keys_to_paths = {name: f"{REMOTE_LOG_DIR}/{name}.log" for name, _ in steps}
+    keys_to_paths["commit"] = f"{REMOTE_LOG_DIR}/commit.txt"
+    keys_to_paths["pytest_junit"] = f"{REMOTE_LOG_DIR}/pytest_junit.xml"
+    keys_to_paths["matrix_results"] = f"{REMOTE_LOG_DIR}/matrix_results.json"
+
+    cat_cmds = [
+        f'echo "===CIS_E2E_FILE:{key}==="; '
+        f'[ -f "{path}" ] && cat "{path}"; '
+        f'echo "===CIS_E2E_END==="'
+        for key, path in keys_to_paths.items()
+    ]
+    script = "\n".join(cat_cmds)
+
+    try:
+        cp = subprocess.run(
+            ["ssh", "-i", str(key_path), "-o", "StrictHostKeyChecking=no",
+             "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
+             f"{ssh_user}@{host}", "bash", "-s"],
+            input=script, capture_output=True, text=True, timeout=60,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        warn(f"Could not fetch remote step reports: {exc}")
+        return {}
+
+    blob = cp.stdout
+    results: dict[str, str] = {}
+    for key in keys_to_paths:
+        m = re.search(
+            rf"===CIS_E2E_FILE:{re.escape(key)}===\n(.*?)===CIS_E2E_END===",
+            blob, re.DOTALL)
+        results[key] = m.group(1) if m else ""
+    return results
+
+
+@dataclass
+class StepResult:
+    name: str
+    label: str
+    exit_code: int | None  # None = log missing entirely (never ran / unfetchable)
+    log: str
+
+    @property
+    def status(self) -> str:
+        if self.exit_code is None:
+            return "not run"
+        return "passed" if self.exit_code == 0 else "failed"
+
+
+def build_step_results(reports: dict[str, str],
+                        steps: list[tuple[str, str]]) -> list[StepResult]:
+    """Turn fetch_remote_reports()'s raw per-step log text into StepResults,
+    peeling the trailing 'EXIT:<code>' line that run_step() appends."""
+    results = []
+    for name, label in steps:
+        raw = reports.get(name, "")
+        if not raw.strip():
+            results.append(StepResult(name, label, None, ""))
+            continue
+        lines = raw.splitlines()
+        exit_code: int | None = None
+        if lines and lines[-1].startswith("EXIT:"):
+            try:
+                exit_code = int(lines[-1].split(":", 1)[1])
+            except ValueError:
+                exit_code = None
+            lines = lines[:-1]
+        results.append(StepResult(name, label, exit_code, "\n".join(lines)))
+    return results
+
+
+def compute_overall_passed(steps: list[StepResult],
+                            profile_results: list[ProfileBuildResult] | None = None) -> bool:
+    steps_ok = all(s.exit_code == 0 for s in steps)
+    if not profile_results:
+        return steps_ok
+    profiles_ok = all(r.status != "failed" for r in profile_results)
+    return steps_ok and profiles_ok
+
+
+def build_profile_results(skipped: list[ProfileCombo],
+                           matrix_results_json: str) -> list[ProfileBuildResult]:
+    """Merge locally-determined skips with the remote matrix_results.json
+    (produced by run_matrix.py) into one ordered list for reporting."""
+    results = [
+        ProfileBuildResult(c.profile, c.level, "skipped", None, None, [], "",
+                           skip_reason=c.skip_reason or "no image configured")
+        for c in skipped
+    ]
+    if matrix_results_json.strip():
+        try:
+            raw = json.loads(matrix_results_json)
+        except json.JSONDecodeError:
+            raw = []
+        for item in raw:
+            exit_code = item.get("exit_code")
+            status = "passed" if exit_code == 0 else "failed"
+            results.append(ProfileBuildResult(
+                item.get("profile", "?"), item.get("level", 0), status,
+                exit_code, item.get("score"), item.get("image_ids", []),
+                item.get("log_tail", ""),
+                instance_type=item.get("instance_type", "")))
+    return results
+
+
+@dataclass
+class JunitCase:
+    classname: str
+    name: str
+    time: float
+    status: str  # passed / failed / error / skipped
+    message: str = ""
+
+
+@dataclass
+class JunitSummary:
+    total: int = 0
+    passed: int = 0
+    failed: int = 0
+    errors: int = 0
+    skipped: int = 0
+    cases: list[JunitCase] = field(default_factory=list)
+    note: str = ""
+
+
+def parse_junit_xml(xml_text: str) -> JunitSummary:
+    """Parse pytest's --junitxml output (stdlib xml.etree, no new dep)."""
+    if not xml_text.strip():
+        return JunitSummary(note="No JUnit XML available (pytest step likely never ran).")
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        return JunitSummary(note=f"Could not parse JUnit XML: {exc}")
+
+    suite = root if root.tag == "testsuite" else root.find("testsuite")
+    if suite is None:
+        return JunitSummary(note="JUnit XML has no <testsuite> element.")
+
+    summary = JunitSummary()
+    for tc in suite.findall("testcase"):
+        classname = tc.get("classname", "")
+        name = tc.get("name", "")
+        try:
+            time_s = float(tc.get("time", "0") or 0)
+        except ValueError:
+            time_s = 0.0
+        failure = tc.find("failure")
+        error = tc.find("error")
+        skipped = tc.find("skipped")
+        if failure is not None:
+            status, message = "failed", failure.get("message", "") or (failure.text or "").strip()
+            summary.failed += 1
+        elif error is not None:
+            status, message = "error", error.get("message", "") or (error.text or "").strip()
+            summary.errors += 1
+        elif skipped is not None:
+            status, message = "skipped", skipped.get("message", "") or (skipped.text or "").strip()
+            summary.skipped += 1
+        else:
+            status, message = "passed", ""
+            summary.passed += 1
+        summary.total += 1
+        summary.cases.append(JunitCase(classname, name, time_s, status, message))
+    return summary
+
+
+def _step_row_html(step: StepResult) -> str:
+    badge_cls = {"passed": "badge-pass", "failed": "badge-fail",
+                 "not run": "badge-skip"}[step.status]
+    log_html = html.escape(step.log) if step.log else "(no output captured)"
+    open_attr = "" if step.status == "passed" else " open"
+    return (
+        f'<tr><td>{html.escape(step.label)}</td>'
+        f'<td><span class="badge {badge_cls}">{step.status.upper()}</span></td></tr>'
+        f'<tr><td colspan="2"><details{open_attr}>'
+        f'<summary>log</summary><pre>{log_html}</pre></details></td></tr>'
+    )
+
+
+def _junit_case_row_html(case: JunitCase) -> str:
+    badge_cls = {"passed": "badge-pass", "failed": "badge-fail",
+                 "error": "badge-fail", "skipped": "badge-skip"}[case.status]
+    return (
+        f'<tr><td>{html.escape(case.classname)}</td>'
+        f'<td>{html.escape(case.name)}</td>'
+        f'<td><span class="badge {badge_cls}">{case.status.upper()}</span></td>'
+        f'<td>{case.time:.2f}s</td>'
+        f'<td><pre>{html.escape(case.message)}</pre></td></tr>'
+    )
+
+
+def _profile_result_row_html(r: ProfileBuildResult) -> str:
+    badge_cls = {"passed": "badge-pass", "failed": "badge-fail",
+                 "skipped": "badge-skip"}[r.status]
+    score_text = f"{r.score:g}%" if r.score is not None else "—"
+    images_text = html.escape(", ".join(r.image_ids)) if r.image_ids else "—"
+    itype_text = html.escape(r.instance_type) if r.instance_type else "—"
+    if r.status == "skipped":
+        detail_html = f'<td colspan="2">{html.escape(r.skip_reason)}</td>'
+    else:
+        log_html = html.escape(r.log_tail) if r.log_tail else "(no output captured)"
+        open_attr = "" if r.status == "passed" else " open"
+        detail_html = (
+            f'<td>{score_text}</td><td>{images_text}</td><td>{itype_text}</td></tr>'
+            f'<tr><td colspan="6"><details{open_attr}>'
+            f'<summary>log (tail)</summary><pre>{log_html}</pre></details></td>'
+        )
+    return (
+        f'<tr><td>{html.escape(r.profile)}</td><td>L{r.level}</td>'
+        f'<td><span class="badge {badge_cls}">{r.status.upper()}</span></td>'
+        f'{detail_html}</tr>'
+    )
+
+
+def render_html_report(
+    *,
+    overall_passed: bool,
+    started_at: float,
+    duration_s: float,
+    instance_id: str,
+    region: str,
+    zone: str,
+    image_id: str,
+    branch: str,
+    commit: str,
+    steps: list[StepResult],
+    junit: JunitSummary,
+    profile_results: list[ProfileBuildResult] | None = None,
+    log_path: str | None = None,
+) -> str:
+    """Self-contained HTML report (inline CSS, no external assets/network
+    calls) so it can be opened offline. Follows the codebase's existing
+    report-building style (f-strings, stdlib only, escape all interpolated
+    text) used by _audit_results_sarif/_audit_results_xccdf."""
+    when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(started_at))
+    banner_cls = "banner-pass" if overall_passed else "banner-fail"
+    banner_text = "PASSED" if overall_passed else "FAILED"
+    steps_html = "".join(_step_row_html(s) for s in steps)
+    non_passed_cases = [c for c in junit.cases if c.status != "passed"]
+    junit_rows = "".join(_junit_case_row_html(c) for c in non_passed_cases)
+    junit_note_html = f'<p class="note">{html.escape(junit.note)}</p>' if junit.note else ""
+    junit_table_html = (
+        '<table><thead><tr><th>Class</th><th>Test</th><th>Status</th>'
+        '<th>Time</th><th>Message</th></tr></thead>'
+        f'<tbody>{junit_rows}</tbody></table>'
+        if non_passed_cases else
+        "<p>All tests passed — no failures/errors/skips to show.</p>"
+    )
+
+    matrix_html = ""
+    if profile_results:
+        matrix_rows = "".join(_profile_result_row_html(r) for r in profile_results)
+        matrix_html = f"""
+<h2>Profile Build Matrix</h2>
+<table>
+  <thead><tr><th>Profile</th><th>Level</th><th>Status</th>
+  <th>Score</th><th>Image ID(s)</th><th>Instance Type</th></tr></thead>
+  <tbody>{matrix_rows}</tbody>
+</table>
+"""
+
+    log_link_html = ""
+    if log_path:
+        log_link_html = (
+            f'<p class="note">Full remote log (complete packer/ansible '
+            f'output for every step, including each profile build): '
+            f'<code>{html.escape(str(log_path))}</code></p>'
+        )
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>cis-image real E2E report — {html.escape(when)}</title>
+<style>
+  body {{ font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 2rem;
+          color: #1a1a1a; background: #fafafa; }}
+  h1 {{ margin-bottom: 0.2rem; }}
+  .meta {{ color: #555; margin-bottom: 1.5rem; }}
+  .meta span {{ display: inline-block; margin-right: 1.5rem; }}
+  .banner {{ padding: 1rem 1.5rem; border-radius: 8px; font-size: 1.4rem;
+             font-weight: 700; color: #fff; margin-bottom: 1.5rem; }}
+  .banner-pass {{ background: #1e8e3e; }}
+  .banner-fail {{ background: #c5221f; }}
+  table {{ border-collapse: collapse; width: 100%; margin-bottom: 2rem; background: #fff; }}
+  th, td {{ border: 1px solid #ddd; padding: 0.5rem 0.75rem; text-align: left; vertical-align: top; }}
+  th {{ background: #f0f0f0; }}
+  .badge {{ display: inline-block; padding: 0.15rem 0.6rem; border-radius: 4px;
+            font-size: 0.85rem; font-weight: 600; color: #fff; }}
+  .badge-pass {{ background: #1e8e3e; }}
+  .badge-fail {{ background: #c5221f; }}
+  .badge-skip {{ background: #888; }}
+  pre {{ white-space: pre-wrap; word-break: break-word; max-height: 400px;
+         overflow-y: auto; background: #f7f7f7; padding: 0.75rem;
+         border-radius: 4px; margin: 0; font-size: 0.85rem; }}
+  details summary {{ cursor: pointer; font-weight: 600; padding: 0.4rem 0; }}
+  .note {{ color: #a15c00; font-style: italic; }}
+  .counts span {{ margin-right: 1.5rem; font-weight: 600; }}
+</style>
+</head>
+<body>
+<h1>cis-image real end-to-end test report</h1>
+<div class="meta">
+  <span><strong>When:</strong> {html.escape(when)}</span>
+  <span><strong>Duration:</strong> {duration_s:.0f}s</span>
+  <span><strong>Instance:</strong> {html.escape(instance_id)}</span>
+  <span><strong>Region/Zone:</strong> {html.escape(region)}/{html.escape(zone)}</span>
+  <span><strong>Image:</strong> {html.escape(image_id)}</span>
+  <span><strong>Branch:</strong> {html.escape(branch)}</span>
+  <span><strong>Commit:</strong> {html.escape(commit or "(unknown)")}</span>
+</div>
+<div class="banner {banner_cls}">Overall result: {banner_text}</div>
+{log_link_html}
+
+<h2>Steps</h2>
+<table>
+  <thead><tr><th>Step</th><th>Status</th></tr></thead>
+  <tbody>{steps_html}</tbody>
+</table>
+{matrix_html}
+<h2>pytest results</h2>
+{junit_note_html}
+<p class="counts">
+  <span>Total: {junit.total}</span>
+  <span>Passed: {junit.passed}</span>
+  <span>Failed: {junit.failed}</span>
+  <span>Errors: {junit.errors}</span>
+  <span>Skipped: {junit.skipped}</span>
+</p>
+{junit_table_html}
+</body>
+</html>
+"""
 
 
 def terminate_instance(region: str, sid: str, skey: str, tok: str | None,
@@ -286,14 +1356,40 @@ def delete_keypair(region: str, sid: str, skey: str, tok: str | None, key_id: st
              f"please delete it manually")
 
 
+def delete_batch_images(region: str, sid: str, skey: str, tok: str | None,
+                         image_ids: list[str]) -> None:
+    """Best-effort delete every image produced by a --target-mode
+    single/all-linux/all batch — mirrors terminate_instance()/
+    delete_keypair()'s try/except/warn style. This script never leaves a
+    billed golden image behind after a batch run."""
+    if not image_ids:
+        return
+    try:
+        _tc3_api("cvm", "DeleteImages", "2017-03-12", region,
+                 {"ImageIds": image_ids}, sid, skey, tok)
+        ok(f"Deleted {len(image_ids)} batch image(s): {', '.join(image_ids)}")
+    except Exception as exc:
+        warn(f"Failed to delete batch images {image_ids}: {exc} — "
+             f"please delete them manually")
+
+
 def main() -> int:
     args = parse_args()
     sid, skey, tok = creds()
-    confirm_cost(args)
+
+    combos: list[ProfileCombo] = []
+    skipped: list[ProfileCombo] = []
+    if args.target_mode != "toolchain":
+        combos, skipped = resolve_combos(args)
+        ensure_nonempty_combos(args, combos, skipped)
+
+    confirm_cost(args, combos, skipped)
 
     instance_id: str | None = None
     key_id: str | None = None
-    remote_exit_code = 1
+    overall_passed = False
+    run_start = time.time()
+    batch_image_ids: list[str] = []
 
     with tempfile.TemporaryDirectory() as tmp:
         tmpdir = Path(tmp)
@@ -322,28 +1418,91 @@ def main() -> int:
             wait_for_ssh(public_ip, args.ssh_user, priv_key)
             ok("SSH is up")
 
-            banner("Running remote test suite (ruff, mypy, pytest)")
-            log_path = REPO_ROOT / "logs" / f"e2e-{int(time.time())}.log"
-            remote_exit_code = run_remote_suite(
-                public_ip, args.ssh_user, priv_key, args.branch, log_path)
+            needs_windows = any(c.family == "windows" for c in combos)
+            steps_spec = build_steps(args.target_mode, needs_windows)
+
+            run_start = time.time()
+            log_path = REPO_ROOT / "logs" / f"e2e-{int(run_start)}.log"
+            html_path = REPO_ROOT / "logs" / f"e2e-{int(run_start)}.html"
+
+            if args.target_mode == "toolchain":
+                banner("Running remote test suite (ruff, mypy, pytest)")
+                run_remote_suite(public_ip, args.ssh_user, priv_key, args.branch, log_path)
+            else:
+                banner(f"Running remote profile build matrix ({len(combos)} combination(s))")
+                run_remote_matrix(
+                    public_ip, args.ssh_user, priv_key, args.branch, log_path, combos,
+                    target_placement(args), args.build_instance_type,
+                    args.max_parallel_builds, sid, skey, tok)
             info(f"Full remote log saved to {log_path}")
 
-            if remote_exit_code == 0:
+            banner("Fetching structured step reports")
+            reports = fetch_remote_reports(public_ip, args.ssh_user, priv_key, steps_spec)
+            steps = build_step_results(reports, steps_spec)
+            junit = parse_junit_xml(reports.get("pytest_junit", ""))
+            profile_results = (
+                build_profile_results(skipped, reports.get("matrix_results", ""))
+                if args.target_mode != "toolchain" else None
+            )
+            if profile_results:
+                batch_image_ids = [
+                    img for r in profile_results for img in r.image_ids
+                ]
+            overall_passed = compute_overall_passed(steps, profile_results)
+            duration_s = time.time() - run_start
+
+            report_html = render_html_report(
+                overall_passed=overall_passed,
+                started_at=run_start,
+                duration_s=duration_s,
+                instance_id=instance_id,
+                region=args.region,
+                zone=args.zone,
+                image_id=args.image_id,
+                branch=args.branch,
+                commit=reports.get("commit", "").strip(),
+                steps=steps,
+                junit=junit,
+                profile_results=profile_results,
+                log_path=str(log_path),
+            )
+            try:
+                html_path.write_text(report_html, encoding="utf-8")
+                ok(f"HTML report saved to {html_path}")
+            except OSError as exc:
+                warn(f"Could not write HTML report: {exc}")
+
+            for step in steps:
+                if step.status == "failed":
+                    fail(f"  step failed: {step.label}")
+                elif step.status == "not run":
+                    warn(f"  step not run: {step.label}")
+            if profile_results:
+                for r in profile_results:
+                    if r.status == "failed":
+                        fail(f"  profile build failed: {r.profile} L{r.level}")
+                    elif r.status == "skipped":
+                        warn(f"  profile build skipped: {r.profile} L{r.level} "
+                             f"({r.skip_reason})")
+
+            if overall_passed:
                 ok("Real end-to-end test PASSED")
             else:
-                fail(f"Real end-to-end test FAILED (exit code {remote_exit_code})")
+                fail("Real end-to-end test FAILED — see HTML report for details")
 
         except ConfigError as exc:
             fail(str(exc))
-            remote_exit_code = 1
+            overall_passed = False
         except KeyboardInterrupt:
             warn("Interrupted by user — cleaning up")
-            remote_exit_code = 130
+            overall_passed = False
         except Exception as exc:
             fail(f"Unexpected error: {exc}")
-            remote_exit_code = 1
+            overall_passed = False
         finally:
-            keep = args.keep_on_failure and remote_exit_code != 0
+            if batch_image_ids:
+                delete_batch_images(args.region, sid, skey, tok, batch_image_ids)
+            keep = args.keep_on_failure and not overall_passed
             if instance_id and not keep:
                 terminate_instance(args.region, sid, skey, tok, instance_id)
             elif instance_id and keep:
@@ -355,7 +1514,7 @@ def main() -> int:
             if not keep:
                 clear_last_instance()
 
-    return remote_exit_code
+    return 0 if overall_passed else 1
 
 
 if __name__ == "__main__":
