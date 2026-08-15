@@ -1904,7 +1904,7 @@ echo "ansible ready in $VENV (cis-os engine)"
 # literal "\x1b" in the template would land as garbage text in the file).
 _BANNER_ART = (
     "\x1b[38;5;117m              .---..---.\x1b[0m\n"
-    "\x1b[38;5;117m          .-'          '-.           \x1b[1;37mSECX  SERIES\x1b[0m\n"
+    "\x1b[38;5;117m          .-'          '-.           \x1b[1;37mCIS IMAGE\x1b[0m\n"
     "\x1b[38;5;75m        .'                '.         \x1b[38;5;75m  ___ ___  ___  ___\x1b[0m\n"
     "\x1b[1;38;5;75m      .'                    '.       \x1b[1;38;5;75m / __/ _ \\/ __|/ __|\x1b[0m\n"
     "\x1b[1;38;5;75m     /         ()    ()       \\      \x1b[1;38;5;75m| (_| (_) \\__ \\ (__ \x1b[0m\n"

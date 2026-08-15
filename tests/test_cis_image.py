@@ -492,7 +492,7 @@ class TestRenderAll:
         assert valid_toml["build"]["source_image_id"] in finalize
         assert valid_toml["meta"]["os_tag"] in finalize
         # The cis-image banner ASCII is embedded.
-        assert "SECX  SERIES" in finalize
+        assert "CIS IMAGE" in finalize
         assert "CIS-HARDENED IMAGE BUILDER" in finalize
         # Bash syntax must be clean (catches missing fi/quote before delivery).
         import subprocess
