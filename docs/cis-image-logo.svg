@@ -1,24 +1,3 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 200" width="640" height="200">
-  <!-- logo card: honey badger + repo name -->
-  <rect x="0" y="0" width="640" height="200" rx="28" fill="#F3F6FA" stroke="#D9E0EA" stroke-width="2"/>
-  <text x="600" y="40" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
-        font-size="12" font-weight="500" letter-spacing="3" fill="#8A97A8">CIS-* FAMILY</text>
-  <g transform="translate(36,52) scale(0.4)">
-    <circle cx="56" cy="56" r="13" fill="#16273A"/>
-    <circle cx="244" cy="56" r="13" fill="#16273A"/>
-    <path d="M50 62 Q50 26 88 24 L212 24 Q250 26 250 62 L250 112 L240 144 L224 176 L200 196 L150 204 L100 196 L76 176 L60 144 L50 112 Z" fill="#E9EEF5"/>
-    <path d="M50 98 L250 98 L250 120 Q250 142 226 144 L74 144 Q50 142 50 120 Z" fill="#16273A"/>
-    <path d="M70 148 L230 148 L230 226 Q230 256 204 262 L96 262 Q70 256 70 226 Z" fill="#16273A"/>
-    <circle cx="112" cy="120" r="8.5" fill="#F4F6F9"/>
-    <circle cx="188" cy="120" r="8.5" fill="#F4F6F9"/>
-    <circle cx="112" cy="121" r="3.2" fill="#16273A"/>
-    <circle cx="188" cy="121" r="3.2" fill="#16273A"/>
-    <ellipse cx="150" cy="132" rx="10" ry="6" fill="#0C1722"/>
-  </g>
-  <text x="182" y="110" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
-        font-size="52" font-weight="800" letter-spacing="-1">
-    <tspan fill="#006EFF">cis-</tspan><tspan fill="#16273A">image</tspan>
-  </text>
-  <text x="184" y="144" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
-        font-size="14" font-weight="500" letter-spacing="3" fill="#6B7C95">CIS-HARDENED IMAGE BUILDER</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <image href="cis-image-logo.png" width="1024" height="1024"/>
 </svg>
