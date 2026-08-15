@@ -498,8 +498,10 @@ def cmd_drift(args: argparse.Namespace) -> int:
     # 3. Diff + report.
     diff = _drift_diff(baseline, current)
     bs = (baseline.get("summary") or {}).get("all", {})
-    bscore = diff["baseline_score"] or bs.get("score")
-    cscore = diff["current_score"] or cs.get("score")
+    # Explicit None checks: `or` would silently discard a legitimate 0 score
+    # (an engine result where every rule fails).
+    bscore = diff["baseline_score"] if diff["baseline_score"] is not None else bs.get("score")
+    cscore = diff["current_score"] if diff["current_score"] is not None else cs.get("score")
     if bscore is not None:
         info(f"Baseline score: {bscore:g}%")
     delta = ""
@@ -560,6 +562,10 @@ def _retire_cleanup_images(path: Path, retired_ids: set[str]) -> None:
     surviving copies are dropped from the cleanup set forever (they never age
     out) and check-source/pending treat the record as gone.  Only mark a record
     retired when it has no images left.
+
+    The rewrite is ATOMIC (temp file + os.replace) and preserves any line
+    that fails to parse: lineage is the only durable record of what was
+    built, so a single corrupt line must not be silently erased.
     """
     retired_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     lines: list[str] = []
@@ -571,6 +577,7 @@ def _retire_cleanup_images(path: Path, retired_ids: set[str]) -> None:
             try:
                 rec = json.loads(ln)
             except json.JSONDecodeError:
+                lines.append(ln)  # keep the corrupt line verbatim
                 continue
             ids = list(rec.get("image_ids", []))
             if ids and not rec.get("retired"):
@@ -581,8 +588,9 @@ def _retire_cleanup_images(path: Path, retired_ids: set[str]) -> None:
                         rec["retired"] = True
                         rec["retired_ts"] = retired_ts
             lines.append(json.dumps(rec, ensure_ascii=False))
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(lines) + "\n")
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def cmd_cleanup_images(args: argparse.Namespace) -> int:
@@ -656,6 +664,11 @@ def cmd_cleanup_images(args: argparse.Namespace) -> int:
     for rec, img in candidates:
         by_region.setdefault(rec.get("region", ""), []).append(img)
 
+    # --apply: delete candidates; even if one delete fails, the images
+    # already deleted must still be retired from lineage (otherwise they
+    # stay recorded forever and re-cleanup keeps re-trying them).
+    deleted_ids: set[str] = set()
+    delete_error: str | None = None
     total_deleted = 0
     for region, imgs in sorted(by_region.items()):
         for img in sorted(set(imgs)):
@@ -667,22 +680,28 @@ def cmd_cleanup_images(args: argparse.Namespace) -> int:
                     else:
                         cis_image._delete_images(region, [img])
                         ok(f"  {region}: deleted {img}")
+                    deleted_ids.add(img)
                     total_deleted += 1
                 except ConfigError as exc:
                     fail(str(exc))
-                    return 1
+                    delete_error = delete_error or str(exc)
             else:
                 warn(f"  [dry-run] would delete {region}: {img}")
 
     # mark retired in lineage (both dry-run and apply update the audit trail)
     if args.apply:
         # Per-IMAGE granularity: a lineage record can hold several image_ids.
-        # Removing one must not retire the whole record.
-        _retire_cleanup_images(path, {img for _, img in candidates})
+        # Removing one must not retire the whole record.  Only images that
+        # were actually deleted (or already gone) are retired — a delete
+        # that failed keeps its lineage record so it is retried next run.
+        if deleted_ids:
+            _retire_cleanup_images(path, deleted_ids)
         ok(f"Retired {total_deleted} image(s); lineage updated.")
 
     if not args.apply:
         info("Re-run with --apply to actually delete (and mark lineage retired).")
+    if delete_error:
+        return 1
     return 0
 
 def cmd_test(args: argparse.Namespace) -> int:
