@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-image@eb2a0fd9768384aec0d16acba79f8747dcfcde0b/docs/cis-image-logo.png" alt="cis-image" width="440">
+  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-image@333866675fbe26a22170106cb2e7968cd8fb9c76/docs/cis-image-logo.png" alt="cis-image" width="440">
 </p>
 
 <p align="center">
