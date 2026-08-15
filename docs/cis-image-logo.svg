@@ -1,9 +1,3 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 240" width="900" height="240">
-  <image href="cis-image-icon.png" x="20" y="10" width="220" height="220"/>
-  <text x="292" y="134" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
-        font-size="76" font-weight="800" letter-spacing="-1.5">
-    <tspan fill="#006EFF">cis-</tspan><tspan fill="#16273A">image</tspan>
-  </text>
-  <text x="294" y="176" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
-        font-size="16" font-weight="500" letter-spacing="4" fill="#6B7C95">CIS-HARDENED IMAGE BUILDER</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <image href="cis-image-logo.png" width="1024" height="1024"/>
 </svg>
