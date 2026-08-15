@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to **ciscvm** are documented here, grouped by release.
+All notable changes to **cis-image** are documented here, grouped by release.
 The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
@@ -10,24 +10,24 @@ can be traced across rebuilds.
 ### Added
 - **Audit reports archived on the build machine** — every successful
   `build` / `scan` now saves the per-rule audit JSON to
-  `~/.ciscvm/reports/<image-name>.json`, next to the lineage and
+  `~/.cis-image/reports/<image-name>.json`, next to the lineage and
   provenance records.  Linux emits the file as a gzipped+base64 marker
-  line in the packer log (extracted by ciscvm); Windows copies the
+  line in the packer log (extracted by cis-image); Windows copies the
   role-fetched `result.json`.  The in-image copy
-  (`/opt/ciscvm-AUDIT-RESULT.json` /
-  `C:\ProgramData\ciscvm\AUDIT-RESULT.json`) still ships — drift and
+  (`/opt/cis-image-AUDIT-RESULT.json` /
+  `C:\ProgramData\cis-image\AUDIT-RESULT.json`) still ships — drift and
   verify-image use it as the baseline.
 
 ## [0.16.24] — 2026-08-14
 
 ### Added
 - **Windows images now ship the build-time audit result** at
-  `C:\ProgramData\ciscvm\AUDIT-RESULT.json` — the counterpart of Linux
-  `/opt/ciscvm-AUDIT-RESULT.json`.  Previously the Windows engine's
+  `C:\ProgramData\cis-image\AUDIT-RESULT.json` — the counterpart of Linux
+  `/opt/cis-image-AUDIT-RESULT.json`.  Previously the Windows engine's
   `result.json` was fetched to the controller and then deleted with the
   working directory, so nothing inside the image documented what was
   assessed.  Implemented as a `cis_ship_result_path` role variable
-  (empty = off), enabled by the ciscvm Windows site template.
+  (empty = off), enabled by the cis-image Windows site template.
 
 ## [0.16.23] — 2026-08-14
 
@@ -186,7 +186,7 @@ a guest that never finished powering off).
   blocks on a dead socket and the stop job never completes — reproducer:
   `StopInstances --StopType SOFT` hangs >5 min on a hardened guest vs ~110 s
   unhardened.  The cleanup provisioner now installs
-  `/etc/systemd/system/rc-local.service.d/10-ciscvm-stop-timeout.conf`
+  `/etc/systemd/system/rc-local.service.d/10-cis-image-stop-timeout.conf`
   (`TimeoutStopSec=15s`) so systemd SIGKILLs the agent and the shutdown
   completes.  RHEL 8 was unaffected (agent runs under a regular unit there).
 - Regression: `test_rc_local_stop_timeout_capped` asserts the drop-in is
@@ -273,7 +273,7 @@ Red Hat Insights Drift, EC2 Image Builder test components / EventBridge /
 spot instances / lifecycle policies, and AWS RAM-style org sharing.
 
 ### Added
-- **#12 — Drift detection** (`ciscvm drift`): re-scan a LIVE instance over
+- **#12 — Drift detection** (`cis-image drift`): re-scan a LIVE instance over
   SSH and diff against the baseline (the audit result shipped inside the
   image, a saved baseline, or `--baseline <file>`).  Reports new failing
   rules / recovered rules / score delta; exit 1 = drift.
@@ -292,9 +292,9 @@ spot instances / lifecycle policies, and AWS RAM-style org sharing.
   fails open (keeps) on API errors so an in-use image is never retired.
 - **#17 — Org-level sharing** (`[image].share_org_units`): merged with
   `share_accounts` into one `ModifyImageSharePermission` call.
-- **#19 — Rule-set versioning** (`ciscvm list --versions`): per-profile
+- **#19 — Rule-set versioning** (`cis-image list --versions`): per-profile
   rules.json sha256 + engine version for audit pinning.
-- **#20 — Vendor refresh detection** (`ciscvm check-source`): compares the
+- **#20 — Vendor refresh detection** (`cis-image check-source`): compares the
   source image's CreatedTime against the last build's lineage record;
   exit 0 = unchanged, 1 = refreshed.  Lineage now records
   `source_image_created`.
@@ -316,7 +316,7 @@ dev-sec hardening, RHEL Image Builder (osbuild+OpenSCAP), AWS EC2 Image
 Builder, CIS-CAT/LBK and HardeningKitty.
 
 ### Added
-- **P0#1 — Independent audit tool** (`ciscvm audit`): run a THIRD-PARTY
+- **P0#1 — Independent audit tool** (`cis-image audit`): run a THIRD-PARTY
   auditor instead of relying on the self-reported engine score.
   - `--tool oscap` — OpenSCAP over SSH, parses ARF XML, gates on score
     (RHEL-family: scap-security-guide datastream).
@@ -328,23 +328,23 @@ Builder, CIS-CAT/LBK and HardeningKitty.
   `benchmark` + `rule_id` (`"<benchmark> <id>"`) on every result, and
   SARIF carries the benchmark reference — findings cross-reference
   CIS-CAT / SCAP numbering exactly.
-- **P0#3 — Clean-boot verification** (`ciscvm verify-image --image …`):
+- **P0#3 — Clean-boot verification** (`cis-image verify-image --image …`):
   boots a probe instance from the PRODUCED image, re-audits on fresh boot
   (SELinux relabel, first-boot services, cloud-init), gates on score and
   always terminates the probe. `[meta].verify_boot = true` chains it
   automatically after successful builds (Linux only).
 - **P1#4 — Benchmark pinning + changelog**: benchmark recorded in lineage
   and provenance (`rules_sha256` + `fingerprint`); preflight warns on
-  `[meta].benchmark` divergence from the profile default; `ciscvm list`
+  `[meta].benchmark` divergence from the profile default; `cis-image list`
   shows the benchmark column.
 - **P1#5 — Per-control overrides** (`[cis].overrides`): deep-merge rule
   parameters into the workspace copy of rules.json at render time
   (bundled catalog never mutated; unknown rule IDs fail fast).
 - **P1#6 — CVE scan + SBOM** (`[meta].cve_scan` / `[meta].sbom`):
   trivy CRITICAL-severity gate before the snapshot; zero-dependency SBOM
-  (`/opt/ciscvm-SBOM.jsonl`) emitted into the image and echoed to the
+  (`/opt/cis-image-SBOM.jsonl`) emitted into the image and echoed to the
   build log for hashing.
-- **P1#7 — Change detection** (`ciscvm pending`, `build
+- **P1#7 — Change detection** (`cis-image pending`, `build
   --skip-if-unchanged`): deterministic input fingerprint (source image,
   rule catalog hash, benchmark, level, filters, version); skips rebuilds
   when nothing changed and the previous image still exists.
@@ -359,13 +359,13 @@ Builder, CIS-CAT/LBK and HardeningKitty.
 - **P2#11 — HardeningKitty CSV parser** for Windows cross-validation.
 
 ### Changed
-- `ciscvm list` prints a `benchmark` column.
+- `cis-image list` prints a `benchmark` column.
 - SARIF reports now carry the benchmark reference (P0#2).
 - Version bumped 0.14.33 → 0.15.0 (feature release).
 
 ### Fixed
-- Pre-existing lint/type debt cleaned so `ruff check ciscvm` and
-  `mypy ciscvm --ignore-missing-imports` are green (CI gate).
+- Pre-existing lint/type debt cleaned so `ruff check cis_image` and
+  `mypy cis_image --ignore-missing-imports` are green (CI gate).
 
 ### CIS benchmark editions (profile → benchmark tag)
 - Ubuntu 20.04 / 22.04 / 24.04 — CIS Ubuntu Linux LTS Benchmark v1.0.0
