@@ -175,14 +175,25 @@ def _sg_ingress_allows(policies: dict[str, Any], ip: str, port: int) -> bool | N
             ports_ok = False
             for part in str(rule_port).split(","):
                 part = part.strip()
-                if "-" in part:
-                    lo, hi = part.split("-", 1)
-                    if int(lo) <= port <= int(hi):
-                        ports_ok = True
-                        break
-                elif part and int(part) == port:
+                if not part:
+                    continue
+                # "ALL" (whole value or a list item) matches any port.
+                if part.upper() == "ALL":
                     ports_ok = True
                     break
+                try:
+                    if "-" in part:
+                        lo, hi = part.split("-", 1)
+                        if int(lo) <= port <= int(hi):
+                            ports_ok = True
+                            break
+                    elif int(part) == port:
+                        ports_ok = True
+                        break
+                except ValueError:
+                    # Unparseable port token (e.g. a service-template name) —
+                    # skip it; the rule is treated as non-matching below.
+                    continue
             if not ports_ok:
                 continue
         return action == "ACCEPT"
@@ -335,32 +346,37 @@ def _probe_public_ip(r: ResolvedConfig, instance_id: str) -> str:
     """
     import time as _time
     sid, skey, tok = _creds(r.secret_id_env, r.secret_key_env, r.security_token_env)
+    if not sid or not skey:
+        raise ConfigError(
+            f"{r.secret_id_env} / {r.secret_key_env} not set — "
+            "cannot query the verification instance")
     deadline = _time.time() + 900
     while _time.time() < deadline:
         try:
             resp = cis_image._tc3_api("cvm", "DescribeInstances", "2017-03-12", r.region,
                             {"InstanceIds": [instance_id]}, sid, skey, tok or None)
-            insts = resp.get("Response", {}).get("InstanceSet") or []
-            if not insts:
-                _time.sleep(10)
-                continue
-            inst = insts[0]
-            # InstanceState is a plain string ("RUNNING"); tolerate a dict too.
-            st = inst.get("InstanceState") or ""
-            state = st.get("State", "") if isinstance(st, dict) else str(st)
-            if state == "RUNNING":
-                pub = ""
-                for nic in inst.get("NetworkInterfaceSet") or []:
-                    # PublicIpAddresses may be absent OR an empty list.
-                    addrs = nic.get("PublicIpAddresses") or []
-                    pub = addrs[0] if addrs else pub
-                if not pub:
-                    addrs = inst.get("PublicIpAddresses") or []
-                    pub = addrs[0] if addrs else ""
-                if pub:
-                    return pub
+        except ConfigError:
+            raise  # credential/API errors are fatal — do not poll for 15 min
         except Exception:
-            pass
+            pass  # transient network/parse issues — keep polling
+        else:
+            insts = resp.get("Response", {}).get("InstanceSet") or []
+            if insts:
+                inst = insts[0]
+                # InstanceState is a plain string ("RUNNING"); tolerate a dict too.
+                st = inst.get("InstanceState") or ""
+                state = st.get("State", "") if isinstance(st, dict) else str(st)
+                if state == "RUNNING":
+                    pub = ""
+                    for nic in inst.get("NetworkInterfaceSet") or []:
+                        # PublicIpAddresses may be absent OR an empty list.
+                        addrs = nic.get("PublicIpAddresses") or []
+                        pub = addrs[0] if addrs else pub
+                    if not pub:
+                        addrs = inst.get("PublicIpAddresses") or []
+                        pub = addrs[0] if addrs else ""
+                    if pub:
+                        return pub
         _time.sleep(10)
     return ""
 
