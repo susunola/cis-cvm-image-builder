@@ -7,7 +7,7 @@ import os
 import re
 import shutil
 import subprocess
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -117,6 +117,25 @@ def cmd_validate(args: argparse.Namespace) -> int:
         fail("packer validate failed (see output above)")
     return result.exit_code
 
+def _open_build_log(args: argparse.Namespace) -> logging.FileHandler | None:
+    """Attach a file handler to the root logger for --log-file (build only)."""
+    if not args.log_file:
+        return None
+    fh = logging.FileHandler(args.log_file, mode="w", encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%dT%H:%M:%S"))
+    logger.addHandler(fh)
+    info(f"Build log → {args.log_file}")
+    return fh
+
+
+def _close_build_log(fh: logging.FileHandler | None) -> None:
+    """Detach and close the build log handler without leaking it."""
+    if fh is not None:
+        logger.removeHandler(fh)
+        fh.close()
+
+
 def cmd_build(args: argparse.Namespace) -> int:
     """Render templates and run packer build."""
     prep = cis_image._load_resolve_preflight(args.config, args.workdir)
@@ -160,13 +179,7 @@ def cmd_build(args: argparse.Namespace) -> int:
     info(f"Rendered working directory: {workdir}")
     info(f"Running packer build (CIS Level {r.level}, profile={r.profile_name}) ...")
 
-    _fh: logging.FileHandler | None = None
-    if args.log_file:
-        _fh = logging.FileHandler(args.log_file, mode="w", encoding="utf-8")
-        _fh.setLevel(logging.DEBUG)
-        _fh.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%dT%H:%M:%S"))
-        logger.addHandler(_fh)
-        info(f"Build log → {args.log_file}")
+    _fh: logging.FileHandler | None = _open_build_log(args)
 
     result = cis_image.run_packer(workdir, "build", quiet=args.quiet, capture=True, debug=args.debug,
                         log_file=args.log_file)
@@ -229,9 +242,7 @@ def cmd_build(args: argparse.Namespace) -> int:
                     cis_image._record_lineage(r, image_ids, image_name, score, ok=False,
                                     sbom_sha=sbom_sha, sbom_count=sbom_count)
                     _send_notification(r, False, image_ids, score, image_name)
-                    if _fh is not None:  # don't leak the log handler
-                        logger.removeHandler(_fh)
-                        _fh.close()
+                    _close_build_log(_fh)
                     return vrc
     else:
         fail("packer build failed (see output above)")
@@ -241,9 +252,7 @@ def cmd_build(args: argparse.Namespace) -> int:
     # [notify] — WeCom webhook; never affects the exit code.
     _send_notification(r, success, image_ids, score, image_name)
 
-    if _fh is not None:
-        logger.removeHandler(_fh)
-        _fh.close()
+    _close_build_log(_fh)
     return result.exit_code
 
 def cmd_images(args: argparse.Namespace) -> int:
@@ -398,40 +407,14 @@ def cmd_verify_image(args: argparse.Namespace, image_id: str | None = None) -> i
         if instance_id:
             cis_image._probe_terminate(r, instance_id)
 
-def cmd_drift(args: argparse.Namespace) -> int:
-    """cis-image drift — detect configuration drift on a running instance.
+def _drift_resolve_baseline(args: argparse.Namespace, r: ResolvedConfig,
+                            host: str, ssh_port: int, ssh_user: str) -> dict[str, Any] | None:
+    """Resolve the drift baseline: --image fetch, or --baseline <file>.
 
-    Scans a LIVE instance (--host) with the bundled engine and diffs the
-    result against the baseline: the audit result shipped inside the
-    producing image (--image), or a locally saved baseline.  Reports
-    new failures / recovered rules / score delta.  Exit 0 = no drift.
+    Priority is --baseline <file> (explicit) > --image <id> (fetch from the
+    producing image's shipped audit, falling back to a live SSH read).
+    Returns None when no baseline could be obtained.
     """
-    if getattr(args, "save_baseline", False):
-        return cmd_save_baseline(args)
-    prep = cis_image._load_resolve_preflight(args.config, args.workdir)
-    if prep is None:
-        return 1
-    r, _workdir = prep
-    host = args.host
-    if not host:
-        fail("--host <ip> is required (the running instance to check for drift)")
-        return 1
-    ssh_user = getattr(args, "ssh_user", "") or r.ssh_username or "root"
-    ssh_port = int(getattr(args, "ssh_port", 0) or r.ssh_port or 22)
-
-    # 1. Run a live scan on the instance (reuse the same SSH scan as
-    #    verify-image — the engine ships inside the image).
-    banner("drift")
-    info(f"Scanning live instance {host} (profile {r.profile_name} L{r.level}) …")
-    current = cis_image._probe_scan(r, host, ssh_port, ssh_user, r.level)
-    if "error" in current and "summary" not in current:
-        fail(f"Live scan failed: {current.get('error', 'unknown error')}")
-        return 1
-    cs = (current.get("summary") or {}).get("all", {})
-    info(f"Live score: {cs.get('score', '?')}%  "
-         f"(fail {cs.get('fail', 0)}, pass {cs.get('pass', 0)})")
-
-    # 2. Baseline: local saved file, or fetch from the producing image.
     baseline: dict[str, Any] | None = None
     image_id = getattr(args, "image", "") or ""
     if image_id:
@@ -469,7 +452,44 @@ def cmd_drift(args: argparse.Namespace) -> int:
         except json.JSONDecodeError:
             warn(f"Could not parse baseline file {bl_path}")
             baseline = None
+    return baseline
 
+
+def cmd_drift(args: argparse.Namespace) -> int:
+    """cis-image drift — detect configuration drift on a running instance.
+
+    Scans a LIVE instance (--host) with the bundled engine and diffs the
+    result against the baseline: the audit result shipped inside the
+    producing image (--image), or a locally saved baseline.  Reports
+    new failures / recovered rules / score delta.  Exit 0 = no drift.
+    """
+    if getattr(args, "save_baseline", False):
+        return cmd_save_baseline(args)
+    prep = cis_image._load_resolve_preflight(args.config, args.workdir)
+    if prep is None:
+        return 1
+    r, _workdir = prep
+    host = args.host
+    if not host:
+        fail("--host <ip> is required (the running instance to check for drift)")
+        return 1
+    ssh_user = getattr(args, "ssh_user", "") or r.ssh_username or "root"
+    ssh_port = int(getattr(args, "ssh_port", 0) or r.ssh_port or 22)
+
+    # 1. Run a live scan on the instance (reuse the same SSH scan as
+    #    verify-image — the engine ships inside the image).
+    banner("drift")
+    info(f"Scanning live instance {host} (profile {r.profile_name} L{r.level}) …")
+    current = cis_image._probe_scan(r, host, ssh_port, ssh_user, r.level)
+    if "error" in current and "summary" not in current:
+        fail(f"Live scan failed: {current.get('error', 'unknown error')}")
+        return 1
+    cs = (current.get("summary") or {}).get("all", {})
+    info(f"Live score: {cs.get('score', '?')}%  "
+         f"(fail {cs.get('fail', 0)}, pass {cs.get('pass', 0)})")
+
+    # 2. Baseline: --baseline <file> overrides, else fetch from --image.
+    baseline = _drift_resolve_baseline(args, r, host, ssh_port, ssh_user)
     if baseline is None:
         fail("No baseline to compare against — pass --image <id>, "
              "--baseline <file>, or run 'cis-image drift --save-baseline' first")
@@ -532,6 +552,39 @@ def cmd_save_baseline(args: argparse.Namespace) -> int:
     ok(f"Baseline saved -> {out}")
     return 0
 
+def _retire_cleanup_images(path: Path, retired_ids: set[str]) -> None:
+    """Rewrite the lineage file, removing *retired_ids* at per-image granularity.
+
+    A lineage record can hold several image_ids (cross-region copies).
+    Removing ONE of them must NOT retire the whole record — otherwise the
+    surviving copies are dropped from the cleanup set forever (they never age
+    out) and check-source/pending treat the record as gone.  Only mark a record
+    retired when it has no images left.
+    """
+    retired_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    lines: list[str] = []
+    with open(path, encoding="utf-8") as fh:
+        for ln in fh:
+            ln = ln.strip()
+            if not ln:
+                continue
+            try:
+                rec = json.loads(ln)
+            except json.JSONDecodeError:
+                continue
+            ids = list(rec.get("image_ids", []))
+            if ids and not rec.get("retired"):
+                remaining = [i for i in ids if i not in retired_ids]
+                if len(remaining) != len(ids):
+                    rec["image_ids"] = remaining
+                    if not remaining:
+                        rec["retired"] = True
+                        rec["retired_ts"] = retired_ts
+            lines.append(json.dumps(rec, ensure_ascii=False))
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
 def cmd_cleanup_images(args: argparse.Namespace) -> int:
     """Retire old golden images by lineage age. Dry-run by default.
 
@@ -541,8 +594,6 @@ def cmd_cleanup_images(args: argparse.Namespace) -> int:
     skipped, so cleanup never breaks a running consumer.  Fails open
     (keeps the image) when the share query errors.
     """
-    from datetime import datetime
-
     path = cis_image._lineage_path()
     if not path.exists():
         info(f"No lineage records at {path} — nothing to clean.")
@@ -625,35 +676,9 @@ def cmd_cleanup_images(args: argparse.Namespace) -> int:
 
     # mark retired in lineage (both dry-run and apply update the audit trail)
     if args.apply:
-        # Per-IMAGE granularity: a lineage record can hold several image_ids
-        # (cross-region copies).  Removing ONE of them must NOT retire the
-        # whole record — otherwise the surviving copies are dropped from the
-        # cleanup set forever (they never age out) and check-source/pending
-        # treat the record as gone.  Remove the deleted ids; only mark
-        # retired when the record has no images left.
-        retired_ids = {img for _, img in candidates}
-        lines: list[str] = []
-        retired_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-        with open(path, encoding="utf-8") as fh:
-            for ln in fh:
-                ln = ln.strip()
-                if not ln:
-                    continue
-                try:
-                    rec = json.loads(ln)
-                except json.JSONDecodeError:
-                    continue
-                ids = list(rec.get("image_ids", []))
-                if ids and not rec.get("retired"):
-                    remaining = [i for i in ids if i not in retired_ids]
-                    if len(remaining) != len(ids):
-                        rec["image_ids"] = remaining
-                        if not remaining:
-                            rec["retired"] = True
-                            rec["retired_ts"] = retired_ts
-                lines.append(json.dumps(rec, ensure_ascii=False))
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write("\n".join(lines) + "\n")
+        # Per-IMAGE granularity: a lineage record can hold several image_ids.
+        # Removing one must not retire the whole record.
+        _retire_cleanup_images(path, {img for _, img in candidates})
         ok(f"Retired {total_deleted} image(s); lineage updated.")
 
     if not args.apply:
