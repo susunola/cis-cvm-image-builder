@@ -359,6 +359,29 @@ class TestExtractImageIds:
         lines = ["Created image ID: img-legacy999"]
         assert cis_image._extract_image_ids(lines) == ["img-legacy999"]
 
+    def test_legacy_multiple_collected_not_early_return(self):
+        """Regression: the legacy branch used to `return` on the first
+        match, dropping every later image (cross-region copies became
+        orphans that never age out of cleanup-images)."""
+        lines = [
+            "Created image ID: img-a1",
+            "Created image ID: img-a2",
+            "Created image ID: img-a2",  # duplicate must be deduped
+        ]
+        assert cis_image._extract_image_ids(lines) == ["img-a1", "img-a2"]
+
+    def test_mixed_legacy_and_new_formats_collected(self):
+        """A build that prints both formats must still record every image."""
+        lines = [
+            "Created image ID: img-legacy1",
+            "--> tencentcloud-cvm.default: Tencentcloud images(ap-guangzhou: img-new1",
+            "ap-hongkong: img-new2) were created.",
+        ]
+        ids = cis_image._extract_image_ids(lines)
+        assert "img-legacy1" in ids
+        assert "img-new1" in ids
+        assert "img-new2" in ids
+
     def test_no_match(self):
         assert cis_image._extract_image_ids(["==> building...", "==> done"]) == []
 
@@ -698,18 +721,22 @@ class TestRenderAll:
         py_path = tmp_path / "report_gen.py"
         py_path.write_text(py)
 
-        # Build a representative audit JSON.
+        # Build a representative audit JSON.  MUST mirror the real engine
+        # doc shape (cis_engine.py:5116): no top-level `score` (it lives in
+        # summary.all.score), and applied_pending on `apply_status` — the
+        # `status` field only carries pass/fail/manual/error/notapplicable.
         audit = {
             "mode": "scan",
-            "score": 85.1,
             "summary": {"all": {
                 "total": 224, "applied": 94, "applied_pending": 24,
                 "apply_failed": 0, "skipped_disruptive": 18,
                 "pass": 187, "fail": 33, "manual": 0, "notapplicable": 0,
+                "score": 85.1,
             }},
             "results": [
                 {"id": "5.2.7",  "title": "Ensure access to the su command is restricted", "status": "fail"},
-                {"id": "3.4.2.1", "title": "Ensure firewalld service is enabled",            "status": "applied_pending"},
+                {"id": "3.4.2.1", "title": "Ensure firewalld service is enabled",
+                 "status": "pass", "apply_status": "applied_pending"},
             ],
         }
         audit_p = tmp_path / "audit.json"
@@ -740,6 +767,12 @@ class TestRenderAll:
         assert valid_toml["build"]["source_image_id"] in body
         assert valid_toml["meta"]["os_tag"] in body
         assert "85.1%" in body
+        # P0 regressions: score must come from summary.all (the engine doc
+        # has no top-level score) and pending rules must be matched on
+        # apply_status, not status.
+        assert "?%" not in body
+        assert "**Final score**         | **85.1%** |" in body
+        assert "## Pending reboot / verify" in body
         # The actual rule IDs from the audit JSON surface in the report.
         assert "5.2.7" in body
         assert "3.4.2.1" in body
@@ -4925,3 +4958,89 @@ class TestDriftZeroScoreNotDiscarded:
         assert rc == 0  # same failures -> no new drift
         assert "Baseline score: 0%" in caplog.text
         assert "+50" in caplog.text  # delta 50.0 - 0.0, not 50.0 - 50.0
+
+
+class TestPackerKeyValidation:
+    """P1 — [build.packer] keys are emitted verbatim into HCL; only
+    identifier-shaped keys may pass (a quoted TOML key could otherwise
+    inject arbitrary HCL into the builder source block)."""
+
+    def test_valid_identifier_keys_ok(self, valid_toml):
+        valid_toml["build"]["packer"] = {"disk_type": "CLOUD_SSD",
+                                         "data_disks_0": {"disk_size": 100}}
+        r = resolve(valid_toml)
+        assert r.packer_extra["disk_type"] == "CLOUD_SSD"
+
+    def test_quoted_key_with_hyphen_rejected(self, valid_toml):
+        valid_toml["build"]["packer"] = {"bad-key": 1}
+        with pytest.raises(ConfigError, match="not a valid HCL identifier"):
+            resolve(valid_toml)
+
+    def test_injection_shaped_key_rejected(self, valid_toml):
+        # A crafted quoted key that would terminate the HCL attribute line
+        # and open a new block — must be rejected before render.
+        valid_toml["build"]["packer"] = {"x = 1\n  injected": 1}
+        with pytest.raises(ConfigError, match="not a valid HCL identifier"):
+            resolve(valid_toml)
+
+
+class TestMinScoreRange:
+    """P2 — [cis].min_score is rendered into the audit gate; out-of-range
+    values must fail at resolve time, not after a 20-minute build."""
+
+    def test_default_ok(self, valid_toml):
+        r = resolve(valid_toml)
+        assert r.min_score == 85
+
+    def test_zero_disables_gate(self, valid_toml):
+        valid_toml["cis"]["min_score"] = 0
+        assert resolve(valid_toml).min_score == 0
+
+    def test_over_100_rejected(self, valid_toml):
+        valid_toml["cis"]["min_score"] = 500
+        with pytest.raises(ConfigError, match="min_score"):
+            resolve(valid_toml)
+
+    def test_negative_rejected(self, valid_toml):
+        valid_toml["cis"]["min_score"] = -10
+        with pytest.raises(ConfigError, match="min_score"):
+            resolve(valid_toml)
+
+
+class TestWinRmPasswordQuoteCheck:
+    """P1 — the password is injected into a PowerShell userdata string as
+    '${var.winrm_password}'; a single quote breaks the command and WinRM
+    never comes up.  Preflight must reject it (the template comment
+    documented the constraint; the code never enforced it)."""
+
+    def test_quote_in_password_fails_preflight(self, monkeypatch):
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "test-id")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "test-key")
+        monkeypatch.setenv("WINRM_PASSWORD", "pa'ss")
+        data = _make_win_toml("win2022")
+        r = resolve(data)
+        with mock.patch("shutil.which", return_value="/usr/bin/packer"), \
+             mock.patch("cis_image._packer._check_ansible_windows_collection", return_value=True), \
+             mock.patch("cis_image._packer._check_pywinrm", return_value=True):
+            assert run_preflight(r) is False
+
+    def test_no_quote_passes(self, monkeypatch):
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "test-id")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "test-key")
+        monkeypatch.setenv("WINRM_PASSWORD", "pa$$w0rd")
+        data = _make_win_toml("win2022")
+        r = resolve(data)
+        with mock.patch("shutil.which", return_value="/usr/bin/packer"), \
+             mock.patch("cis_image._packer._check_ansible_windows_collection", return_value=True), \
+             mock.patch("cis_image._packer._check_pywinrm", return_value=True):
+            assert run_preflight(r) is True
+
+
+class TestCredsExportedOnFacade:
+    """P2 — _creds must be reachable as cis_image._creds so tests (and any
+    tooling) can patch it; it was defined but never re-exported."""
+
+    def test_creds_importable(self):
+        import cis_image as _ci
+        assert callable(_ci._creds)
+        assert "_creds" in _ci.__all__

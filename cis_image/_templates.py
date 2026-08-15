@@ -1242,14 +1242,17 @@ applied    = s.get("applied", 0)
 pending    = s.get("applied_pending", 0)
 failed     = s.get("apply_failed", 0)
 disruptive = s.get("skipped_disruptive", 0)
-score      = a.get("score", "?")
+score      = s.get("score", "?")
 mode       = a.get("mode", "scan")
 results    = a.get("results") or []
 
 def _short(r):
     return "- `{}` {}".format(r.get("id", "?"), (r.get("title") or "")[:80])
 fails = [r for r in results if r.get("status") == "fail"]
-pends = [r for r in results if r.get("status") == "applied_pending"]
+# applied_pending lives on apply_status (the engine's `status` field only
+# carries pass/fail/manual/error/notapplicable) — filtering on `status`
+# here made this list always empty and hid the section.
+pends = [r for r in results if r.get("apply_status") == "applied_pending"]
 errs  = [r for r in results if r.get("status") == "error"]
 disc  = [r for r in results if (r.get("apply_status") or "") == "skipped_disruptive"
          or (r.get("risk") == "disruptive" and r.get("status") == "fail"

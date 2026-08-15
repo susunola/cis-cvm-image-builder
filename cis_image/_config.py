@@ -241,6 +241,14 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
     for k in packer_extra:
         if not isinstance(k, str):
             raise ConfigError("[build.packer] keys must be strings")
+        # Keys are emitted verbatim into the HCL source block
+        # (f"  {k} = ...") — restrict them to plain identifiers so a
+        # crafted TOML quoted-key can't inject arbitrary HCL (the values
+        # are already escaped by _format_hcl_value; keys were not).
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k):
+            raise ConfigError(
+                f"[build.packer] key {k!r} is not a valid HCL identifier. "
+                "Use letters, digits and underscores only.")
 
     # [cloud].assume_role_* — group-account (organization) cross-account builds.
     # When set, Packer assumes the target account's CAM role with the local
@@ -334,6 +342,10 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
 
     # [cis].min_score — post-reboot audit gate (0 disables; default 85).
     min_score = int(data.get("cis", {}).get("min_score", 85))
+    if not (0 <= min_score <= 100):
+        raise ConfigError(
+            f"[cis].min_score must be 0-100, got {min_score}. "
+            "0 disables the gate; 85 is the default.")
 
     return ResolvedConfig(
         profile_name=profile_name,
