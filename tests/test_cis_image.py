@@ -2243,7 +2243,8 @@ class TestRemotePathCoverage:
     tmpfs (TencentOS 3) make /tmp/script_XXXX.sh unexecutable (exit 126)."""
 
     def test_all_shell_provisioners_have_remote_path(self):
-        src = open("cis_image/__init__.py").read()
+        # HCL templates live in the _templates submodule after the split.
+        src = open("cis_image/_templates.py").read()
         start = src.find("HCL_LINUX_TEMPLATE")
         end = src.find("HCL_WIN_TEMPLATE")
         hcl = src[start:end]
@@ -2267,7 +2268,7 @@ class TestRemotePathCoverage:
         # v0.14.33: smoke uploads via the __REMOTE_DIR__ placeholder so
         # ubuntu (non-root) profiles get /home/ubuntu instead of /root.
         assert 'remote_path = "__REMOTE_DIR__/cis-image-smoke.sh"' in \
-            open("cis_image/__init__.py").read()
+            open("cis_image/_templates.py").read()
 
 
 # ===========================================================================
@@ -3577,7 +3578,7 @@ class TestTestComponentsNonRoot:
         assert "/root/cis-image-test-components/00-check.sh" in hcl
 
     def test_runner_template_has_no_hardcoded_root(self):
-        with open("cis_image/__init__.py", encoding="utf-8") as fh:
+        with open("cis_image/_templates.py", encoding="utf-8") as fh:
             src = fh.read()
         # the runner loop must use __REMOTE_DIR__, never a literal /root
         assert "for t in __REMOTE_DIR__/cis-image-test-components/*" in src
@@ -3738,7 +3739,8 @@ class TestOscapStatusClassification:
         assert a["error"] == 0
 
     def test_no_noop_accumulator_in_parser(self):
-        with open("cis_image/__init__.py", encoding="utf-8") as fh:
+        # the oscap ARF parser now lives in the _audit submodule.
+        with open("cis_image/_audit.py", encoding="utf-8") as fh:
             src = fh.read()
         assert "+= 0" not in src  # dead no-op removed
 
