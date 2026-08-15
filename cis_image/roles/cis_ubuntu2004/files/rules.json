@@ -4717,15 +4717,11 @@
    "Workstation"
   ],
   "assessment": "Automated",
-  "family": "svc_enabled",
-  "params": {
-   "units": [
-    "systemd-journal-upload.service"
-   ],
-   "packages": []
-  },
-  "risk": "safe",
-  "page": 714
+  "family": "manual",
+  "params": {},
+  "risk": "none",
+  "page": 714,
+  "note": "manual: enabling journal-upload requires a site-specific remote log receiver (URL/cert); configure at deployment time, not during image build"
  },
  {
   "id": "6.2.2.1.4",
