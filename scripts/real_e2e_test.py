@@ -3,8 +3,8 @@
 the repo onto it, install deps, run the full pytest/ruff/mypy suite over
 SSH, then tear the instance (and its temporary key pair) back down.
 
-This is a *supplement* to tests/test_ciscvm.py, not a replacement.  The
-existing pytest suite mocks the ciscvm._tc3_api boundary — it is fast, free,
+This is a *supplement* to tests/test_cis_image.py, not a replacement.  The
+existing pytest suite mocks the cis_image._tc3_api boundary — it is fast, free,
 and covers API response edge cases (null fields, wrong nesting, etc.) very
 well, but it can never catch "does `pip install -e .` actually work on a
 clean AlmaLinux box", "is the real network path from a CVM reachable", or
@@ -23,8 +23,8 @@ The instance and temporary SSH key pair are ALWAYS torn down on exit
 remote run actually failed.
 
 Hard requirements (see CONTRIBUTING.md "Running the real end-to-end test"):
-  - ciscvm must already be installed in editable mode on THIS machine
-    (`pip install -e .`) — this script imports ciscvm._tc3_api directly to
+  - cis-image must already be installed in editable mode on THIS machine
+    (`pip install -e .`) — this script imports cis_image._tc3_api directly to
     avoid re-implementing the TC3-HMAC-SHA256 signing logic.
   - The security group passed via --security-group-id must already allow
     inbound TCP/22 from this machine's public IP. This script does not
@@ -47,7 +47,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from ciscvm import ConfigError, _tc3_api, banner, fail, info, ok, warn  # noqa: E402
+from cis_image import ConfigError, _tc3_api, banner, fail, info, ok, warn  # noqa: E402
 
 DEFAULT_IMAGE_ID = "img-31d8ynuj"
 DEFAULT_REGION = "ap-guangzhou"
@@ -117,7 +117,7 @@ def generate_keypair(tmpdir: Path) -> tuple[Path, Path]:
 def import_keypair(region: str, sid: str, skey: str, tok: str | None, pub_path: Path) -> str:
     pub_key = pub_path.read_text().strip()
     resp = _tc3_api("cvm", "ImportKeyPair", "2017-03-12", region,
-                     {"KeyName": f"ciscvm-e2e-{int(time.time())}",
+                     {"KeyName": f"cis-image-e2e-{int(time.time())}",
                       "ProjectId": 0,
                       "PublicKey": pub_key},
                      sid, skey, tok)
@@ -137,7 +137,7 @@ def run_instance(args: argparse.Namespace, sid: str, skey: str, tok: str | None,
         {"ImageId": args.image_id,
          "InstanceType": args.instance_type,
          "InstanceChargeType": "POSTPAID_BY_HOUR",
-         "InstanceName": "ciscvm-e2e-test",
+         "InstanceName": "cis-image-e2e-test",
          "Placement": {"Zone": args.zone},
          "VirtualPrivateCloud": {"VpcId": args.vpc_id, "SubnetId": args.subnet_id},
          "SecurityGroupIds": [args.security_group_id],
@@ -147,7 +147,7 @@ def run_instance(args: argparse.Namespace, sid: str, skey: str, tok: str | None,
                                 "InternetMaxBandwidthOut": 5},
          "InstanceCount": 1,
          "TagSpecification": [{"ResourceType": "instance",
-                               "Tags": [{"Key": "purpose", "Value": "ciscvm-e2e-test"},
+                               "Tags": [{"Key": "purpose", "Value": "cis-image-e2e-test"},
                                         {"Key": "ephemeral", "Value": "true"}]}]},
         sid, skey, tok)
     resp_r = resp.get("Response", {})
@@ -236,8 +236,8 @@ pip install --quiet --upgrade pip
 pip install --quiet -e ".[dev]"
 
 echo "[remote 4/5] ruff + mypy"
-ruff check ciscvm
-mypy ciscvm --ignore-missing-imports
+ruff check cis_image
+mypy cis_image --ignore-missing-imports
 
 echo "[remote 5/5] pytest"
 pytest -v --tb=short

@@ -3428,11 +3428,11 @@ def _tc3_api(service: str, action: str, version: str, region: str,
 # ── Security-group ingress preflight check ──────────────────────────────────
 # The #1 recurring support issue (see README troubleshooting table) is a
 # Packer SSH/WinRM connect timeout ~10 minutes into a build because the
-# security group doesn't allow the build port from wherever `ciscvm` runs.
+# security group doesn't allow the build port from wherever `cis-image` runs.
 # Catch it in `preflight` — seconds, not minutes — instead of waiting for
 # Packer to time out.
 def _my_public_ip() -> str | None:
-    """Best-effort discovery of the outbound public IP `ciscvm` runs from.
+    """Best-effort discovery of the outbound public IP `cis-image` runs from.
 
     Returns None on any failure (offline, blocked egress, DNS) — the caller
     must treat that as "can't verify" rather than "blocked".

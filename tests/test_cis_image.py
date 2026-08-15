@@ -833,7 +833,7 @@ class TestSecurityGroupIngressCheck:
     """
 
     def test_my_public_ip_success(self, monkeypatch):
-        from ciscvm import _my_public_ip
+        from cis_image import _my_public_ip
 
         class R:
             def read(self):
@@ -842,46 +842,46 @@ class TestSecurityGroupIngressCheck:
                 return self
             def __exit__(self, *a):
                 return False
-        monkeypatch.setattr("ciscvm.urllib.request.urlopen", lambda *a, **k: R())
+        monkeypatch.setattr("cis_image.urllib.request.urlopen", lambda *a, **k: R())
         assert _my_public_ip() == "203.0.113.5"
 
     def test_my_public_ip_failure_returns_none(self, monkeypatch):
-        from ciscvm import _my_public_ip
+        from cis_image import _my_public_ip
         def boom(*a, **k):
             raise OSError("network unreachable")
-        monkeypatch.setattr("ciscvm.urllib.request.urlopen", boom)
+        monkeypatch.setattr("cis_image.urllib.request.urlopen", boom)
         assert _my_public_ip() is None
 
     def test_sg_allows_matching_cidr_and_port(self):
-        from ciscvm import _sg_ingress_allows
+        from cis_image import _sg_ingress_allows
         policies = {"Ingress": [
             {"CidrBlock": "203.0.113.0/24", "Protocol": "TCP", "Port": "22", "Action": "ACCEPT"},
         ]}
         assert _sg_ingress_allows(policies, "203.0.113.5", 22) is True
 
     def test_sg_denies_when_no_matching_rule(self):
-        from ciscvm import _sg_ingress_allows
+        from cis_image import _sg_ingress_allows
         policies = {"Ingress": [
             {"CidrBlock": "10.0.0.0/8", "Protocol": "TCP", "Port": "22", "Action": "ACCEPT"},
         ]}
         assert _sg_ingress_allows(policies, "203.0.113.5", 22) is False
 
     def test_sg_denies_when_port_out_of_range(self):
-        from ciscvm import _sg_ingress_allows
+        from cis_image import _sg_ingress_allows
         policies = {"Ingress": [
             {"CidrBlock": "0.0.0.0/0", "Protocol": "TCP", "Port": "80-443", "Action": "ACCEPT"},
         ]}
         assert _sg_ingress_allows(policies, "203.0.113.5", 22) is False
 
     def test_sg_matches_port_range(self):
-        from ciscvm import _sg_ingress_allows
+        from cis_image import _sg_ingress_allows
         policies = {"Ingress": [
             {"CidrBlock": "0.0.0.0/0", "Protocol": "TCP", "Port": "20-30", "Action": "ACCEPT"},
         ]}
         assert _sg_ingress_allows(policies, "203.0.113.5", 22) is True
 
     def test_sg_respects_drop_action(self):
-        from ciscvm import _sg_ingress_allows
+        from cis_image import _sg_ingress_allows
         policies = {"Ingress": [
             {"CidrBlock": "0.0.0.0/0", "Protocol": "TCP", "Port": "22", "Action": "DROP"},
         ]}
@@ -890,7 +890,7 @@ class TestSecurityGroupIngressCheck:
     def test_sg_unresolvable_when_uses_template(self):
         """A rule referencing a SecurityGroupId/AddressTemplate/ServiceTemplate
         can't be evaluated locally — must return None (not a false DENY)."""
-        from ciscvm import _sg_ingress_allows
+        from cis_image import _sg_ingress_allows
         policies = {"Ingress": [
             {"AddressTemplate": {"AddressGroupId": "ipmg-x"}, "Protocol": "TCP",
              "Port": "22", "Action": "ACCEPT"},
@@ -898,7 +898,7 @@ class TestSecurityGroupIngressCheck:
         assert _sg_ingress_allows(policies, "203.0.113.5", 22) is None
 
     def test_sg_all_protocol_matches_any_port(self):
-        from ciscvm import _sg_ingress_allows
+        from cis_image import _sg_ingress_allows
         policies = {"Ingress": [
             {"CidrBlock": "0.0.0.0/0", "Protocol": "ALL", "Action": "ACCEPT"},
         ]}
@@ -906,7 +906,7 @@ class TestSecurityGroupIngressCheck:
 
     def test_check_skips_without_credentials(self, valid_toml, monkeypatch, caplog):
         """No creds → can't call the API → must stay silent, never fail preflight."""
-        from ciscvm import _check_security_group_ingress
+        from cis_image import _check_security_group_ingress
         monkeypatch.delenv("TENCENTCLOUD_SECRET_ID", raising=False)
         monkeypatch.delenv("TENCENTCLOUD_SECRET_KEY", raising=False)
         r = resolve(valid_toml)
@@ -914,21 +914,21 @@ class TestSecurityGroupIngressCheck:
         assert "does not appear to allow" not in caplog.text
 
     def test_check_skips_when_ip_lookup_fails(self, valid_toml, monkeypatch, caplog):
-        from ciscvm import _check_security_group_ingress
+        from cis_image import _check_security_group_ingress
         monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
         monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
-        monkeypatch.setattr("ciscvm._my_public_ip", lambda: None)
+        monkeypatch.setattr("cis_image._my_public_ip", lambda: None)
         r = resolve(valid_toml)
         _check_security_group_ingress(r)  # must not raise
         assert "does not appear to allow" not in caplog.text
 
     def test_check_warns_when_blocked(self, valid_toml, monkeypatch, caplog):
-        from ciscvm import _check_security_group_ingress
+        from cis_image import _check_security_group_ingress
         monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
         monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
-        monkeypatch.setattr("ciscvm._my_public_ip", lambda: "203.0.113.5")
+        monkeypatch.setattr("cis_image._my_public_ip", lambda: "203.0.113.5")
         monkeypatch.setattr(
-            "ciscvm._tc3_api",
+            "cis_image._tc3_api",
             lambda *a, **k: {"Response": {"SecurityGroupPolicySet": {"Ingress": [
                 {"CidrBlock": "10.0.0.0/8", "Protocol": "TCP", "Port": "22", "Action": "ACCEPT"},
             ]}}})
@@ -938,13 +938,13 @@ class TestSecurityGroupIngressCheck:
         assert "203.0.113.5" in caplog.text
 
     def test_check_silent_when_allowed(self, valid_toml, monkeypatch, caplog):
-        from ciscvm import _check_security_group_ingress
+        from cis_image import _check_security_group_ingress
         monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
         monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
-        monkeypatch.setattr("ciscvm._my_public_ip", lambda: "203.0.113.5")
+        monkeypatch.setattr("cis_image._my_public_ip", lambda: "203.0.113.5")
         r = resolve(valid_toml)
         monkeypatch.setattr(
-            "ciscvm._tc3_api",
+            "cis_image._tc3_api",
             lambda *a, **k: {"Response": {"SecurityGroupPolicySet": {"Ingress": [
                 {"CidrBlock": "0.0.0.0/0", "Protocol": "TCP", "Port": str(r.ssh_port), "Action": "ACCEPT"},
             ]}}})
@@ -952,29 +952,29 @@ class TestSecurityGroupIngressCheck:
         assert "does not appear to allow" not in caplog.text
 
     def test_check_silent_on_api_error(self, valid_toml, monkeypatch, caplog):
-        from ciscvm import _check_security_group_ingress
+        from cis_image import _check_security_group_ingress
         monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
         monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
-        monkeypatch.setattr("ciscvm._my_public_ip", lambda: "203.0.113.5")
+        monkeypatch.setattr("cis_image._my_public_ip", lambda: "203.0.113.5")
         def boom(*a, **k):
             raise RuntimeError("api down")
-        monkeypatch.setattr("ciscvm._tc3_api", boom)
+        monkeypatch.setattr("cis_image._tc3_api", boom)
         r = resolve(valid_toml)
         _check_security_group_ingress(r)  # must not raise
 
     def test_check_uses_rdp_port_for_windows(self, monkeypatch, caplog):
-        from ciscvm import _check_security_group_ingress
+        from cis_image import _check_security_group_ingress
         monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
         monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
         monkeypatch.setenv("WINRM_PASSWORD", "pw")
-        monkeypatch.setattr("ciscvm._my_public_ip", lambda: "203.0.113.5")
+        monkeypatch.setattr("cis_image._my_public_ip", lambda: "203.0.113.5")
         captured_ports = []
         def fake_tc3(*a, **k):
             captured_ports.append(None)  # placeholder, port checked via rules below
             return {"Response": {"SecurityGroupPolicySet": {"Ingress": [
                 {"CidrBlock": "10.0.0.0/8", "Protocol": "TCP", "Port": "3389", "Action": "ACCEPT"},
             ]}}}
-        monkeypatch.setattr("ciscvm._tc3_api", fake_tc3)
+        monkeypatch.setattr("cis_image._tc3_api", fake_tc3)
         r = resolve(_make_win_toml("win2022"))
         _check_security_group_ingress(r)
         assert "3389" in caplog.text
@@ -1382,7 +1382,7 @@ class TestMain:
 
     def test_bare_command_shows_help_and_exits_0(self, capsys):
         """Regression: argparse subparsers were `required=True`, so a bare
-        `ciscvm` invocation raised an argparse error (exit 2) instead of
+        `cis-image` invocation raised an argparse error (exit 2) instead of
         printing help — inconsistent with the README's documented behavior."""
         rc = main([])
         assert rc == 0
@@ -2006,7 +2006,7 @@ class TestCleanupImages:
         """Regression: the signer computed the timestamp for the signature
         but never sent it as X-TC-Timestamp — every real API call failed
         with MissingParameter even though the signature was valid."""
-        import ciscvm
+        import cis_image
         captured = {}
         def fake_urlopen(req, *a, **kw):
             hdr = {k.lower(): v for k, v in req.headers.items()}
@@ -2019,16 +2019,16 @@ class TestCleanupImages:
                 def __exit__(self, *a):
                     return False
             return R()
-        with mock.patch("ciscvm.urllib.request.urlopen", side_effect=fake_urlopen):
+        with mock.patch("cis_image.urllib.request.urlopen", side_effect=fake_urlopen):
             import os as _os
             with mock.patch.dict(_os.environ, {"TENCENTCLOUD_SECRET_ID": "AKIDtest", "TENCENTCLOUD_SECRET_KEY": "sk-test"}):
-                ciscvm._images_exist("ap-guangzhou", ["img-x"])
+                cis_image._images_exist("ap-guangzhou", ["img-x"])
         assert captured["timestamp"] is not None
         assert captured["timestamp"].isdigit()
 
     def test_tc3_forwards_security_token(self, tmp_path):
         """When an STS session token is present it must be sent as X-TC-Token."""
-        import ciscvm
+        import cis_image
         captured = {}
         def fake_urlopen(req, *a, **kw):
             hdr = {k.lower(): v for k, v in req.headers.items()}
@@ -2041,8 +2041,8 @@ class TestCleanupImages:
                 def __exit__(self, *a):
                     return False
             return R()
-        with mock.patch("ciscvm.urllib.request.urlopen", side_effect=fake_urlopen):
-            out = ciscvm._tc3_api("cvm", "DescribeImages", "2017-03-12",
+        with mock.patch("cis_image.urllib.request.urlopen", side_effect=fake_urlopen):
+            out = cis_image._tc3_api("cvm", "DescribeImages", "2017-03-12",
                                   "ap-guangzhou", {"ImageIds": ["img-x"]},
                                   "AKIDtest", "sk-test", "sts-token-abc")
         assert captured["token"] == "sts-token-abc"
@@ -2776,7 +2776,7 @@ class TestVerifyImage:
         """Regression: RunInstances rejects flat VpcId/SubnetId/AssociatePublicIp
         with UnknownParameter — they must be nested under Placement /
         VirtualPrivateCloud / InternetAccessible."""
-        from ciscvm import _probe_launch
+        from cis_image import _probe_launch
         r = resolve(valid_toml)
         monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
         monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
@@ -2784,8 +2784,8 @@ class TestVerifyImage:
         def fake_tc3(service, action, version, region, params, sid, skey, tok=None):
             captured.update(params)
             return {"Response": {"InstanceIdSet": ["ins-probe"]}}
-        monkeypatch.setattr("ciscvm._tc3_api", fake_tc3)
-        _probe_launch(r, "img-new", "ciscvm-verify")
+        monkeypatch.setattr("cis_image._tc3_api", fake_tc3)
+        _probe_launch(r, "img-new", "cis-image-verify")
         assert "VpcId" not in captured
         assert "SubnetId" not in captured
         assert "AssociatePublicIp" not in captured
@@ -2805,12 +2805,12 @@ class TestVerifyImage:
         """Regression: DescribeInstances returns InstanceState as a plain
         string ("RUNNING"), not a dict — treating it as a dict meant probes
         never detected RUNNING and always hit the 15-min timeout."""
-        from ciscvm import _probe_public_ip
+        from cis_image import _probe_public_ip
         r = resolve(valid_toml)
         monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
         monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
         monkeypatch.setattr(
-            "ciscvm._tc3_api",
+            "cis_image._tc3_api",
             lambda *a, **k: {"Response": {"InstanceSet": [
                 {"InstanceState": "RUNNING",
                  "NetworkInterfaceSet": [{"PublicIpAddresses": ["1.2.3.4"]}]},
@@ -2821,12 +2821,12 @@ class TestVerifyImage:
 
     def test_probe_public_ip_state_as_dict_still_tolerated(self, valid_toml, monkeypatch):
         """The old (incorrect) shape must still work if the API ever nests it."""
-        from ciscvm import _probe_public_ip
+        from cis_image import _probe_public_ip
         r = resolve(valid_toml)
         monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
         monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
         monkeypatch.setattr(
-            "ciscvm._tc3_api",
+            "cis_image._tc3_api",
             lambda *a, **k: {"Response": {"InstanceSet": [
                 {"InstanceState": {"State": "RUNNING"},
                  "PublicIpAddresses": ["5.6.7.8"]},
@@ -2838,12 +2838,12 @@ class TestVerifyImage:
     def test_probe_public_ip_not_running_yet(self, valid_toml, monkeypatch):
         """PENDING state must not be mistaken for RUNNING; keep polling until
         the deadline, then return ''."""
-        from ciscvm import _probe_public_ip
+        from cis_image import _probe_public_ip
         r = resolve(valid_toml)
         monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
         monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
         monkeypatch.setattr(
-            "ciscvm._tc3_api",
+            "cis_image._tc3_api",
             lambda *a, **k: {"Response": {"InstanceSet": [
                 {"InstanceState": "PENDING"},
             ]}})
@@ -3475,53 +3475,53 @@ class TestSourceImageCreated:
     """
 
     def test_public_image_created_time_null(self, valid_toml, monkeypatch):
-        from ciscvm import _source_image_created
+        from cis_image import _source_image_created
         r = resolve(valid_toml)
         monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
         monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
         monkeypatch.setattr(
-            "ciscvm._tc3_api",
+            "cis_image._tc3_api",
             lambda *a, **k: {"Response": {"ImageSet": [
                 {"ImageId": r.source_image_id, "CreatedTime": None},
             ]}})
         assert _source_image_created(r) == ""
 
     def test_created_time_present(self, valid_toml, monkeypatch):
-        from ciscvm import _source_image_created
+        from cis_image import _source_image_created
         r = resolve(valid_toml)
         monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
         monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
         monkeypatch.setattr(
-            "ciscvm._tc3_api",
+            "cis_image._tc3_api",
             lambda *a, **k: {"Response": {"ImageSet": [
                 {"ImageId": r.source_image_id, "CreatedTime": "2026-08-01T00:00:00Z"},
             ]}})
         assert _source_image_created(r) == "2026-08-01T00:00:00Z"
 
     def test_no_credentials_returns_empty(self, valid_toml, monkeypatch):
-        from ciscvm import _source_image_created
+        from cis_image import _source_image_created
         r = resolve(valid_toml)
         monkeypatch.delenv("TENCENTCLOUD_SECRET_ID", raising=False)
         monkeypatch.delenv("TENCENTCLOUD_SECRET_KEY", raising=False)
         assert _source_image_created(r) == ""
 
     def test_image_not_found_returns_empty(self, valid_toml, monkeypatch):
-        from ciscvm import _source_image_created
+        from cis_image import _source_image_created
         r = resolve(valid_toml)
         monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
         monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
-        monkeypatch.setattr("ciscvm._tc3_api",
+        monkeypatch.setattr("cis_image._tc3_api",
                             lambda *a, **k: {"Response": {"ImageSet": []}})
         assert _source_image_created(r) == ""
 
     def test_api_exception_returns_empty(self, valid_toml, monkeypatch):
-        from ciscvm import _source_image_created
+        from cis_image import _source_image_created
         r = resolve(valid_toml)
         monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
         monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
         def boom(*a, **k):
             raise RuntimeError("network error")
-        monkeypatch.setattr("ciscvm._tc3_api", boom)
+        monkeypatch.setattr("cis_image._tc3_api", boom)
         assert _source_image_created(r) == ""
 
 
