@@ -241,7 +241,7 @@ def render_pkrvars(r: ResolvedConfig, image_name: str | None = None) -> str:
 def render_install(p: dict[str, Any]) -> str:
     """Generate install-ansible.sh for Linux profiles."""
     index_url = str(p.get("pip_index_url", ""))
-    index_flag = f"-i {index_url}" if index_url else ""
+    index_flag = f"-i {shlex.quote(index_url)}" if index_url else ""
     return (
         INSTALL_SH_TEMPLATE
         .replace("__HOSTS_FIX__", HOSTS_FIX_SNIPPET)
