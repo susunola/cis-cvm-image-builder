@@ -38,6 +38,24 @@ can be traced across rebuilds.
 - `_audit_results_xccdf` now emits a timezone-aware, UTC-normalized
   timestamp instead of a naive `datetime.utcnow().isoformat()`.
 
+### Runtime-robustness (ported from the pre-refactor ciscvm lineage)
+- **Guaranteed temp-dir cleanup in the roles** — all 12 OS `run.yml`
+  (8 Linux + 4 Windows) now wrap the engine execution in an Ansible
+  `block` whose `always:` clause removes the remote working directory even
+  if the engine run (or any intermediate step) fails, instead of relying on
+  a plain cleanup task that gets skipped on error. Failed builds no longer
+  leak `cis-<os>-*` / `cis-run` dirs under `cis_remote_tmp`.
+- **Static role imports + tags** — Linux `main.yml` now uses
+  `import_tasks` (parsed up-front, so tags apply reliably) and tags each
+  phase (`cis, always` / `cis, scan, apply` / `cis, gate` / `cis, output`)
+  so operators can run `--tags cis` selectively.
+- **pip install retry** — `install-ansible.sh` retries `pip install` once
+  after a 5s pause (transient mirror/network failures are common during
+  image builds, especially in VPCs with no outbound redundancy).
+- **`render_install` shell-injection fix** — the pip `--index-url` is now
+  passed through `shlex.quote()` so a maliciously-crafted `pip_index_url`
+  cannot break out of the generated shell script.
+
 
 
 ### Added

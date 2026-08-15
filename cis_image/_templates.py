@@ -1051,7 +1051,15 @@ sudo chown -R "$USER" "$VENV"
 # TMPDIR).  /tmp on TencentOS 4 can be tmpfs/swept and payload reuse then
 # fails mid-run — keep it on stable root-disk storage instead.
 sudo mkdir -p "$VENV/tmp"
-sudo "$VENV/bin/python" -m pip install --disable-pip-version-check \
+# Retry pip installs once: transient mirror/network failures are common during
+# image builds, especially in VPCs with no outbound redundancy.
+_pip_install() {
+    sudo "$VENV/bin/python" -m pip install "$@" && return 0
+    echo "==> pip install failed, retrying once..." >&2
+    sleep 5
+    sudo "$VENV/bin/python" -m pip install "$@"
+}
+_pip_install --disable-pip-version-check \
     __PIP_INDEX_FLAG__ '__ANSIBLE_CORE_SPEC__' pexpect passlib
 
 # Wrap ansible-playbook so the controller process runs with TMPDIR off /tmp.
