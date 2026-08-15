@@ -167,6 +167,10 @@ def _format_hcl_value(value: Any) -> str:
     if isinstance(value, list):
         # json.dumps escapes quotes/backslashes; valid for HCL string lists.
         return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, dict):
+        # HCL object literals are JSON-compatible; used for nested map args
+        # (e.g. a data_disks block, image_tags-like maps).
+        return json.dumps(value, ensure_ascii=False)
     # Escape backslashes and double quotes so arbitrary strings can't break
     # out of the HCL string literal (or inject HCL).
     text = str(value)
@@ -176,6 +180,15 @@ def _format_hcl_value(value: Any) -> str:
         raise ConfigError("HCL string values cannot contain interpolation sequences (${ or %%{)")
     escaped = text.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
+
+
+def _render_extra_args_block(extra: dict[str, Any]) -> str:
+    """Serialize a [build.packer] passthrough dict into HCL source-block lines
+    (e.g. `  disk_type = "CLOUD_SSD"`). Empty dict yields "" (the
+    __EXTRA_ARGS_BLOCK__ marker is replaced with nothing, matching the
+    pre-passthrough behaviour exactly)."""
+    lines = [f"  {k} = {_format_hcl_value(v)}" for k, v in extra.items()]
+    return ("\n".join(lines) + "\n") if lines else ""
 
 def _image_name(r: ResolvedConfig) -> str:
     """Single source of truth for the image name.
@@ -209,6 +222,7 @@ def render_pkrvars(r: ResolvedConfig, image_name: str | None = None) -> str:
         "associate_public_ip_address": r.associate_public_ip,
         "image_name_prefix": r.image_name_prefix,
         "image_name": image_name,
+        "instance_name": r.instance_name,
         "image_copy_regions": r.image_copy_regions,
         "cis_level": r.cis_level_tag,
         "image_os_tag": r.image_os_tag,
@@ -448,6 +462,10 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
     # Packer's tencentcloud plugin accepts instance_charge_type = "SPOTPAID".
     spot_block = '  instance_charge_type = "SPOTPAID"\n' if r.spot else ""
 
+    # [build].packer — user passthrough of arbitrary packer builder args,
+    # injected into the source block via the __EXTRA_ARGS_BLOCK__ marker.
+    extra_block = _render_extra_args_block(r.packer_extra)
+
     if family == "windows":
         if r.ssh_debug_password:
             warn("[meta].ssh_debug_password is ignored for Windows profiles "
@@ -461,7 +479,8 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
                .replace("__SMOKE_TEST_BLOCK__", smoke_block)
                .replace("__TEST_COMPONENTS_BLOCK__", test_block)
                .replace("__SPOT_BLOCK__", spot_block)
-               .replace("__ASSUME_ROLE_BLOCK__", assume_role_block))
+               .replace("__ASSUME_ROLE_BLOCK__", assume_role_block)
+               .replace("__EXTRA_ARGS_BLOCK__", extra_block))
     else:
         # Substitute the build's actual metadata into the finalize provisioner
         # so the in-image banner/report show the right source/level/OS.
@@ -485,6 +504,7 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
                .replace("__TEST_COMPONENTS_BLOCK__", test_block)
                .replace("__SPOT_BLOCK__", spot_block)
                .replace("__ASSUME_ROLE_BLOCK__", assume_role_block)
+               .replace("__EXTRA_ARGS_BLOCK__", extra_block)
                # must run AFTER the smoke block is spliced in — the block
                # itself carries __REMOTE_DIR__ placeholders (v0.14.33)
                .replace("__REMOTE_DIR__",

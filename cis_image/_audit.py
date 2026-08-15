@@ -421,7 +421,8 @@ def _audit_results_xccdf(audit: dict[str, Any]) -> str:
     score_f = cast(float, score)
     score_xml = f"  <score>{score_f / 100.0:.6f}</score>" if score is not None else ""
     tool_name = str(audit.get("tool", "audit"))
-    now = __import__("datetime").datetime.utcnow().isoformat()
+    from datetime import datetime
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<Benchmark xmlns="http://checklists.nist.gov/xccdf/1.2" '

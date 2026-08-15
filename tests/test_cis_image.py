@@ -31,6 +31,7 @@ from cis_image import (
     _clean_is_safe,
     _color,
     _format_hcl_value,
+    _render_extra_args_block,
     _validate_value_present,
     build_parser,
     cmd_clean,
@@ -205,6 +206,28 @@ class TestFormatHCLValue:
     def test_string_escapes_backslash_before_quote(self):
         # Backslash escaped first, then quote — no double-escaping of the quote.
         assert _format_hcl_value('a\\"b') == '"a\\\\\\"b"'
+
+    def test_dict_json_dumps(self):
+        # HCL object literals are JSON-compatible; a nested map (e.g. for a
+        # data_disks block) serializes via json.dumps.
+        assert _format_hcl_value({"disk_type": "CLOUD_SSD", "size": 100}) == \
+            '{"disk_type": "CLOUD_SSD", "size": 100}'
+
+
+class TestRenderExtraArgsBlock:
+    def test_empty_dict_returns_empty_string(self):
+        assert _render_extra_args_block({}) == ""
+
+    def test_scalars_serialize_as_hcl_lines(self):
+        out = _render_extra_args_block({"disk_type": "CLOUD_SSD", "disk_size": 100})
+        assert '  disk_type = "CLOUD_SSD"' in out
+        assert "  disk_size = 100" in out
+
+    def test_nested_map_serializes(self):
+        out = _render_extra_args_block({"data_disks": [{"disk_type": "CLOUD_SSD"}]})
+        assert "data_disks" in out
+        assert "CLOUD_SSD" in out
+
 
 
 # ---------------------------------------------------------------------------
@@ -386,6 +409,78 @@ class TestRenderPkrvars:
         out = render_pkrvars(r)
         assert "winrm_username" in out
         assert "ssh_username" not in out
+
+    def test_instance_name_empty_by_default(self, valid_toml):
+        r = resolve(valid_toml)
+        assert r.instance_name == ""
+        out = render_pkrvars(r)
+        assert 'instance_name = ""' in out
+
+    def test_instance_name_set(self, valid_toml):
+        valid_toml["build"]["instance_name"] = "CIS_E2E_rhel8_L1"
+        r = resolve(valid_toml)
+        assert r.instance_name == "CIS_E2E_rhel8_L1"
+        out = render_pkrvars(r)
+        assert 'instance_name = "CIS_E2E_rhel8_L1"' in out
+
+    def test_instance_name_stripped(self, valid_toml):
+        valid_toml["build"]["instance_name"] = "  CIS_E2E_x  "
+        r = resolve(valid_toml)
+        assert r.instance_name == "CIS_E2E_x"
+
+    def test_instance_name_invalid_chars_rejected(self, valid_toml):
+        valid_toml["build"]["instance_name"] = "bad name!"
+        with pytest.raises(ConfigError, match="instance_name"):
+            resolve(valid_toml)
+
+    def test_instance_name_rendered_into_hcl(self, valid_toml, tmp_path):
+        valid_toml["build"]["instance_name"] = "CIS_E2E_win2022_L2"
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        assert re.search(r"instance_name\s*=\s*var\.instance_name", hcl)
+        assert 'variable "instance_name"' in hcl
+
+
+class TestPackerPassthrough:
+    def test_empty_packer_by_default(self, valid_toml):
+        r = resolve(valid_toml)
+        assert r.packer_extra == {}
+
+    def test_packer_dict_captured(self, valid_toml):
+        valid_toml["build"]["packer"] = {"disk_type": "CLOUD_SSD", "disk_size": 100}
+        r = resolve(valid_toml)
+        assert r.packer_extra == {"disk_type": "CLOUD_SSD", "disk_size": 100}
+
+    def test_packer_rendered_into_hcl(self, valid_toml, tmp_path):
+        valid_toml["build"]["packer"] = {"disk_type": "CLOUD_SSD", "disk_size": 100}
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        assert 'disk_type = "CLOUD_SSD"' in hcl
+        assert "disk_size = 100" in hcl
+        assert "__EXTRA_ARGS_BLOCK__" not in hcl  # marker fully replaced
+        assert 'variable "extra_builder_args"' in hcl
+
+    def test_empty_packer_leaves_hcl_unchanged(self, valid_toml, tmp_path):
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        assert "__EXTRA_ARGS_BLOCK__" not in hcl
+        assert "disk_type" not in hcl  # not injected when unset
+
+    def test_windows_passthrough_also_renders(self, tmp_path):
+        data = _make_win_toml("win2022")
+        data["build"]["packer"] = {"disk_type": "CLOUD_SSD"}
+        r = resolve(data)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text()
+        assert 'disk_type = "CLOUD_SSD"' in hcl
+        assert "__EXTRA_ARGS_BLOCK__" not in hcl
 
 
 class TestRenderInstall:
@@ -740,6 +835,18 @@ class TestBundleRole:
         with pytest.raises(ConfigError, match="not found"):
             _bundle_role(wd, "nonexistent_role")
 
+    def test_traversal_role_dir_rejected(self, tmp_path):
+        """Defence-in-depth: a role_dir that escapes roles/ must be refused,
+        not silently followed outside the project directory."""
+        wd = tmp_path / "build"
+        with pytest.raises(ConfigError, match="resolves outside"):
+            _bundle_role(wd, "../../../../etc")
+
+    def test_traversal_role_dir_absolute_path_rejected(self, tmp_path):
+        wd = tmp_path / "build"
+        with pytest.raises(ConfigError, match="resolves outside"):
+            _bundle_role(wd, "/etc")
+
 
 class TestCheckBundledRole:
     def test_exists(self):
@@ -794,12 +901,21 @@ class TestRunPreflight:
             assert run_preflight(r) is True
 
     def test_passes_windows_with_winrm_password(self, monkeypatch):
+        # run_preflight's windows branch also shells out to check for the
+        # ansible.windows collection and imports winrm in a subprocess —
+        # both must be mocked, otherwise this test's outcome silently
+        # depends on whatever happens to be installed on the machine
+        # running pytest (it previously passed/failed inconsistently
+        # between a dev laptop and a fresh CI/E2E box for exactly this
+        # reason).
         monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "test-id")
         monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "test-key")
         monkeypatch.setenv("WINRM_PASSWORD", "test-pass")
         data = _make_win_toml("win2022")
         r = resolve(data)
-        with mock.patch("shutil.which", return_value="/usr/bin/packer"):
+        with mock.patch("shutil.which", return_value="/usr/bin/packer"), \
+             mock.patch("cis_image._packer._check_ansible_windows_collection", return_value=True), \
+             mock.patch("cis_image._packer._check_pywinrm", return_value=True):
             assert run_preflight(r) is True
 
     def test_fails_windows_without_winrm_password(self, monkeypatch):
@@ -808,7 +924,31 @@ class TestRunPreflight:
         monkeypatch.delenv("WINRM_PASSWORD", raising=False)
         data = _make_win_toml("win2022")
         r = resolve(data)
-        with mock.patch("shutil.which", return_value="/usr/bin/packer"):
+        with mock.patch("shutil.which", return_value="/usr/bin/packer"), \
+             mock.patch("cis_image._packer._check_ansible_windows_collection", return_value=True), \
+             mock.patch("cis_image._packer._check_pywinrm", return_value=True):
+            assert run_preflight(r) is False
+
+    def test_fails_windows_without_ansible_windows_collection(self, monkeypatch):
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "test-id")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "test-key")
+        monkeypatch.setenv("WINRM_PASSWORD", "test-pass")
+        data = _make_win_toml("win2022")
+        r = resolve(data)
+        with mock.patch("shutil.which", return_value="/usr/bin/packer"), \
+             mock.patch("cis_image._packer._check_ansible_windows_collection", return_value=False), \
+             mock.patch("cis_image._packer._check_pywinrm", return_value=True):
+            assert run_preflight(r) is False
+
+    def test_fails_windows_without_pywinrm(self, monkeypatch):
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "test-id")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "test-key")
+        monkeypatch.setenv("WINRM_PASSWORD", "test-pass")
+        data = _make_win_toml("win2022")
+        r = resolve(data)
+        with mock.patch("shutil.which", return_value="/usr/bin/packer"), \
+             mock.patch("cis_image._packer._check_ansible_windows_collection", return_value=True), \
+             mock.patch("cis_image._packer._check_pywinrm", return_value=False):
             assert run_preflight(r) is False
 
     def test_fails_without_credentials(self, valid_toml, monkeypatch):
@@ -1097,6 +1237,152 @@ class TestRunPacker:
         with mock.patch("subprocess.run", side_effect=FileNotFoundError):
             result = run_packer(wd, "validate", capture=True)
         assert result.exit_code == 1
+
+    def test_subcmd_timeout_kills_process(self, tmp_path):
+        """proc.wait(timeout=...) expiring must kill() the child, still
+        wait() for it to die, join the reader thread, and return exit_code=1
+        with whatever output had been captured before the kill."""
+        wd = tmp_path / "build"
+        wd.mkdir()
+        (wd / "packer").mkdir()
+        (wd / "packer" / "main.pkr.hcl").write_text("")
+
+        with (
+            mock.patch("subprocess.run") as mock_run,
+            mock.patch("subprocess.Popen") as mock_popen,
+        ):
+            mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            mock_proc = mock.MagicMock()
+            mock_proc.returncode = -9
+            mock_proc.stdout = ["partial output before hang\n"]
+            mock_proc.__enter__.return_value = mock_proc
+            # First wait() call (with timeout=) expires; the second wait()
+            # call (bare, after kill()) succeeds immediately.
+            mock_proc.wait.side_effect = [
+                subprocess.TimeoutExpired(cmd="packer build", timeout=1),
+                None,
+            ]
+            mock_popen.return_value = mock_proc
+            result = run_packer(wd, "build", capture=True, timeout=1)
+
+        mock_proc.kill.assert_called_once()
+        assert mock_proc.wait.call_count == 2
+        assert result.exit_code == 1
+        assert result.stdout_lines == ["partial output before hang"]
+
+    def test_log_file_writes_captured_output(self, tmp_path):
+        """When log_file is given, the reader thread must append every line
+        to that file (in addition to collecting it into stdout_lines), and
+        quiet=True must still suppress the live stderr stream."""
+        wd = tmp_path / "build"
+        wd.mkdir()
+        (wd / "packer").mkdir()
+        (wd / "packer" / "main.pkr.hcl").write_text("")
+        log_path = tmp_path / "packer.log"
+
+        with (
+            mock.patch("subprocess.run") as mock_run,
+            mock.patch("subprocess.Popen") as mock_popen,
+        ):
+            mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            mock_proc = mock.MagicMock()
+            mock_proc.returncode = 0
+            mock_proc.stdout = ["build step one\n", "build step two\n"]
+            mock_proc.__enter__.return_value = mock_proc
+            mock_popen.return_value = mock_proc
+            result = run_packer(
+                wd, "build", capture=True, quiet=True, log_file=str(log_path)
+            )
+
+        assert result.exit_code == 0
+        assert result.stdout_lines == ["build step one", "build step two"]
+        log_contents = log_path.read_text()
+        assert "build step one" in log_contents
+        assert "build step two" in log_contents
+
+    def test_log_file_streams_when_not_quiet(self, tmp_path, capsys):
+        """log_file + quiet=False must both write to the file AND stream to
+        stderr — the two side effects are independent (line 2722)."""
+        wd = tmp_path / "build"
+        wd.mkdir()
+        (wd / "packer").mkdir()
+        (wd / "packer" / "main.pkr.hcl").write_text("")
+        log_path = tmp_path / "packer.log"
+
+        with (
+            mock.patch("subprocess.run") as mock_run,
+            mock.patch("subprocess.Popen") as mock_popen,
+        ):
+            mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            mock_proc = mock.MagicMock()
+            mock_proc.returncode = 0
+            mock_proc.stdout = ["streamed and logged\n"]
+            mock_proc.__enter__.return_value = mock_proc
+            mock_popen.return_value = mock_proc
+            result = run_packer(
+                wd, "build", capture=True, quiet=False, log_file=str(log_path)
+            )
+
+        assert result.exit_code == 0
+        err = capsys.readouterr().err
+        assert "streamed and logged" in err
+        assert "streamed and logged" in log_path.read_text()
+
+    def test_capture_false_subcmd_success(self, tmp_path):
+        """The non-capture path's success return (line 2748) is a distinct
+        branch from the timeout/FileNotFoundError branches below it."""
+        wd = tmp_path / "build"
+        wd.mkdir()
+        (wd / "packer").mkdir()
+        (wd / "packer" / "main.pkr.hcl").write_text("")
+
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                subprocess.CompletedProcess([], 0, stdout="", stderr=""),  # init
+                subprocess.CompletedProcess([], 0, stdout="", stderr=""),  # subcmd
+            ]
+            result = run_packer(wd, "build", capture=False, quiet=False)
+
+        assert result.exit_code == 0
+        assert mock_run.call_count == 2
+
+    def test_capture_false_subcmd_timeout(self, tmp_path):
+        """With capture/quiet/log_file all falsy, the subcmd runs via a bare
+        subprocess.run() that inherits stdio; its own TimeoutExpired (distinct
+        from the packer-init TimeoutExpired) must still be turned into a
+        clean exit_code=1 instead of propagating."""
+        wd = tmp_path / "build"
+        wd.mkdir()
+        (wd / "packer").mkdir()
+        (wd / "packer" / "main.pkr.hcl").write_text("")
+
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                subprocess.CompletedProcess([], 0, stdout="", stderr=""),  # init
+                subprocess.TimeoutExpired(cmd="packer build", timeout=5),  # subcmd
+            ]
+            result = run_packer(wd, "build", capture=False, quiet=False, timeout=5)
+
+        assert result.exit_code == 1
+        assert mock_run.call_count == 2
+
+    def test_capture_false_subcmd_packer_not_found(self, tmp_path):
+        """Same non-capture path, but packer disappears between `init` and
+        the subcmd invocation (e.g. PATH mutated mid-run) — must not crash."""
+        wd = tmp_path / "build"
+        wd.mkdir()
+        (wd / "packer").mkdir()
+        (wd / "packer" / "main.pkr.hcl").write_text("")
+
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                subprocess.CompletedProcess([], 0, stdout="", stderr=""),  # init
+                FileNotFoundError,  # subcmd
+            ]
+            result = run_packer(wd, "build", capture=False, quiet=False)
+
+        assert result.exit_code == 1
+        assert mock_run.call_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -1733,6 +2019,59 @@ class TestBuildGovernance:
             from cis_image import _send_notification
             _send_notification(r, True, ["img-x"], 90.0, "n")  # must not raise
 
+    def test_notify_routing_success_only(self, valid_toml):
+        """[notify].on = "success" must skip the POST on a failed build."""
+        from cis_image import _send_notification
+        valid_toml["notify"] = {"webhook": "https://example.invalid/hook", "on": "success"}
+        r = resolve(valid_toml)
+        with mock.patch("cis_image.urllib.request.urlopen") as urlopen:
+            _send_notification(r, False, [], None, "n")
+            urlopen.assert_not_called()
+            _send_notification(r, True, ["img-x"], 90.0, "n")
+            assert urlopen.call_count == 1
+
+    def test_notify_webhook_exception_is_swallowed(self, valid_toml, caplog):
+        """A WeCom webhook failure must never fail the build."""
+        from cis_image import _send_notification
+        valid_toml["notify"] = {"webhook": "https://example.invalid/hook", "on": "always"}
+        r = resolve(valid_toml)
+        with mock.patch("cis_image.urllib.request.urlopen",
+                        side_effect=OSError("connection refused")):
+            _send_notification(r, True, ["img-x"], 90.0, "n")  # must not raise
+        assert "Notification webhook failed" in caplog.text
+
+    def test_notify_webhook_non_200_warns(self, valid_toml, caplog):
+        from cis_image import _send_notification
+        valid_toml["notify"] = {"webhook": "https://example.invalid/hook", "on": "always"}
+        r = resolve(valid_toml)
+        resp = mock.MagicMock()
+        resp.status = 500
+        resp.__enter__.return_value = resp
+        with mock.patch("cis_image.urllib.request.urlopen", return_value=resp):
+            _send_notification(r, True, ["img-x"], 90.0, "n")
+        assert "returned HTTP 500" in caplog.text
+
+    def test_deploy_webhook_exception_is_swallowed(self, valid_toml, caplog):
+        """A deploy-webhook failure must never fail the build."""
+        from cis_image import _trigger_deploy_webhook
+        r = resolve(valid_toml)
+        r.deploy_webhook = "https://ci.example.com/images"
+        with mock.patch("cis_image.urllib.request.urlopen",
+                        side_effect=OSError("connection refused")):
+            _trigger_deploy_webhook(r, ["img-1"], 90.0, "n")  # must not raise
+        assert "Deploy webhook failed" in caplog.text
+
+    def test_deploy_webhook_non_2xx_warns(self, valid_toml, caplog):
+        from cis_image import _trigger_deploy_webhook
+        r = resolve(valid_toml)
+        r.deploy_webhook = "https://ci.example.com/images"
+        resp = mock.MagicMock()
+        resp.status = 500
+        resp.__enter__.return_value = resp
+        with mock.patch("cis_image.urllib.request.urlopen", return_value=resp):
+            _trigger_deploy_webhook(r, ["img-1"], 90.0, "n")
+        assert "returned HTTP 500" in caplog.text
+
     def test_provenance_written_and_signed(self, valid_toml, tmp_path):
         from cis_image import _write_provenance
         valid_toml["sign"] = {"gpg_key": "TESTKEY"}
@@ -1763,6 +2102,64 @@ class TestBuildGovernance:
             p = _write_provenance(r, ["img-xyz"], "img-name", None)
         assert p is not None
         assert not p.with_suffix(p.suffix + ".sig").exists()
+
+    def test_provenance_written_unsigned_when_gpg_fails(self, valid_toml, tmp_path, caplog):
+        """gpg returning nonzero must not fail the build — provenance JSON
+        is still written, just unsigned, and a warning is logged."""
+        from cis_image import _write_provenance
+        valid_toml["sign"] = {"gpg_key": "TESTKEY"}
+        r = resolve(valid_toml)
+        with (
+            mock.patch("cis_image._lineage_path", return_value=tmp_path / "lineage.jsonl"),
+            mock.patch("subprocess.run") as sub,
+        ):
+            sub.return_value = mock.Mock(returncode=2, stderr="gpg: no secret key", stdout="")
+            p = _write_provenance(r, ["img-xyz"], "img-name", 98.2)
+        assert p is not None and p.exists()
+        assert not p.with_suffix(p.suffix + ".sig").exists()
+        assert "GPG signing failed" in caplog.text
+
+    def test_provenance_written_unsigned_when_gpg_missing(self, valid_toml, tmp_path, caplog):
+        from cis_image import _write_provenance
+        valid_toml["sign"] = {"gpg_key": "TESTKEY"}
+        r = resolve(valid_toml)
+        with (
+            mock.patch("cis_image._lineage_path", return_value=tmp_path / "lineage.jsonl"),
+            mock.patch("subprocess.run", side_effect=FileNotFoundError),
+        ):
+            p = _write_provenance(r, ["img-xyz"], "img-name", 98.2)
+        assert p is not None and p.exists()
+        assert "gpg not found" in caplog.text
+
+    def test_provenance_written_unsigned_when_gpg_times_out(self, valid_toml, tmp_path, caplog):
+        from cis_image import _write_provenance
+        valid_toml["sign"] = {"gpg_key": "TESTKEY"}
+        r = resolve(valid_toml)
+        with (
+            mock.patch("cis_image._lineage_path", return_value=tmp_path / "lineage.jsonl"),
+            mock.patch("subprocess.run",
+                       side_effect=subprocess.TimeoutExpired(cmd="gpg", timeout=60)),
+        ):
+            p = _write_provenance(r, ["img-xyz"], "img-name", 98.2)
+        assert p is not None and p.exists()
+        assert "gpg signing timed out" in caplog.text
+
+    def test_provenance_returns_none_on_write_failure(self, valid_toml, tmp_path, caplog):
+        """A filesystem error while writing the provenance file itself (not
+        the signing step) must be caught and reported, not raised."""
+        from cis_image import _write_provenance
+        r = resolve(valid_toml)
+        with mock.patch("cis_image._lineage_path",
+                        return_value=tmp_path / "lineage.jsonl"), mock.patch(
+            "cis_image.Path.write_text",
+            side_effect=OSError("disk full")):
+            p = _write_provenance(r, ["img-xyz"], "img-name", 98.2)
+        assert p is None
+        assert "Could not write provenance" in caplog.text
+
+    def test_provenance_not_resolved_config_returns_none(self):
+        from cis_image import _write_provenance
+        assert _write_provenance(object(), ["img-xyz"], "img-name", 98.2) is None
 
 
 class TestVerify:
@@ -2049,9 +2446,8 @@ class TestCleanupImages:
         assert out["Response"]["ImageSet"] == []
 
     def test_tc3_network_error_raises_config_error(self, tmp_path):
-        """A transport failure (timeout/DNS/conn reset) must surface as a
-        ConfigError, not a raw urllib/OSError, so callers can degrade
-        gracefully instead of crashing."""
+        """A persistent transport failure must surface as a ConfigError
+        after retries are exhausted, not a raw urllib/OSError."""
         import urllib.error
 
         import cis_image
@@ -2083,6 +2479,90 @@ class TestCleanupImages:
             cis_image._tc3_api("cvm", "DescribeImages", "2017-03-12",
                                "ap-guangzhou", {"ImageIds": ["img-x"]},
                                "AKIDtest", "sk-test")
+
+    def test_tc3_retries_transient_network_error(self, monkeypatch):
+        """A transient URLError (DNS/reset/timeout) is retried, then succeeds."""
+        import urllib.error
+
+        import cis_image
+        calls = {"n": 0}
+        def flaky(req, *a, **kw):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise urllib.error.URLError("connection reset")
+            class R:
+                def read(self):
+                    return b'{"Response": {"ImageSet": []}}'
+                def __enter__(self):
+                    return self
+                def __exit__(self, *a):
+                    return False
+            return R()
+        monkeypatch.setattr("cis_image.urllib.request.urlopen", flaky)
+        monkeypatch.setattr("cis_image.time.sleep", lambda *_a: None)
+        out = cis_image._tc3_api("cvm", "DescribeImages", "2017-03-12",
+                              "ap-guangzhou", {"ImageIds": ["img-x"]},
+                              "AKIDtest", "sk-test")
+        assert calls["n"] == 3
+        assert out["Response"]["ImageSet"] == []
+
+    def test_tc3_gives_up_after_max_retries(self, monkeypatch):
+        """Persistent network failure surfaces as ConfigError after retries."""
+        import urllib.error
+
+        import cis_image
+        from cis_image import ConfigError
+        def always_fails(req, *a, **kw):
+            raise urllib.error.URLError("connection reset")
+        monkeypatch.setattr("cis_image.urllib.request.urlopen", always_fails)
+        monkeypatch.setattr("cis_image.time.sleep", lambda *_a: None)
+        with pytest.raises(ConfigError, match="request failed"):
+            cis_image._tc3_api("cvm", "DescribeImages", "2017-03-12",
+                              "ap-guangzhou", {"ImageIds": ["img-x"]},
+                              "AKIDtest", "sk-test")
+
+    def test_tc3_does_not_retry_client_error(self, monkeypatch):
+        """A non-retryable HTTP error (e.g. 400) must fail on the first attempt."""
+        import urllib.error
+
+        import cis_image
+        from cis_image import ConfigError
+        calls = {"n": 0}
+        def bad_request(req, *a, **kw):
+            calls["n"] += 1
+            raise urllib.error.HTTPError(req.full_url, 400, "Bad Request", {}, None)
+        monkeypatch.setattr("cis_image.urllib.request.urlopen", bad_request)
+        with pytest.raises(ConfigError, match="HTTP 400"):
+            cis_image._tc3_api("cvm", "DescribeImages", "2017-03-12",
+                              "ap-guangzhou", {"ImageIds": ["img-x"]},
+                              "AKIDtest", "sk-test")
+        assert calls["n"] == 1
+
+    def test_tc3_retries_rate_limit_http_error(self, monkeypatch):
+        """A 429 is retried like a network error, then succeeds."""
+        import urllib.error
+
+        import cis_image
+        calls = {"n": 0}
+        def rate_limited(req, *a, **kw):
+            calls["n"] += 1
+            if calls["n"] < 2:
+                raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, None)
+            class R:
+                def read(self):
+                    return b'{"Response": {"ImageSet": []}}'
+                def __enter__(self):
+                    return self
+                def __exit__(self, *a):
+                    return False
+            return R()
+        monkeypatch.setattr("cis_image.urllib.request.urlopen", rate_limited)
+        monkeypatch.setattr("cis_image.time.sleep", lambda *_a: None)
+        out = cis_image._tc3_api("cvm", "DescribeImages", "2017-03-12",
+                              "ap-guangzhou", {"ImageIds": ["img-x"]},
+                              "AKIDtest", "sk-test")
+        assert calls["n"] == 2
+        assert out["Response"]["ImageSet"] == []
 
 
 class TestIdempotencyAndSarif:
@@ -2682,6 +3162,117 @@ class TestIndependentAudit:
                                sarif=None, xccdf=None)
         assert cmd_audit(args2) == 1  # 50% < 60%
 
+    # -- _audit_ssh_args ----------------------------------------------------
+    def test_audit_ssh_args_basic(self):
+        from cis_image import _audit_ssh_args
+        args = _audit_ssh_args("1.2.3.4", "root", 22)
+        assert args[-1] == "root@1.2.3.4"
+        assert "-p" in args and "22" in args
+        assert "-i" not in args
+
+    def test_audit_ssh_args_with_key_and_no_port(self):
+        from cis_image import _audit_ssh_args
+        args = _audit_ssh_args("1.2.3.4", "root", 0, ssh_key="/tmp/key.pem")
+        assert "-p" not in args
+        assert "-i" in args
+        assert "/tmp/key.pem" in args
+        assert args[-1] == "root@1.2.3.4"
+
+    # -- _audit_oscap ---------------------------------------------------------
+    def test_audit_oscap_success(self, monkeypatch):
+        from cis_image import _audit_oscap
+        monkeypatch.setattr(
+            "cis_image.subprocess.run",
+            lambda *a, **k: subprocess.CompletedProcess([], 0, stdout="<arf/>", stderr=""))
+        assert _audit_oscap("1.2.3.4", "root", 22, None, "xccdf_profile",
+                            "/usr/share/ds.xml") == "<arf/>"
+
+    def test_audit_oscap_timeout(self, monkeypatch):
+        from cis_image import _audit_oscap
+        def boom(*a, **k):
+            raise subprocess.TimeoutExpired(cmd="ssh", timeout=900)
+        monkeypatch.setattr("cis_image.subprocess.run", boom)
+        assert _audit_oscap("1.2.3.4", "root", 22, None, "p", "/ds.xml") == ""
+
+    def test_audit_oscap_ssh_missing(self, monkeypatch):
+        from cis_image import _audit_oscap
+        monkeypatch.setattr("cis_image.subprocess.run",
+                            mock.MagicMock(side_effect=FileNotFoundError))
+        assert _audit_oscap("1.2.3.4", "root", 22, None, "p", "/ds.xml") == ""
+
+    # -- _audit_inspec --------------------------------------------------------
+    def test_audit_inspec_success(self, monkeypatch):
+        from cis_image import _audit_inspec
+        report = {"controls": [{"id": "c1", "status": "passed"}]}
+        monkeypatch.setattr(
+            "cis_image.subprocess.run",
+            lambda *a, **k: subprocess.CompletedProcess(
+                [], 0, stdout=json.dumps(report), stderr=""))
+        assert _audit_inspec("1.2.3.4", "root", 22, None, "dev-sec/linux-baseline") == report
+
+    def test_audit_inspec_not_installed(self, monkeypatch):
+        from cis_image import _audit_inspec
+        monkeypatch.setattr("cis_image.subprocess.run",
+                            mock.MagicMock(side_effect=FileNotFoundError))
+        assert _audit_inspec("1.2.3.4", "root", 22, None, "baseline") is None
+
+    def test_audit_inspec_timeout(self, monkeypatch):
+        from cis_image import _audit_inspec
+        def boom(*a, **k):
+            raise subprocess.TimeoutExpired(cmd="inspec", timeout=900)
+        monkeypatch.setattr("cis_image.subprocess.run", boom)
+        assert _audit_inspec("1.2.3.4", "root", 22, None, "baseline") is None
+
+    def test_audit_inspec_bad_json(self, monkeypatch):
+        from cis_image import _audit_inspec
+        monkeypatch.setattr(
+            "cis_image.subprocess.run",
+            lambda *a, **k: subprocess.CompletedProcess([], 0, stdout="not json", stderr=""))
+        assert _audit_inspec("1.2.3.4", "root", 22, None, "baseline") is None
+
+    # -- _audit_results_sarif / _audit_results_xccdf -------------------------
+    def test_audit_results_sarif(self):
+        from cis_image import _audit_results_sarif
+        audit = {"tool": "oscap", "results": [
+            {"id": "r1", "status": "fail", "title": "Rule 1", "detail": "boom"},
+            {"id": "r2", "status": "pass"},
+            {"id": "r1", "status": "fail", "title": "Rule 1", "detail": "dup"},
+        ]}
+        doc = json.loads(_audit_results_sarif(audit))
+        assert doc["version"] == "2.1.0"
+        run = doc["runs"][0]
+        assert run["tool"]["driver"]["name"] == "cis-image-audit-oscap"
+        # dedup: r1 appears once in rules despite two fail entries
+        assert [r["id"] for r in run["tool"]["driver"]["rules"]] == ["r1"]
+        assert len(run["results"]) == 1
+        assert run["results"][0]["ruleId"] == "r1"
+
+    def test_audit_results_sarif_no_findings(self):
+        from cis_image import _audit_results_sarif
+        audit = {"tool": "inspec", "results": [{"id": "r1", "status": "pass"}]}
+        doc = json.loads(_audit_results_sarif(audit))
+        assert doc["runs"][0]["results"] == []
+        assert doc["runs"][0]["tool"]["driver"]["rules"] == []
+
+    def test_audit_results_xccdf(self):
+        from cis_image import _audit_results_xccdf
+        audit = {"tool": "oscap", "score": 87.5, "results": [
+            {"id": "r1", "status": "fail"},
+            {"id": "r2", "status": "pass"},
+        ]}
+        xml_text = _audit_results_xccdf(audit)
+        assert "<Benchmark" in xml_text
+        assert 'idref="r1"><result>fail</result>' in xml_text
+        assert 'idref="r2"><result>pass</result>' in xml_text
+        assert "<score>0.875000</score>" in xml_text
+
+    def test_audit_results_xccdf_no_score(self):
+        from cis_image import _audit_results_xccdf
+        audit = {"tool": "inspec", "score": None, "results": []}
+        xml_text = _audit_results_xccdf(audit)
+        assert "<score>" not in xml_text
+        assert "</Benchmark>" in xml_text
+
 
 class TestKittyCsvParser:
     """P2#11 — HardeningKitty CSV cross-check for Windows."""
@@ -2757,7 +3348,6 @@ class TestRuleIdAndBenchmark:
         assert "_remove_pkgs" in src
         assert 'DEBIAN_FRONTEND=noninteractive' in src
         # Only _install_pkgs/_remove_pkgs may invoke dnf.
-        import re
         direct = [ln for ln in src.splitlines()
                   if 'sh(["dnf"' in ln]
         assert not direct, f"direct dnf sh() calls remain: {direct}"
@@ -2904,6 +3494,52 @@ class TestVerifyImage:
         # _tc3_api(service, action, version, region, params, sid, skey, token)
         assert called[0][1] == "TerminateInstances"
         assert called[0][4]["InstanceIds"] == ["ins-probe"]
+
+    def test_probe_ssh_ready_succeeds_on_first_try(self, monkeypatch):
+        from cis_image import _probe_ssh_ready
+        monkeypatch.setattr(
+            "cis_image.subprocess.run",
+            lambda *a, **k: subprocess.CompletedProcess([], 0, stdout="", stderr=""))
+        assert _probe_ssh_ready("1.2.3.4", 22, "root", timeout_s=600) is True
+
+    def test_probe_ssh_ready_retries_then_succeeds(self, monkeypatch):
+        import time as _time
+
+        from cis_image import _probe_ssh_ready
+        results = iter([
+            subprocess.CompletedProcess([], 255, stdout="", stderr="conn refused"),
+            subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+        ])
+        monkeypatch.setattr("cis_image.subprocess.run", lambda *a, **k: next(results))
+        monkeypatch.setattr(_time, "sleep", lambda *a: None)
+        assert _probe_ssh_ready("1.2.3.4", 22, "root", timeout_s=600) is True
+
+    def test_probe_ssh_ready_times_out(self, monkeypatch):
+        """SSH never comes up before the deadline — return False, don't hang."""
+        import time as _time
+
+        from cis_image import _probe_ssh_ready
+        monkeypatch.setattr(
+            "cis_image.subprocess.run",
+            lambda *a, **k: subprocess.CompletedProcess([], 255, stdout="", stderr=""))
+        monkeypatch.setattr(_time, "sleep", lambda *a: None)
+        times = iter([0, 1000])
+        monkeypatch.setattr(_time, "time", lambda: next(times, 1000))
+        assert _probe_ssh_ready("1.2.3.4", 22, "root", timeout_s=600) is False
+
+    def test_probe_ssh_ready_swallows_subprocess_exceptions(self, monkeypatch):
+        """A transient error running ssh itself (not just a bad exit code)
+        must be swallowed and retried, not propagated."""
+        import time as _time
+
+        from cis_image import _probe_ssh_ready
+        monkeypatch.setattr(
+            "cis_image.subprocess.run",
+            mock.MagicMock(side_effect=OSError("boom")))
+        monkeypatch.setattr(_time, "sleep", lambda *a: None)
+        times = iter([0, 1000])
+        monkeypatch.setattr(_time, "time", lambda: next(times, 1000))
+        assert _probe_ssh_ready("1.2.3.4", 22, "root", timeout_s=600) is False
 
     def test_verify_image_requires_image(self, valid_toml, monkeypatch, tmp_path):
         from cis_image import cmd_verify_image
@@ -3369,6 +4005,104 @@ class TestDrift:
                               save_baseline=False)
         assert cmd_drift(args) == 1
 
+    def test_cmd_drift_fetches_baseline_over_ssh_when_no_local(
+        self, valid_toml, monkeypatch, tmp_path):
+        """--image with no local baseline file falls back to SSHing into
+        the instance and reading /opt/cis-image-AUDIT-RESULT.json."""
+        from cis_image import cmd_drift
+        r = resolve(valid_toml)
+        r.ssh_username = "root"
+        r.ssh_port = 22
+        monkeypatch.setattr("cis_image._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("cis_image._probe_scan",
+                            lambda *a, **k: self._doc(100.0, {"1.1.1": "pass"}))
+        monkeypatch.setattr("cis_image._fetch_baseline", lambda r, image_id: None)
+        remote_baseline = self._doc(100.0, {"1.1.1": "pass"})
+        monkeypatch.setattr(
+            "cis_image.subprocess.run",
+            lambda *a, **k: subprocess.CompletedProcess(
+                [], 0, stdout=json.dumps(remote_baseline), stderr=""))
+        args = mock.MagicMock(config="c", workdir="w", host="1.2.3.4",
+                              image="img-x", baseline="", ssh_user="", ssh_port=0,
+                              save_baseline=False)
+        assert cmd_drift(args) == 0
+
+    def test_cmd_drift_ssh_fallback_timeout_fails(
+        self, valid_toml, monkeypatch, tmp_path):
+        from cis_image import cmd_drift
+        r = resolve(valid_toml)
+        r.ssh_username = "root"
+        r.ssh_port = 22
+        monkeypatch.setattr("cis_image._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("cis_image._probe_scan",
+                            lambda *a, **k: self._doc(100.0, {"1.1.1": "pass"}))
+        monkeypatch.setattr("cis_image._fetch_baseline", lambda r, image_id: None)
+
+        def boom(*a, **k):
+            raise subprocess.TimeoutExpired(cmd="ssh", timeout=60)
+        monkeypatch.setattr("cis_image.subprocess.run", boom)
+        args = mock.MagicMock(config="c", workdir="w", host="1.2.3.4",
+                              image="img-x", baseline="", ssh_user="", ssh_port=0,
+                              save_baseline=False)
+        assert cmd_drift(args) == 1
+
+    def test_cmd_drift_ssh_missing_fails(self, valid_toml, monkeypatch, tmp_path):
+        from cis_image import cmd_drift
+        r = resolve(valid_toml)
+        r.ssh_username = "root"
+        r.ssh_port = 22
+        monkeypatch.setattr("cis_image._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("cis_image._probe_scan",
+                            lambda *a, **k: self._doc(100.0, {"1.1.1": "pass"}))
+        monkeypatch.setattr("cis_image._fetch_baseline", lambda r, image_id: None)
+        monkeypatch.setattr("cis_image.subprocess.run",
+                            mock.MagicMock(side_effect=FileNotFoundError))
+        args = mock.MagicMock(config="c", workdir="w", host="1.2.3.4",
+                              image="img-x", baseline="", ssh_user="", ssh_port=0,
+                              save_baseline=False)
+        assert cmd_drift(args) == 1
+
+    def test_cmd_drift_ssh_fallback_bad_json_fails(
+        self, valid_toml, monkeypatch, tmp_path):
+        from cis_image import cmd_drift
+        r = resolve(valid_toml)
+        r.ssh_username = "root"
+        r.ssh_port = 22
+        monkeypatch.setattr("cis_image._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("cis_image._probe_scan",
+                            lambda *a, **k: self._doc(100.0, {"1.1.1": "pass"}))
+        monkeypatch.setattr("cis_image._fetch_baseline", lambda r, image_id: None)
+        monkeypatch.setattr(
+            "cis_image.subprocess.run",
+            lambda *a, **k: subprocess.CompletedProcess([], 0, stdout="", stderr=""))
+        args = mock.MagicMock(config="c", workdir="w", host="1.2.3.4",
+                              image="img-x", baseline="", ssh_user="", ssh_port=0,
+                              save_baseline=False)
+        assert cmd_drift(args) == 1
+
+    def test_cmd_drift_baseline_file_bad_json_fails(
+        self, valid_toml, monkeypatch, tmp_path):
+        """--baseline <file> pointing at a corrupt/non-JSON file must warn
+        and fail the gate, not raise."""
+        from cis_image import cmd_drift
+        r = resolve(valid_toml)
+        r.ssh_username = "root"
+        r.ssh_port = 22
+        monkeypatch.setattr("cis_image._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("cis_image._probe_scan",
+                            lambda *a, **k: self._doc(100.0, {"1.1.1": "pass"}))
+        bl = tmp_path / "bl.json"
+        bl.write_text("{not valid json", encoding="utf-8")
+        args = mock.MagicMock(config="c", workdir="w", host="1.2.3.4",
+                              image="", baseline=str(bl), ssh_user="", ssh_port=0,
+                              save_baseline=False)
+        assert cmd_drift(args) == 1
+
     def test_save_baseline(self, valid_toml, monkeypatch, tmp_path):
         from cis_image import cmd_save_baseline
         r = resolve(valid_toml)
@@ -3387,6 +4121,42 @@ class TestDrift:
         bl = home / ".cis-image" / "baselines" / "img-x.json"
         assert bl.exists()
         assert json.loads(bl.read_text())["summary"]["all"]["score"] == 99.0
+
+    def test_fetch_baseline_local_hit(self, valid_toml, monkeypatch, tmp_path):
+        from cis_image import _fetch_baseline
+        r = resolve(valid_toml)
+        home = tmp_path / "home"
+        doc = self._doc(90.0, {"1.1.1": "pass"})
+        bl_dir = home / ".cis-image" / "baselines"
+        bl_dir.mkdir(parents=True)
+        (bl_dir / "img-x.json").write_text(json.dumps(doc), encoding="utf-8")
+        monkeypatch.setattr("cis_image._lineage_path",
+                            lambda: home / ".cis-image" / "lineage.jsonl")
+        result = _fetch_baseline(r, "img-x")
+        assert result == doc
+
+    def test_fetch_baseline_no_local_file(self, valid_toml, monkeypatch, tmp_path):
+        from cis_image import _fetch_baseline
+        r = resolve(valid_toml)
+        home = tmp_path / "home"
+        monkeypatch.setattr("cis_image._lineage_path",
+                            lambda: home / ".cis-image" / "lineage.jsonl")
+        assert _fetch_baseline(r, "img-does-not-exist") is None
+
+    def test_fetch_baseline_corrupt_json_falls_back_to_none(
+        self, valid_toml, monkeypatch, tmp_path, caplog):
+        """A corrupt local baseline must warn and return None so the caller
+        falls back to fetching the in-image baseline over SSH — never raise."""
+        from cis_image import _fetch_baseline
+        r = resolve(valid_toml)
+        home = tmp_path / "home"
+        bl_dir = home / ".cis-image" / "baselines"
+        bl_dir.mkdir(parents=True)
+        (bl_dir / "img-x.json").write_text("{not valid json", encoding="utf-8")
+        monkeypatch.setattr("cis_image._lineage_path",
+                            lambda: home / ".cis-image" / "lineage.jsonl")
+        assert _fetch_baseline(r, "img-x") is None
+        assert "corrupt" in caplog.text.lower()
 
 
 class TestUnusedSince:

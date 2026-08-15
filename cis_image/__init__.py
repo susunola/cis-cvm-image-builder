@@ -28,7 +28,9 @@ from __future__ import annotations
 # `cis_image.urllib`, etc. still resolve (some tests/tools reference them).
 import subprocess  # noqa: F401
 import sys  # noqa: F401
+import time  # noqa: F401
 import urllib.request  # noqa: F401
+from pathlib import Path  # noqa: F401
 
 __all__ = [
     'CVE_SCAN_LINUX_BLOCK', 'ConfigError', 'DEFAULT_WORKDIR', 'FINALIZE_SH_TEMPLATE', 'HCL_LINUX_TEMPLATE', 'HCL_WIN_TEMPLATE',
@@ -44,7 +46,7 @@ __all__ = [
     '_images_exist', '_is_interactive', '_last_num', '_last_successful_fingerprint', '_lineage_path', '_load_resolve_preflight',
     '_my_public_ip', '_parse_failed_rules', '_parse_inspec_json', '_parse_kitty_csv', '_parse_oscap_arf', '_probe_launch',
     '_probe_public_ip', '_probe_scan', '_probe_ssh_ready', '_probe_terminate', '_record_lineage', '_reports_dir',
-    '_rhel_profile', '_sanitize_region_zone', '_save_build_report', '_send_notification', '_setup_logging', '_sg_ingress_allows',
+    '_render_extra_args_block', '_rhel_profile', '_sanitize_region_zone', '_save_build_report', '_send_notification', '_setup_logging', '_sg_ingress_allows',
     '_share_images', '_source_image_created', '_tc3_api', '_tlinux_profile', '_trigger_deploy_webhook', '_ubuntu_profile',
     '_validate_env_var_name', '_validate_shell_arg', '_validate_value_present', '_write_provenance', '_write_sarif', '_write_xccdf',
     '_yaml_list', 'banner', 'build_parser', 'cmd_audit', 'cmd_build', 'cmd_check_source',
@@ -178,6 +180,7 @@ from ._render import (
     _check_pywinrm,
     _format_hcl_value,
     _image_name,
+    _render_extra_args_block,
     _validate_env_var_name,
     _validate_shell_arg,
     _yaml_list,

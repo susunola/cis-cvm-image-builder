@@ -58,6 +58,15 @@ variable "image_copy_regions" {
 variable "cis_level"                   { type = string }
 variable "image_os_tag"                { type = string }
 variable "image_benchmark"             { type = string }
+# Optional explicit name for the temporary build CVM; empty = plugin auto.
+variable "instance_name"               { type = string }
+# Reserved for user passthrough of arbitrary packer builder args via
+# [build.packer]; the actual args are injected as HCL literals by the
+# __EXTRA_ARGS_BLOCK__ marker, not referenced here.
+variable "extra_builder_args" {
+  type    = map(any)
+  default = {}
+}
 
 locals {
   level_short = replace(var.cis_level, "-server", "")
@@ -79,11 +88,13 @@ __ASSUME_ROLE_BLOCK__
   ssh_read_write_timeout      = "20m"
   ssh_keep_alive_interval     = "30s"
   image_name                  = var.image_name
+  instance_name               = var.instance_name
   vpc_id                      = var.vpc_id
   subnet_id                   = var.subnet_id
   security_group_id           = var.security_group_id
   associate_public_ip_address = var.associate_public_ip_address
 __SPOT_BLOCK__
+__EXTRA_ARGS_BLOCK__
   image_copy_regions          = var.image_copy_regions
   image_tags = {
     cis_level  = local.level_short
@@ -715,6 +726,15 @@ variable "image_copy_regions" {
 variable "cis_level"                   { type = string }
 variable "image_os_tag"                { type = string }
 variable "image_benchmark"             { type = string }
+# Optional explicit name for the temporary build CVM; empty = plugin auto.
+variable "instance_name"               { type = string }
+# Reserved for user passthrough of arbitrary packer builder args via
+# [build.packer]; the actual args are injected as HCL literals by the
+# __EXTRA_ARGS_BLOCK__ marker, not referenced here.
+variable "extra_builder_args" {
+  type    = map(any)
+  default = {}
+}
 
 locals {
   level_short = replace(var.cis_level, "-server", "")
@@ -759,11 +779,13 @@ __ASSUME_ROLE_BLOCK__
   </powershell>
   UDEOF
   image_name                  = var.image_name
+  instance_name               = var.instance_name
   vpc_id                      = var.vpc_id
   subnet_id                   = var.subnet_id
   security_group_id           = var.security_group_id
   associate_public_ip_address = var.associate_public_ip_address
 __SPOT_BLOCK__
+__EXTRA_ARGS_BLOCK__
   image_copy_regions          = var.image_copy_regions
   image_tags = {
     cis_level  = local.level_short
