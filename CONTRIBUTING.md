@@ -1,4 +1,4 @@
-# Contributing to ciscvm
+# Contributing to cis-image
 
 Bug reports and pull requests are welcome. This document covers the
 development workflow, coding constraints, and how to add a new CIS profile.
@@ -6,12 +6,12 @@ development workflow, coding constraints, and how to add a new CIS profile.
 ## Development setup
 
 ```bash
-git clone https://github.com/susunola/cis-cvm-image-builder.git
-cd cis-cvm-image-builder
+git clone https://github.com/susunola/cis-image.git
+cd cis-image
 pip install -e ".[dev]"
 ```
 
-This installs `ciscvm` in editable mode plus the dev toolchain (`pytest`,
+This installs `cis-image` in editable mode plus the dev toolchain (`pytest`,
 `pytest-cov`, `mypy`, `ruff`, `tomli_w`, `pywinrm`).
 
 ## Before opening a PR
@@ -19,13 +19,13 @@ This installs `ciscvm` in editable mode plus the dev toolchain (`pytest`,
 Run the same checks CI runs (`.github/workflows/ci.yml`), in this order:
 
 ```bash
-ruff check ciscvm
-mypy ciscvm --ignore-missing-imports
+ruff check cis_image
+mypy cis_image --ignore-missing-imports
 pytest -v --tb=short
 ```
 
-- `ruff` and `mypy` only lint/type-check `ciscvm/` — `ciscvm/roles/` is the
-  vendored cis-os engine and is excluded (see `[tool.ruff]` /
+- `ruff` and `mypy` only lint/type-check `cis_image/` — `cis_image/roles/` is
+  the vendored cis-os engine and is excluded (see `[tool.ruff]` /
   `[tool.mypy]` in `pyproject.toml`).
 - CI runs the matrix on Python 3.11–3.13; keep changes compatible with 3.11+
   (no 3.12-only syntax).
@@ -33,13 +33,13 @@ pytest -v --tb=short
   this project have repeatedly come from untested edges in the Tencent
   Cloud API responses (e.g. `CreatedTime: null` on public images,
   `InstanceState` returned as a plain string instead of a dict) — mock at
-  the `ciscvm._tc3_api` boundary and assert both the happy path and the
+  the `cis_image._tc3_api` boundary and assert both the happy path and the
   edge case that broke before.
 
 ## Running the real end-to-end test
 
-`tests/test_ciscvm.py` mocks the `ciscvm._tc3_api` boundary — it's fast,
-free, and catches API-response edge cases well (null fields, wrong
+`tests/test_cis_image.py` mocks the `cis_image._tc3_api` boundary — it's
+fast, free, and catches API-response edge cases well (null fields, wrong
 nesting, etc.), but it can never prove that `pip install -e .` actually
 works on a clean box, that the real network path is reachable, or that we
 haven't drifted from the real Tencent Cloud API contract. For that,
@@ -50,7 +50,7 @@ automatically (success, failure, or Ctrl-C).
 
 This is **not** a CI-required step — it's a manual/optional check to run
 when you suspect an environment-specific issue, or before a larger release.
-It does **not** run a real `ciscvm build`/`verify-image`/`cleanup-images`
+It does **not** run a real `cis-image build`/`verify-image`/`cleanup-images`
 against a profile; it only validates that the checkout itself installs and
 tests cleanly on a real machine.
 
@@ -66,9 +66,9 @@ python3 scripts/real_e2e_test.py \
   `--image-id` / `--region` / `--zone` / `--instance-type` as needed.
 - The security group you pass must already allow inbound TCP/22 from this
   machine's public IP; the script does not modify security group rules.
-- Requires `ciscvm` to already be installed in editable mode on the machine
-  running the script (it imports `ciscvm._tc3_api` directly rather than
-  re-implementing TC3-HMAC-SHA256 signing).
+- Requires `cis-image` to already be installed in editable mode on the
+  machine running the script (it imports `cis_image._tc3_api` directly
+  rather than re-implementing TC3-HMAC-SHA256 signing).
 - Creates one real CVM instance for the duration of the run (roughly
   5-10 minutes) — this incurs real cloud cost, however small.
 - Pass `--keep-on-failure` to leave a failed instance running for
@@ -76,22 +76,22 @@ python3 scripts/real_e2e_test.py \
 
 ## Hard constraints
 
-- **Zero third-party runtime dependencies.** `ciscvm` itself only imports
+- **Zero third-party runtime dependencies.** `cis-image` itself only imports
   the Python 3.11+ standard library — `urllib.request`, `hashlib`, `hmac`,
   `tomllib`, etc. Do not add a `requirements.txt` entry or a new import from
-  PyPI to `ciscvm/__init__.py`. Packer and Ansible remain external
+  PyPI to `cis_image/__init__.py`. Packer and Ansible remain external
   system-level tools, not Python dependencies. Dev-only tooling
   (`pytest`, `ruff`, `mypy`, `tomli_w`, `pywinrm`) belongs in
   `[project.optional-dependencies].dev`, never in the base install.
 - **No long-lived credentials in code or config.** Secrets come from
   `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` (and optionally
   `TENCENTCLOUD_SECURITY_TOKEN` for STS) via environment variables only.
-  Never read them from `ciscvm.toml` or write them to disk.
+  Never read them from `cis-image.toml` or write them to disk.
 - **Bundled roles ship inside the package.** Every profile's role directory
-  lives under `ciscvm/roles/<role_dir>/` (next to `__init__.py`), not
-  outside the package — otherwise a built wheel omits it and `ciscvm build`
-  fails after a clean install. `tests/test_ciscvm.py::TestPackaging` guards
-  this; don't remove or weaken it.
+  lives under `cis_image/roles/<role_dir>/` (next to `__init__.py`), not
+  outside the package — otherwise a built wheel omits it and `cis-image
+  build` fails after a clean install. `tests/test_cis_image.py::TestPackaging`
+  guards this; don't remove or weaken it.
 - **Fail open on read-only/advisory checks.** Anything that inspects cloud
   state before taking a destructive action (image cleanup, security-group
   ingress preflight checks, share-permission checks) must treat API errors,
@@ -103,10 +103,10 @@ python3 scripts/real_e2e_test.py \
 
 There are 12 bundled profiles (8 Linux via `ansible-local` + SSH, 4 Windows
 via controller-side Ansible + WinRM). Each lives at
-`ciscvm/roles/cis_<profile>/` and needs, at minimum:
+`cis_image/roles/cis_<profile>/` and needs, at minimum:
 
 ```
-ciscvm/roles/cis_<profile>/
+cis_image/roles/cis_<profile>/
 ├── files/
 │   ├── cis_engine.py       # Linux: the rule check/fix engine (or cis_engine.ps1 for Windows)
 │   ├── rules.json          # rule catalog: id, title, section, levels, family, params, risk, page
@@ -118,7 +118,7 @@ ciscvm/roles/cis_<profile>/
 └── templates/
 ```
 
-Then register the profile in `PROFILES` in `ciscvm/__init__.py` (family,
+Then register the profile in `PROFILES` in `cis_image/__init__.py` (family,
 `role_dir`, `os_tag`, `benchmark`, and for Windows `winrm_username`; for
 Linux the SSH username/port defaults come from the `_ubuntu_profile` /
 `_rhel_profile` / `_tlinux_profile` helpers).
@@ -153,7 +153,7 @@ Rule entries in `rules.json` follow this shape:
     layout change on a live disk (see
     `test_none_risk_partition_rules_are_manual`).
 - `risk` is `"safe"` (apply freely) or a stronger label gated by
-  `[cis].allow_disruptive` in `ciscvm.toml` — don't downgrade a
+  `[cis].allow_disruptive` in `cis-image.toml` — don't downgrade a
   legitimately disruptive rule to `"safe"` to make a benchmark score look
   better.
 - Keep the benchmark edition and page numbers accurate — they're surfaced
@@ -168,9 +168,9 @@ numbers present, etc.), so a malformed entry in any profile fails fast.
 ## Reporting bugs
 
 Include:
-- The exact `ciscvm` command and relevant `ciscvm.toml` fields (redact
-  secrets — there shouldn't be any in the file, but redact anything you're
-  unsure about).
+- The exact `cis-image` command and relevant `cis-image.toml` fields
+  (redact secrets — there shouldn't be any in the file, but redact anything
+  you're unsure about).
 - Full output with `-v`/`--verbose`, or the contents of `--log-file` if you
   used one.
 - The profile name and CIS level.
