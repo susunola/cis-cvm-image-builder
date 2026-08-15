@@ -758,7 +758,7 @@ distribute pipeline):
 |---|---|---|
 | `preflight` fails with credential error | AK/SK not exported | `export TENCENTCLOUD_SECRET_ID=...` |
 | `validate` fails with plugin download | `packer init` failed (offline?) | Run with internet access — Packer caches plugins after first download |
-| Packer times out waiting for SSH | SG doesn't allow TCP/22 from build IP | Add inbound rule for your egress IP |
+| Packer times out waiting for SSH | SG doesn't allow TCP/22 from build IP | Add inbound rule for your egress IP — `preflight` now checks this and warns proactively when it can resolve the SG rules and your public IP |
 | `ansible-playbook` can't find python3 | Source image has no Python | Python 3.6+ must be pre-installed |
 | Windows build WinRM error | Password not set or TCP/5986 blocked | Export `WINRM_PASSWORD` + open inbound rule |
 | Build passes but score below 85% | Gate threshold too strict for this OS | Adjust `cis_min_score` in the role, or use Level 1 |
@@ -804,12 +804,10 @@ distribute pipeline):
 
 ## Contributing
 
-Bug reports and pull requests are welcome. Run the test suite before submitting:
-
-```bash
-pip install -e ".[dev]"
-pytest tests/ -v
-```
+Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for the development setup, lint/type-check/test commands, the project's hard
+constraints (zero third-party runtime dependencies, no long-lived
+credentials), and the guide for adding a new CIS profile.
 
 ---
 

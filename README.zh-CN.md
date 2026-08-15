@@ -424,7 +424,7 @@ cis-image build --log-file build.log
 |---|---|---|
 | `preflight` 报凭据错误 | 未 export `TENCENTCLOUD_SECRET_ID` / `_KEY` | 在 shell 中 `export TENCENTCLOUD_SECRET_ID=...` |
 | `validate` 报插件下载错误 | `packer init` 失败（如构建机无网络） | 联网重新执行 `cis-image validate`，Packer 首次下载后会缓存插件 |
-| Packer 等待 SSH 超时 | 安全组未对构建机放行 22 端口 | 添加入站规则：TCP/22，来源为构建机出口 IP |
+| Packer 等待 SSH 超时 | 安全组未对构建机放行 22 端口 | 添加入站规则：TCP/22，来源为构建机出口 IP —— `preflight` 现在会在能解析安全组规则和本机公网 IP 时主动提前预警此问题 |
 | `ansible-playbook` 报 "python3 not found" | 构建实例 OS 未预装 Python | 确保源镜像包含 Python >= 3.6 |
 | Windows 构建 WinRM 连接失败 | 未设 `WINRM_PASSWORD` 或网络不通 | export 密码 + 确保 TCP/5986 对构建 IP 放行 |
 | 构建成功但仍有 CIS 发现项 | 当前 OS 的部分规则未被覆盖 | 先用 `level: 1`（Level 1 覆盖大部分常见规则） |
@@ -460,12 +460,7 @@ cis-image build --log-file build.log
 
 ## 参与贡献
 
-欢迎提交 Bug 报告和 Pull Request。提交前请运行测试：
-
-```bash
-pip install -e ".[dev]"
-pytest tests/ -v
-```
+欢迎提交 Bug 报告和 Pull Request。开发环境搭建、lint/类型检查/测试命令、项目硬性约束（零第三方运行时依赖、不存储长期凭证）以及新增 CIS profile 的指南，请参阅 [CONTRIBUTING.md](CONTRIBUTING.md)（英文）。
 
 ## 许可证
 
