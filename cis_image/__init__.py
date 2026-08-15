@@ -355,17 +355,6 @@ def _validate_value_present(label: str, value: Any) -> str | None:
 
 def load_config(path: Path) -> dict[str, Any]:
     """Load and validate cis-image.toml.  Raises ConfigError on invalid input."""
-    # Legacy config fallback: keep reading ciscvm.toml when the default
-    # cis-image.toml is absent, so existing pipelines are not broken.
-    if not path.exists() and path.name == "cis-image.toml":
-        legacy = path.parent / "ciscvm.toml"
-        if legacy.exists():
-            warn(
-                f"Legacy config '{legacy}' found — please rename it to "
-                f"'{path.name}' (ciscvm.toml support will be removed in a "
-                f"future release)."
-            )
-            path = legacy
     if not path.exists():
         raise ConfigError(
             f"Configuration file not found: {path}\n"
