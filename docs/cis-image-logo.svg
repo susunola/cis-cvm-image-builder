@@ -1,3 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <image href="cis-image-logo.png" width="1024" height="1024"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1150" width="1024" height="1150">
+  <image href="cis-image-icon.png" x="112" y="0" width="800" height="800"/>
+  <text x="512" y="950" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        font-size="42" font-weight="500" letter-spacing="8" fill="#6B7C95">HARDENED IMAGE BUILDER</text>
 </svg>
