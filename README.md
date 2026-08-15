@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-image@7203244/docs/ciscvm-logo.png" alt="cis-image — SecX Series" width="520">
+  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-image@7203244/docs/cis-image-logo.png" alt="cis-image — SecX Series" width="520">
 </p>
 
 <p align="center">
@@ -51,7 +51,7 @@ pip install .
 
 # 2. Generate and edit configuration
 cis-image init
-# Edit ciscvm.toml — fill in VPC, subnet, security group, and source_image_id
+# Edit cis-image.toml — fill in VPC, subnet, security group, and source_image_id
 
 # 3. Build
 cis-image preflight   # validate credentials and prerequisites
@@ -71,7 +71,7 @@ export WINRM_PASSWORD=xxxx   # Windows builds only
 
 ```
 ══════════════════════════════════════════════════════════
-  ciscvm 0.14.1 — tencentos3 (L1) → ap-guangzhou-4
+  cis-image 0.14.1 — tencentos3 (L1) → ap-guangzhou-4
 ══════════════════════════════════════════════════════════
 [packer]  tencentcloud-cvm: Launching instance (S5.MEDIUM2)...
 [packer]  tencentcloud-cvm: Provisioning with ansible-local...
@@ -98,11 +98,11 @@ export WINRM_PASSWORD=xxxx   # Windows builds only
 ✔  Build complete — image-id: img-abc123def456
 ✔  Output image ID(s): img-abc123def456
 ✔  Re-audit score: 97.2%
-✔  Lineage recorded -> ~/.ciscvm/lineage.jsonl
+✔  Lineage recorded -> ~/.cis-image/lineage.jsonl
 ✔  Provenance signed with GPG key 0123ABCD -> ...provenance.json.sig
 ```
 
-> **Not installed?** Replace `cis-image` with `python3 -m ciscvm` in any command.
+> **Not installed?** Replace `cis-image` with `python3 -m cis_image` in any command.
 
 ---
 
@@ -135,7 +135,7 @@ cis-image --version
 
 ```bash
 cis-image                                    # show help
-cis-image init                               # generate ciscvm.toml
+cis-image init                               # generate cis-image.toml
 cis-image preflight                          # validate config, credentials, prerequisites
 cis-image validate                           # render templates + packer validate
 cis-image build                              # render + packer build → custom image
@@ -158,13 +158,13 @@ cis-image check-source                       # vendor image refresh detection (r
 cis-image audit --tool oscap ...             # independent audit: OpenSCAP (RHEL-family SCAP content)
 cis-image audit --tool inspec ...            # independent audit: Chef InSpec (dev-sec baselines)
 cis-image audit --tool kitty --parse out.csv # independent audit: HardeningKitty (Windows) CSV
-cis-image clean                              # remove .ciscvm-build/
+cis-image clean                              # remove .cis-image-build/
 ```
 
 | Flag | Applies to | Description |
 |---|---|---|
-| `--config <path>` | all | Config file path (default `./ciscvm.toml`) |
-| `--workdir <dir>` | all | Build output directory (default `./.ciscvm-build`) |
+| `--config <path>` | all | Config file path (default `./cis-image.toml`) |
+| `--workdir <dir>` | all | Build output directory (default `./.cis-image-build`) |
 | `--quiet` | validate, build, scan | Suppress packer output |
 | `--debug` | validate, build, scan | Enable `PACKER_LOG=1` |
 | `-y` / `--yes` | build | Skip confirmation prompt |
@@ -186,7 +186,7 @@ cis-image clean                              # remove .ciscvm-build/
 
 ## Configuration
 
-`ciscvm.toml` is the single source of truth — no manual template editing.
+`cis-image.toml` is the single source of truth — no manual template editing.
 
 ```toml
 [build]
@@ -228,7 +228,7 @@ secret_key_env = "TENCENTCLOUD_SECRET_KEY"
 # Group-account (organization) cross-account builds — assume a CAM role in
 # the target account using the local AK/SK:
 # assume_role_arn      = "qcs::cam::uin/1234567890:roleName/CrossAccountBuilder"
-# assume_role_session  = "ciscvm-build"   # optional, default "ciscvm"
+# assume_role_session  = "cisimage-build"   # optional, default "cis-image"
 # assume_role_duration = 3600             # optional, default 7200, range 0-43200
 # OIDC / STS temporary credentials (CI, no long-lived AK/SK):
 # security_token_env = "TENCENTCLOUD_SECURITY_TOKEN"   # Packer default
@@ -282,7 +282,7 @@ benchmark = "CIS-v1.0.0"
 | | `security_token_env` | string | STS session-token env var (default `TENCENTCLOUD_SECURITY_TOKEN`; used with OIDC/STS credentials) |
 | | `winrm_password_env` | string | Windows admin password env var |
 | | `assume_role_arn` | string | Group-account CAM role ARN (empty = off). e.g. `qcs::cam::uin/12345:roleName/X` |
-| | `assume_role_session` | string | AssumeRole session name (default `ciscvm`) |
+| | `assume_role_session` | string | AssumeRole session name (default `cis-image`) |
 | | `assume_role_duration` | int | Session seconds, 0-43200 (default 7200) |
 | `[meta]` | `os_tag` | string | Tag value for output image |
 | | `benchmark` | string | CIS benchmark version tag (pinned in lineage/provenance for auditability) |
@@ -291,7 +291,7 @@ benchmark = "CIS-v1.0.0"
 | | `ssh_debug_password` | string | Root password for VNC debug (default empty) |
 | | `smoke_test` | bool | Instance-level checks before snapshot (default `true`) |
 | | `cve_scan` | bool | Trivy CRITICAL-severity vulnerability gate before the snapshot (default `false`) |
-| | `sbom` | bool | Emit an SBOM (`/opt/ciscvm-SBOM.jsonl`) into the image, hash it and pin it in lineage + provenance (default `false`) |
+| | `sbom` | bool | Emit an SBOM (`/opt/cis-image-SBOM.jsonl`) into the image, hash it and pin it in lineage + provenance (default `false`) |
 | | `verify_boot` | bool | After the snapshot, boot a probe instance from the produced image, re-audit on fresh boot and gate (Linux only, default `false`) |
 | | `test_components` | []string | User-defined test scripts run sequentially before the snapshot (Image Builder test-component style); non-zero exit aborts the build (empty = off) |
 | `[notify]` | `webhook` | string | WeCom group-robot webhook URL (empty = off) |
@@ -304,7 +304,7 @@ benchmark = "CIS-v1.0.0"
 ## Architecture
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-image@main/docs/ciscvm-architecture.png" alt="cis-image build architecture — TOML config to hardened golden image" width="720">
+  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-image@main/docs/cis-image-architecture.png" alt="cis-image build architecture — TOML config to hardened golden image" width="720">
 </p>
 
 ### Linux pipeline
@@ -324,7 +324,7 @@ CIS rules can disable root SSH login (`PermitRootLogin no` — TencentOS 3 rule
 adds two orchestration-layer guarantees that are regenerated on every build
 (they can never go stale):
 
-1. **Dedicated build user `ciscvm`** — created by `install-ansible.sh` with
+1. **Dedicated build user `cisimage`** — created by `install-ansible.sh` with
    passwordless sudo and the same `authorized_keys` as the current SSH user,
    so it can reconnect even if root login is fully disabled.
 2. **SSH guard** — opens the live SSH port in firewalld / nftables /
@@ -333,30 +333,30 @@ adds two orchestration-layer guarantees that are regenerated on every build
 
 The **final image ships hardened**: the cleanup provisioner re-applies
 `PermitRootLogin no` before the snapshot is taken. To administer a built
-image, use the `ciscvm` user (`sudo -i` for root), or create your own user —
+image, use the `cisimage` user (`sudo -i` for root), or create your own user —
 root password login is disabled by design per CIS.
 
 #### What ships in the image (Linux)
 
-Every Linux build leaves a ciscv paper trail inside the image so admins know
+Every Linux build leaves a cis-image paper trail inside the image so admins know
 exactly what was done and which admin channel to use:
 
 | Path | Purpose |
 |------|---------|
-| `/etc/ciscvm/banner` | ASCII banner with the ciscv logo + image metadata (colored). |
+| `/etc/cis-image/banner` | ASCII banner with the cis-image logo + image metadata (colored). |
 | `/etc/motd` | The same banner + build summary, shown after SSH login. |
 | `/etc/issue`, `/etc/issue.net` | Plain-text version for serial / network console. |
-| `/etc/ssh/sshd_config.d/99-ciscvm-banner.conf` | Wires the SSH `Banner` directive. |
-| `/opt/ciscvm-REPORT.md` | Full hardening report (what was done, score, follow-ups). |
-| `/opt/ciscvm-AUDIT-RESULT.json` | Raw re-audit JSON (the gate result). |
-| `/usr/local/bin/ciscvm-info` | One-shot summary command: `ciscvm-info`. |
+| `/etc/ssh/sshd_config.d/99-cis-image-banner.conf` | Wires the SSH `Banner` directive. |
+| `/opt/cis-image-REPORT.md` | Full hardening report (what was done, score, follow-ups). |
+| `/opt/cis-image-AUDIT-RESULT.json` | Raw re-audit JSON (the gate result). |
+| `/usr/local/bin/cis-image-info` | One-shot summary command: `cis-image-info`. |
 
 Windows builds ship the same audit evidence at
-`C:\ProgramData\ciscvm\AUDIT-RESULT.json` (raw engine result.json from the
-build-time audit — the Windows counterpart of `/opt/ciscvm-AUDIT-RESULT.json`).
+`C:\ProgramData\cis-image\AUDIT-RESULT.json` (raw engine result.json from the
+build-time audit — the Windows counterpart of `/opt/cis-image-AUDIT-RESULT.json`).
 
 ```bash
-$ ssh ciscvm@<host>
+$ ssh cisimage@<host>
               .---..---.
           .-'          '-.           SECX  SERIES
         .'                '.           ___ ___  ___  ___
@@ -371,14 +371,14 @@ $ ssh ciscvm@<host>
 Image:    t3-cis-level1-20260806-173729
 Source:   img-test-abc123
 OS/Level: tencentos-3 / level1-server
-Built:    2026-08-06T17:37:29Z by ciscv 0.10.0
+Built:    2026-08-06T17:37:29Z by cis-image 0.10.0
 
-[ REPORT  ] cat /opt/ciscvm-REPORT.md     (or run: ciscvm-info)
-[ ADMIN   ] ssh ciscvm@<host>            (root login disabled per CIS 5.1.22)
-[ ESCALATE] sudo -i                        (NOPASSWD via /etc/sudoers.d/ciscvm-build)
+[ REPORT  ] cat /opt/cis-image-REPORT.md     (or run: cis-image-info)
+[ ADMIN   ] ssh cisimage@<host>            (root login disabled per CIS 5.1.22)
+[ ESCALATE] sudo -i                        (NOPASSWD via /etc/sudoers.d/cisimage-build)
 ```
 
-The report at `/opt/ciscvm-REPORT.md` documents what ciscv did to the base
+The report at `/opt/cis-image-REPORT.md` documents what cis-image did to the base
 image (per-rule counts, outstanding failures, how to re-run the scan) so
 the next admin does not have to guess.
 
@@ -392,11 +392,11 @@ Windows builds use the Packer `ansible` provisioner (controller-side) over WinRM
 | Packer provisioner | `ansible-local` (runs in the CVM) | `ansible` (controller-side) |
 | Engine | `cis_engine.py` | `cis_engine.ps1` |
 | Controller requirement | none — engine runs on the instance | `ansible-core` on the build machine |
-| Reboot safety net | `ciscvm` build user + SSH guard | WinRM direct (no reboot lockout risk) |
+| Reboot safety net | `cisimage` build user + SSH guard | WinRM direct (no reboot lockout risk) |
 
 ### Design
 
-**Bundled roles.** All 12 cis-os engine roles ship inside `ciscvm/roles/`. At build time the tool copies the selected role into the workspace. No Galaxy, no network dependency, no version drift.
+**Bundled roles.** All 12 cis-os engine roles ship inside `cis_image/roles/`. At build time the tool copies the selected role into the workspace. No Galaxy, no network dependency, no version drift.
 
 **ansible-local (Linux).** Playbooks and roles execute inside the build instance — the Packer controller does not need SSH access into the cloud VPC.
 
@@ -432,7 +432,7 @@ Windows builds use the Packer `ansible` provisioner (controller-side) over WinRM
 | `win2022` | Windows Server 2022 | Administrator | `roles/cis_win2022/` |
 | `win2025` | Windows Server 2025 | Administrator | `roles/cis_win2025/` |
 
-To switch profiles, change `[build].profile` and `source_image_id` in `ciscvm.toml`.
+To switch profiles, change `[build].profile` and `source_image_id` in `cis-image.toml`.
 
 ---
 
@@ -509,8 +509,8 @@ What auditors usually ask about, and where each control lives:
   output image IDs, score, version), can emit a GPG-signed SLSA-style
   provenance statement, an SBOM pinned into the provenance, and
   SARIF/XCCDF reports for GRC ingestion. The image itself carries the
-  audit result (`/opt/ciscvm-AUDIT-RESULT.json`) and a full report
-  (`/opt/ciscvm-REPORT.md`).
+  audit result (`/opt/cis-image-AUDIT-RESULT.json`) and a full report
+  (`/opt/cis-image-REPORT.md`).
 
 ---
 
@@ -528,7 +528,7 @@ distribute everywhere:
   ```toml
   [cloud]
   assume_role_arn      = "qcs::cam::uin/1234567890:roleName/CrossAccountBuilder"
-  assume_role_session  = "ciscvm-build"   # optional
+  assume_role_session  = "cisimage-build"   # optional
   assume_role_duration = 3600             # optional, default 7200
   ```
 
@@ -570,7 +570,7 @@ and cis-image hands the session token straight to Packer.
          role-arn: qcs::cam::uin/1234567890:roleName/ci-builder
          oidc-provider-id: github
          region: ap-guangzhou
-     - run: cis-image build --config ciscvm.toml
+     - run: cis-image build --config cis-image.toml
    ```
 
 3. **cis-image side**: nothing to configure — the default
@@ -600,10 +600,10 @@ distribute pipeline):
   build — **no image is produced**. Disable with `[meta].smoke_test = false`.
 
 - **Lineage (distribute metadata)** — every build appends a record
-  (`~/.ciscvm/lineage.jsonl`): source image → output image IDs, level,
+  (`~/.cis-image/lineage.jsonl`): source image → output image IDs, level,
   region, score, version, timestamp.  The full per-rule audit JSON is
   archived alongside it on the build machine at
-  `~/.ciscvm/reports/<image-name>.json`.  Query it with:
+  `~/.cis-image/reports/<image-name>.json`.  Query it with:
 
   ```bash
   cis-image images            # recent builds, newest first
@@ -632,11 +632,11 @@ distribute pipeline):
 
   ```bash
   # systemd timer / cron example — rebuild monthly, only notify on failure
-  0 3 1 * *  cis-image build --config /etc/ciscvm/ciscvm.toml -y
+  0 3 1 * *  cis-image build --config /etc/cis-image/cis-image.toml -y
   ```
 
 - **SLSA-style provenance** — after a successful build cis-image writes a
-  signed provenance statement (`~/.ciscvm/provenance/…provenance.json`)
+  signed provenance statement (`~/.cis-image/provenance/…provenance.json`)
   describing exactly what produced the image (source image, profile, level,
   region, cis-image version, score). Tencent CVM images are `img-*` artifacts,
   not OCI images, so cosign container signing does not apply — instead the
@@ -653,7 +653,7 @@ distribute pipeline):
   Verify any signed provenance (audit / compliance):
 
   ```bash
-  cis-image verify --provenance ~/.ciscvm/provenance/xxx.provenance.json
+  cis-image verify --provenance ~/.cis-image/provenance/xxx.provenance.json
   cis-image verify --image img-ekny61ig        # auto-locate by image ID
   ```
 
@@ -662,7 +662,7 @@ distribute pipeline):
   NONE). Exit code is non-zero when the signature is missing or invalid.
 
 - **SBOM + change detection (supply chain)** — with `[meta].sbom = true` the
-  build emits a zero-dependency SBOM (`/opt/ciscvm-SBOM.jsonl`, native
+  build emits a zero-dependency SBOM (`/opt/cis-image-SBOM.jsonl`, native
   rpm/dpkg query) into the image, and its SHA-256 + package count are pinned
   in lineage and the provenance statement (`sbomSha256` /
   `sbomPackageCount`) — SLSA L2-style evidence of what exactly shipped.
@@ -717,7 +717,7 @@ distribute pipeline):
   launched from it drift (configs tweaked, packages patched, services
   changed). `cis-image drift` re-scans a LIVE instance over SSH and diffs the
   result against the baseline — the audit result shipped inside the image
-  (`/opt/ciscvm-AUDIT-RESULT.json`) or a saved one:
+  (`/opt/cis-image-AUDIT-RESULT.json`) or a saved one:
 
   ```bash
   cis-image drift --host 1.2.3.4 --image img-ekny61ig --min-score 85
@@ -762,7 +762,7 @@ distribute pipeline):
 | `ansible-playbook` can't find python3 | Source image has no Python | Python 3.6+ must be pre-installed |
 | Windows build WinRM error | Password not set or TCP/5986 blocked | Export `WINRM_PASSWORD` + open inbound rule |
 | Build passes but score below 85% | Gate threshold too strict for this OS | Adjust `cis_min_score` in the role, or use Level 1 |
-| TencentOS 4 apply fails: `Module result deserialization failed` + missing `/tmp/ansible_...payload.zip` | ansible-core ≥ 2.16 (modular ansiballz) caches module payloads in `/tmp`, which TencentOS 4 sweeps / backs with tmpfs; the reused payload vanishes mid-run | Fixed in v0.14.4 — the venv wrapper exports `TMPDIR=/opt/ciscvm-ansible/tmp` so payloads live on stable root-disk storage |
+| TencentOS 4 apply fails: `Module result deserialization failed` + missing `/tmp/ansible_...payload.zip` | ansible-core ≥ 2.16 (modular ansiballz) caches module payloads in `/tmp`, which TencentOS 4 sweeps / backs with tmpfs; the reused payload vanishes mid-run | Fixed in v0.14.4 — the venv wrapper exports `TMPDIR=/opt/cis-image-ansible/tmp` so payloads live on stable root-disk storage |
 | TencentOS 4 reboot → Packer reconnect `i/o timeout` for 5+ min | ssh-guard runs *before* apply; CIS firewall rules (3.4.x) reload firewalld / switch the active zone, and the new zone has no SSH allow rule → port 22 is DROPped after reboot | Fixed in v0.14.8 — ssh-guard is re-run right before the reboot provisioner, and rules are persisted (`nft list ruleset > /etc/sysconfig/nftables.conf`, `iptables-save > /etc/sysconfig/iptables`) |
 | `packer build` fails at prepare: `Unsupported argument "ansible_env_vars"` | `ansible_env_vars` only exists on the `ansible` (non-local) provisioner, not `ansible-local` | Fixed in v0.14.4 — TMPDIR is injected via the ansible-playbook venv wrapper instead of an HCL argument |
 | `packer build` fails at parse: `Missing item separator` in `main.pkr.hcl` | A missing comma between `inline = [...]` items — Python silently concatenates the two adjacent strings, HCL then sees one unterminated item | Fixed in v0.14.14 — comma restored; regression test scans every rendered inline list for missing separators |
@@ -778,13 +778,13 @@ distribute pipeline):
 - [x] Image governance loop: smoke test / lineage / notifications / SLSA signing
 - [x] `cis-image list` — enumerate available profiles with metadata
 - [x] `cis-image scan` — audit-only mode (no remediation, gate on findings)
-- [x] Custom rule selection (`rules_include` / `rules_exclude` in `ciscvm.toml`)
-- [x] PyPI package (`pip install ciscvm`) — publish workflow included
+- [x] Custom rule selection (`rules_include` / `rules_exclude` in `cis-image.toml`)
+- [x] PyPI package (`pip install cis-image`) — publish workflow included
 - [x] Automatic image cleanup (retire old images by lineage age)
 - [x] Independent audit tool (`cis-image audit` — oscap / inspec / kitty)
 - [x] Benchmark-pinned rule IDs in engine output + SARIF (CIS-CAT cross-reference)
 - [x] Clean-boot verification (`cis-image verify-image` / `[meta].verify_boot`)
-- [x] Per-control overrides (`[cis].overrides` in `ciscvm.toml`)
+- [x] Per-control overrides (`[cis].overrides` in `cis-image.toml`)
 - [x] CVE scan gate + SBOM emission (`[meta].cve_scan` / `[meta].sbom`)
 - [x] Change detection (`cis-image pending` / `build --skip-if-unchanged`)
 - [x] XCCDF 1.2 report export (`scan --xccdf`, audit `--xccdf`)

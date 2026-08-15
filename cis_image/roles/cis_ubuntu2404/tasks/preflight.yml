@@ -1,0 +1,84 @@
+---
+- name: Validate cis_mode
+  ansible.builtin.fail:
+    msg: "cis_mode must be 'scan' or 'apply', got: {{ cis_mode }}"
+  when: cis_mode not in ['scan', 'apply']
+
+- name: Validate cis_profile
+  ansible.builtin.fail:
+    msg: "cis_profile must be 'L1' or 'L2', got: {{ cis_profile }}"
+  when: cis_profile not in ['L1', 'L2']
+
+- name: Validate cis_platform
+  ansible.builtin.fail:
+    msg: "cis_platform must be 'server', 'workstation', or 'all', got: {{ cis_platform }}"
+  when: cis_platform not in ['server', 'workstation', 'all']
+
+- name: Locate Python 3 interpreter
+  ansible.builtin.shell: |
+    for py in /opt/cis-image-ansible/bin/python /opt/cis-image-ansible/bin/python3 /usr/bin/python3 /usr/libexec/platform-python /usr/bin/python3.6 /usr/bin/python3.8 /usr/bin/python3.9 /usr/bin/python3.10 /usr/bin/python3.11 /usr/bin/python3.12 /usr/bin/python3.13 /usr/bin/python3.14; do
+      if [ -x "$py" ]; then echo "$py"; exit 0; fi
+    done
+    echo "NOT_FOUND"; exit 1
+  register: _py_probe
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Verify Python 3 found
+  ansible.builtin.fail:
+    msg: "Python 3.6+ not found on target"
+  when: "_py_probe.stdout == 'NOT_FOUND' or _py_probe.rc != 0"
+
+- name: Set Python path
+  ansible.builtin.set_fact:
+    cis_python_real: "{{ _py_probe.stdout.strip() }}"
+
+- name: Determine effective privilege level
+  ansible.builtin.set_fact:
+    cis_is_root: "{{ ansible_facts.user_id == 'root' }}"
+    cis_is_become_root: "{{ (ansible_facts.become | default(false)) and (ansible_facts.become_user | default('root') == 'root') }}"
+    cis_is_become: "{{ ansible_facts.become | default(false) }}"
+    cis_has_privilege: "{{ ansible_facts.user_id == 'root' or ((ansible_facts.become | default(false)) and (ansible_facts.become_user | default('root') == 'root')) }}"
+
+- name: Require root or sudo-become-root for apply mode
+  ansible.builtin.fail:
+    msg: >
+      Apply mode requires root privileges.
+      Options:
+        A. Run as root directly (ansible_user=root)
+        B. Use --become with sudo to root (ansible-playbook apply.yml --become)
+        C. Set ansible_become=true and ansible_become_user=root in inventory
+  when:
+    - cis_mode == 'apply'
+    - not cis_has_privilege
+
+- name: Warn about become-as-role-user for apply mode
+  ansible.builtin.debug:
+    msg: >
+      Running apply mode with become as '{{ ansible_facts.become_user }}' (not root).
+      Some system-level changes may fail. Consider using --become to root if available.
+  when:
+    - cis_mode == 'apply'
+    - cis_is_become | bool
+    - not cis_is_become_root
+
+- name: Warn about non-root scan limitations
+  ansible.builtin.debug:
+    msg: >
+      Running scan without root. File permission checks, kernel parameter reads,
+      and some package queries may be skipped or incomplete.
+      For full scan coverage, re-run with --become (Option B above).
+  when:
+    - cis_mode == 'scan'
+    - not cis_has_privilege
+
+- name: Announce benchmark run
+  ansible.builtin.debug:
+    msg:
+      - "======================================================"
+      - "  CIS Benchmark: CIS Ubuntu Linux 24.04 LTS Benchmark v2.0.0"
+      - "  Mode: {{ cis_mode }}  Profile: {{ cis_profile }}  Platform: {{ cis_platform }}"
+      - "  Allow disruptive: {{ cis_allow_disruptive }}"
+      - "  Target: {{ inventory_hostname }}"
+      - "======================================================"

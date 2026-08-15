@@ -29,7 +29,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install ciscvm
+      - name: Install cis-image
         run: pip install .
 
       - name: Authenticate to Tencent Cloud via OIDC
@@ -40,4 +40,4 @@ jobs:
           region: ap-guangzhou
 
       - name: Build golden image
-        run: ciscvm build --config ciscvm.toml -y
+        run: cis-image build --config cis-image.toml -y

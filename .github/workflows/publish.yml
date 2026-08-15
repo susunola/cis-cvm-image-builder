@@ -1,6 +1,6 @@
 name: publish-pypi
 
-# Publishes ciscvm to PyPI when a version tag (v*) is pushed.
+# Publishes cis-image to PyPI when a version tag (v*) is pushed.
 # Authentication: prefer trusted publishing (OIDC — no token stored); if the
 # project is not yet configured for it, fall back to the PYPI_TOKEN secret.
 on:
@@ -35,6 +35,6 @@ jobs:
           # Trusted publishing is used automatically when no token is given.
           # Enable it once at
           #   https://pypi.org/manage/account/publishing/
-          #   (owner: the account that owns the "ciscvm" project)
+          #   (owner: the account that owns the "cis-image" project)
           # Otherwise create a PyPI API token and store it as PYPI_TOKEN.
           password: ${{ secrets.PYPI_TOKEN }}

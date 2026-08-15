@@ -15,7 +15,7 @@
 > **金汤·筑城 (Forge)** — 固若金汤 · cis-* 家族:cis-image(镜像源头)、cis-host(主机加固)、cis-cloud(云上合规)
 
 > 五条命令在腾讯云上构建 CIS 加固黄金镜像。无需 Galaxy，构建时零网络依赖，
-> 不用手写模板 — 一切由 `ciscvm.toml` 驱动。
+> 不用手写模板 — 一切由 `cis-image.toml` 驱动。
 
 **做什么：** 起一台临时 CVM，应用捆绑的 [cis-os](https://github.com/susunola/cis-os)
 引擎执行 CIS 加固，跑内建门禁，产出自定义镜像。加固后仍有残留发现项则构建失败，镜像不入库。
@@ -59,7 +59,7 @@
 git clone https://github.com/susunola/cis-image.git
 cd cis-image
 
-# 推荐：从仓库安装（提供 `ciscvm` 命令）
+# 推荐：从仓库安装（提供 `cis-image` 命令）
 pip install .
 
 cis-image --version
@@ -84,7 +84,7 @@ export WINRM_PASSWORD=xxxx
 # 1. 生成配置文件
 cis-image init
 
-# 2. 编辑 ciscvm.toml，填入 VPC、子网、安全组和源镜像 ID
+# 2. 编辑 cis-image.toml，填入 VPC、子网、安全组和源镜像 ID
 
 # 3. 构建前自检（校验配置、凭据和前置条件）
 cis-image preflight
@@ -103,7 +103,7 @@ cis-image clean
 
 ```
 ════════════════════════════════════════════════════════
-  ciscvm 0.5.0 — tencentos3 (L1) → ap-guangzhou-4
+  cis-image 0.5.0 — tencentos3 (L1) → ap-guangzhou-4
 ════════════════════════════════════════════════════════
 [packer]  tencentcloud-cvm: output will be in this color
 [packer]  ==> tencentcloud-cvm: Creating temporary keypair...
@@ -132,7 +132,7 @@ cis-image clean
 
 | 命令 | 说明 |
 |---|---|
-| `cis-image init` | 在当前目录生成 `ciscvm.toml` |
+| `cis-image init` | 在当前目录生成 `cis-image.toml` |
 | `cis-image preflight` | 校验配置、凭据和前置条件 |
 | `cis-image validate` | 渲染模板并执行 `packer validate` |
 | `cis-image build` | 渲染 + `packer build`（产出镜像） |
@@ -156,14 +156,14 @@ cis-image clean
 | `cis-image audit --tool oscap ...` | 独立审计：OpenSCAP（RHEL 系 SCAP 内容） |
 | `cis-image audit --tool inspec ...` | 独立审计：Chef InSpec（dev-sec 基线） |
 | `cis-image audit --tool kitty --parse out.csv` | 独立审计：HardeningKitty（Windows）CSV |
-| `cis-image clean` | 删除 `.ciscvm-build/` 工作目录 |
+| `cis-image clean` | 删除 `.cis-image-build/` 工作目录 |
 
 所有命令均支持以下参数：
 
 | 参数 | 默认值 | 适用范围 | 说明 |
 |---|---|---|---|
-| `--config <path>` | `./ciscvm.toml` | 全部 | 配置文件路径 |
-| `--workdir <dir>` | `./.ciscvm-build` | 全部 | 渲染输出目录 |
+| `--config <path>` | `./cis-image.toml` | 全部 | 配置文件路径 |
+| `--workdir <dir>` | `./.cis-image-build` | 全部 | 渲染输出目录 |
 | `--quiet` | — | validate / build | 精简 packer 输出 |
 | `--debug` | — | validate / build | 启用 Packer 调试日志（`PACKER_LOG=1`） |
 | `-y` / `--yes` | — | build | 跳过构建确认提示 |
@@ -182,7 +182,7 @@ cis-image clean
 
 ## 配置文件
 
-`ciscvm.toml` 是唯一事实来源，无需手写 Packer 模板。
+`cis-image.toml` 是唯一事实来源，无需手写 Packer 模板。
 
 ```toml
 [build]
@@ -269,9 +269,9 @@ benchmark = "CIS-v1.0.0"
 ```
 构建机                                     腾讯云
 ┌─────────────┐                           ┌──────────────────┐
-│ ciscvm/     │── packer build ──────────▶│ 临时 CVM          │
+│ cis-image/     │── packer build ──────────▶│ 临时 CVM          │
 │             │                           │   (SSH 端口 22)  │
-│ ciscvm.toml │                           │ 1. 安装 ansible   │
+│ cis-image.toml │                           │ 1. 安装 ansible   │
 │             │                           │    (dnf/apt/zypp)│
 │ roles/      │── 上传至 CVM ────────────▶│ 2. CIS 执行       │
 │   cis_*     │      (捆绑角色)            │    (cis_engine.py)│
@@ -293,10 +293,10 @@ Packer 在临时 CVM 上通过 `ansible-local` 执行三个阶段：
 
 CIS 规则会禁用 root 的 SSH 登录（`PermitRootLogin no` —— TencentOS 3 规则
 5.1.22 / TencentOS 4 规则 5.2.10）。由于构建工具本身以 `root` 连接，
-重启后会被锁在外面。ciscvm 因此在编排层增加两道每次构建都会重新生成的
+重启后会被锁在外面。cis-image 因此在编排层增加两道每次构建都会重新生成的
 保障（不会因安装旧包而过期）：
 
-1. **专用构建用户 `ciscvm`** —— 由 `install-ansible.sh` 创建，具备免密
+1. **专用构建用户 `cis-image`** —— 由 `install-ansible.sh` 创建，具备免密
    sudo，并继承当前 SSH 用户的 `authorized_keys`；即使 root 登录被完全
    禁用也能重连。
 2. **SSH guard** —— 在 firewalld / nftables / iptables 中放行实际 SSH
@@ -304,7 +304,7 @@ CIS 规则会禁用 root 的 SSH 登录（`PermitRootLogin no` —— TencentOS 
    root 登录，保证 Packer 能重连。
 
 **最终镜像交付时仍为加固态**：cleanup 阶段在快照前重新应用
-`PermitRootLogin no`。管理构建出的镜像请使用 `ciscvm` 用户（`sudo -i`
+`PermitRootLogin no`。管理构建出的镜像请使用 `cis-image` 用户（`sudo -i`
 获取 root），或自行创建用户 —— 按 CIS 要求，root 密码登录默认关闭。
 
 ### Windows 构建流水线（WinRM × 控制器侧 ansible）
@@ -312,9 +312,9 @@ CIS 规则会禁用 root 的 SSH 登录（`PermitRootLogin no` —— TencentOS 
 ```
 构建机                                     腾讯云
 ┌─────────────┐                           ┌──────────────────┐
-│ ciscvm/     │── packer build ──────────▶│ 临时 CVM          │
+│ cis-image/     │── packer build ──────────▶│ 临时 CVM          │
 │             │                           │  (WinRM 5986)    │
-│ ciscvm.toml │                           │                  │
+│ cis-image.toml │                           │                  │
 │             │                           │                  │
 │ roles/      │── ansible provisioner ───▶│ CIS 执行           │
 │   cis_win*  │   (控制器侧，winrm 连接)   │ (cis_engine.ps1)  │
@@ -331,7 +331,7 @@ Windows 构建使用 Packer 的 `ansible` provisioner（控制器侧），通过
 ### 设计要点
 
 **捆绑角色，无 Galaxy。**
-12 个 cis-os 引擎角色全部随包发布在 `ciscvm/roles/` 目录下。构建时工具
+12 个 cis-os 引擎角色全部随包发布在 `cis_image/roles/` 目录下。构建时工具
 将角色复制到工作目录。无网络依赖，无版本漂移。
 
 **`ansible-local`（Linux）— 实例内自包含。**
@@ -372,7 +372,7 @@ AK/SK 仅通过环境变量传入（HCL `sensitive = true`）。临时实例打�
 | `win2022` | Windows Server 2022 | Administrator | `roles/cis_win2022/` |
 | `win2025` | Windows Server 2025 | Administrator | `roles/cis_win2025/` |
 
-切换画像仅需改 `ciscvm.toml` 中的 `[build].profile` 和 `source_image_id`。
+切换画像仅需改 `cis-image.toml` 中的 `[build].profile` 和 `source_image_id`。
 
 ## 测试矩阵
 
@@ -434,8 +434,8 @@ cis-image build --log-file build.log
 - [x] CI 流水线（GitHub Actions + OIDC，零长时 AK/SK）
 - [x] 镜像治理闭环：smoke test / 血缘 / 通知 / SLSA 签名
 - [x] `cis-image list` — 枚举可用画像及元数据
-- [x] 自定义规则选择（`ciscvm.toml` 中的 `rules_include` / `rules_exclude`）
-- [x] PyPI 发布（`pip install ciscvm`）
+- [x] 自定义规则选择（`cis-image.toml` 中的 `rules_include` / `rules_exclude`）
+- [x] PyPI 发布（`pip install cis-image`）
 - [x] 自动镜像清理（按血缘年龄退役）
 - [x] 独立审计工具（`cis-image audit` — oscap / inspec / kitty）
 - [x] 基准锚定的规则 ID（引擎输出 + SARIF，可与 CIS-CAT 交叉核对）
