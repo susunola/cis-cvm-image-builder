@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cis-image"
-# Single source of truth: cis_image/__init__.py VERSION (read via AST, no import).
+# Single source of truth: cis_image/_logging.py VERSION (read via AST, no import).
 dynamic = ["version"]
 description = "CIS-hardened golden image builder for Tencent Cloud — config-driven CLI, 12 OS profiles, bundled cis-os engine"
 license = {text = "MIT"}
 readme = "README.md"
 authors = [{name = "cis-image contributors"}]
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 keywords = ["cis", "hardening", "tencent-cloud", "packer", "ansible", "golden-image", "devops", "security"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -51,7 +51,7 @@ packages = ["cis_image"]
 include-package-data = true
 
 [tool.setuptools.dynamic]
-version = {attr = "cis_image.VERSION"}
+version = {attr = "cis_image._logging.VERSION"}
 
 [tool.setuptools.package-data]
 cis_image = ["py.typed", "roles/**/*"]
