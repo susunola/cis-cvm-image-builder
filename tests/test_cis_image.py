@@ -3264,7 +3264,8 @@ class TestIndependentAudit:
         assert "<Benchmark" in xml_text
         assert 'idref="r1"><result>fail</result>' in xml_text
         assert 'idref="r2"><result>pass</result>' in xml_text
-        assert "<score>0.875000</score>" in xml_text
+        # Score convention unified with _build_xccdf: 0-100 percentage + max="100".
+        assert '<score max="100">87.500000</score>' in xml_text
 
     def test_audit_results_xccdf_no_score(self):
         from cis_image import _audit_results_xccdf
@@ -4754,3 +4755,173 @@ class TestLinuxRulePolicyConsistency:
             for m in re.finditer(r'-F(?=")', blob):
                 raise AssertionError(
                     f"{path}: audit rule truncated with bare -F")
+
+
+class TestCleanupPartialFailureRetiresDeleted:
+    """Regression: a delete failure mid-loop must NOT skip the lineage
+    write-back — images already deleted would stay recorded forever."""
+
+    def _lineage(self, tmp_path):
+        from datetime import datetime, timedelta
+        old_ts = (datetime.now(UTC) - timedelta(days=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        recs = [
+            {"ts": old_ts, "status": "ok",
+             "profile": "tencentos3", "cis_level": 1, "region": "ap-guangzhou",
+             "image_ids": ["img-del-ok", "img-del-fail"]},
+            {"ts": now_ts, "status": "ok",
+             "profile": "tencentos3", "cis_level": 1, "region": "ap-guangzhou",
+             "image_ids": ["img-new"]},
+        ]
+        home = tmp_path / "home"
+        (home / ".cis-image").mkdir(parents=True)
+        (home / ".cis-image" / "lineage.jsonl").write_text(
+            "\n".join(json.dumps(x) for x in recs) + "\n", encoding="utf-8")
+        return home
+
+    def test_deleted_images_retired_even_when_later_delete_fails(
+            self, tmp_path, monkeypatch):
+        from cis_image import cmd_cleanup_images
+        home = self._lineage(tmp_path)
+        monkeypatch.setattr("cis_image._lineage_path",
+                            lambda: home / ".cis-image" / "lineage.jsonl")
+        monkeypatch.setattr(
+            "cis_image._images_exist", lambda region, ids: ids)
+        def flaky_delete(region, ids):
+            if ids == ["img-del-fail"]:
+                raise ConfigError("DeleteImages failed: boom")
+        monkeypatch.setattr("cis_image._delete_images", flaky_delete)
+        args = mock.MagicMock(older_than=30, keep_latest=1, unused_since=0, apply=True)
+        rc = cmd_cleanup_images(args)
+        assert rc == 1  # the failure is still reported
+        recs = [json.loads(x) for x in
+                (home / ".cis-image" / "lineage.jsonl").read_text().splitlines() if x]
+        rec_old = next(x for x in recs
+                       if any("img-del" in i for i in (x.get("image_ids") or [])))
+        # img-del-ok was deleted -> removed from lineage; img-del-fail was
+        # NOT deleted -> still listed (and the record stays active).
+        assert rec_old["image_ids"] == ["img-del-fail"]
+        assert rec_old.get("retired") is None
+
+
+class TestRetireCleanupPreservesCorruptLines:
+    """Regression: the lineage rewrite must be atomic and must not erase
+    lines that fail to parse (lineage is the only build history record)."""
+
+    def test_corrupt_line_kept_after_retire(self, tmp_path):
+        from cis_image._commands import _retire_cleanup_images
+        path = tmp_path / "lineage.jsonl"
+        good = json.dumps({"ts": "2026-07-01T00:00:00Z", "status": "ok",
+                           "image_ids": ["img-a", "img-b"]})
+        path.write_text(good + "\nTHIS IS NOT JSON\n", encoding="utf-8")
+        _retire_cleanup_images(path, {"img-a"})
+        lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln]
+        assert "THIS IS NOT JSON" in lines  # corrupt line survived
+        rec = json.loads(lines[0])
+        assert rec["image_ids"] == ["img-b"]
+        assert rec.get("retired") is None  # still has a surviving image
+
+    def test_no_tmp_leftover_and_atomic(self, tmp_path):
+        from cis_image._commands import _retire_cleanup_images
+        path = tmp_path / "lineage.jsonl"
+        path.write_text(json.dumps({"ts": "t", "status": "ok",
+                                    "image_ids": ["img-x"]}) + "\n",
+                        encoding="utf-8")
+        _retire_cleanup_images(path, {"img-x"})
+        recs = [json.loads(x) for x in path.read_text().splitlines() if x]
+        assert recs[0]["retired"] is True
+        assert not (tmp_path / "lineage.jsonl.tmp").exists()
+
+
+class TestSgPortAllNoCrash:
+    """Regression: a TCP rule with Port="ALL" must be accepted, never
+    raise ValueError (it previously crashed preflight)."""
+
+    def test_tcp_all_ports_matches(self):
+        from cis_image import _sg_ingress_allows
+        policies = {"Ingress": [
+            {"CidrBlock": "0.0.0.0/0", "Protocol": "TCP",
+             "Port": "ALL", "Action": "ACCEPT"},
+        ]}
+        assert _sg_ingress_allows(policies, "203.0.113.5", 22) is True
+
+    def test_tcp_mixed_list_with_all(self):
+        from cis_image import _sg_ingress_allows
+        policies = {"Ingress": [
+            {"CidrBlock": "0.0.0.0/0", "Protocol": "TCP",
+             "Port": "80,ALL", "Action": "ACCEPT"},
+        ]}
+        assert _sg_ingress_allows(policies, "203.0.113.5", 443) is True
+
+    def test_tcp_garbage_port_skipped_not_crash(self):
+        from cis_image import _sg_ingress_allows
+        policies = {"Ingress": [
+            {"CidrBlock": "0.0.0.0/0", "Protocol": "TCP",
+             "Port": "not-a-port", "Action": "ACCEPT"},
+        ]}
+        # unparseable token -> rule treated as non-matching -> definite DENY
+        assert _sg_ingress_allows(policies, "203.0.113.5", 22) is False
+
+
+class TestProbePublicIpMissingCreds:
+    """Regression: _probe_public_ip must fail fast on missing credentials
+    instead of polling the API for 15 minutes with every call erroring."""
+
+    def test_raises_config_error_immediately(self, valid_toml, monkeypatch):
+        from cis_image import _probe_public_ip
+        r = resolve(valid_toml)
+        monkeypatch.delenv("TENCENTCLOUD_SECRET_ID", raising=False)
+        monkeypatch.delenv("TENCENTCLOUD_SECRET_KEY", raising=False)
+        import time as _time
+        monkeypatch.setattr(_time, "sleep", lambda *a: (_ for _ in ()).throw(
+            AssertionError("must not sleep when credentials are missing")))
+        with pytest.raises(ConfigError, match="not set"):
+            _probe_public_ip(r, "ins-probe")
+
+
+class TestAuditResultsXccdfScoreConvention:
+    """Regression: both XCCDF exports must use the same score convention
+    (0-100 percentage with max=\"100\") so GRC ingestion is consistent."""
+
+    def test_score_uses_max_100_percent(self):
+        from cis_image import _audit_results_xccdf
+        audit = {"score": 91.5, "tool": "oscap",
+                 "results": [{"id": "xccdf_r1", "status": "fail"}]}
+        out = _audit_results_xccdf(audit)
+        assert '<score max="100">91.500000</score>' in out
+        assert "<score>0.915" not in out  # old normalized convention is gone
+
+    def test_no_score_emits_no_score_tag(self):
+        from cis_image import _audit_results_xccdf
+        audit = {"score": None, "tool": "inspec", "results": []}
+        out = _audit_results_xccdf(audit)
+        assert "<score" not in out
+
+
+class TestDriftZeroScoreNotDiscarded:
+    """Regression: `or` chaining discarded a legitimate 0.0 baseline score
+    (every rule failing) and reported the wrong delta."""
+
+    def test_zero_baseline_score_reported(self, valid_toml, monkeypatch,
+                                          tmp_path, caplog):
+        from cis_image import cmd_drift
+        r = resolve(valid_toml)
+        r.ssh_username = "root"
+        r.ssh_port = 22
+        monkeypatch.setattr("cis_image._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        baseline = {"summary": {"all": {"score": 0.0, "fail": 1, "pass": 0}},
+                    "results": [{"id": "1.1.1", "status": "fail"}]}
+        current = {"summary": {"all": {"score": 50.0, "fail": 1, "pass": 0}},
+                   "results": [{"id": "1.1.1", "status": "fail"}]}
+        monkeypatch.setattr("cis_image._probe_scan",
+                            lambda *a, **k: current)
+        bl = tmp_path / "bl.json"
+        bl.write_text(json.dumps(baseline), encoding="utf-8")
+        args = mock.MagicMock(config="c", workdir="w", host="1.2.3.4",
+                              image="", baseline=str(bl), ssh_user="",
+                              ssh_port=0, save_baseline=False)
+        rc = cmd_drift(args)
+        assert rc == 0  # same failures -> no new drift
+        assert "Baseline score: 0%" in caplog.text
+        assert "+50" in caplog.text  # delta 50.0 - 0.0, not 50.0 - 50.0
