@@ -27,7 +27,7 @@
 
 # cis-image
 
-**Config-driven CLI that spins up an ephemeral CVM, applies CIS hardening via the bundled cis-os engine, and captures the result as a custom image.** Built for DevOps and security teams who need repeatable, auditable hardened base images — CI pipelines, Auto Scaling launch templates, or Terraform image references.
+**Config-driven golden-image builder for Tencent Cloud.** cis-image launches a short-lived CVM, applies CIS hardening from its bundled cis-os engine, re-audits against a configurable score gate, and captures the result as a custom image — fully repeatable and auditable, every time. Built for DevOps and security teams that need hardened base images they can trust in CI pipelines, Auto Scaling launch templates, and Terraform image references.
 
 Zero pip dependencies. 12 OS profiles across Linux and Windows. Build-time gate with configurable score threshold. All roles ship inside the package — no Galaxy, no network drift.
 
@@ -851,6 +851,23 @@ python3 scripts/check_readme.py            # exit 0 = docs current, 1 = missing 
 
 The script reports exactly which subcommands/profiles README.md is missing, so
 you can fix the docs in one pass rather than watching CI fail.
+
+#### Validate in a clean Docker environment
+
+To avoid depending on your local Python state, you can also run the same check
+in an isolated container (installs cis-image from a freshly built wheel):
+
+```bash
+# Build the image; the build itself runs check_readme.py, so it succeeds only
+# if README.md is current.
+docker build -t cis-image:check-readme .
+
+# Re-check a modified checkout without rebuilding:
+docker run --rm -v "$(pwd):/app" cis-image:check-readme
+```
+
+The container exit code matches the script: `0` = docs current, `1` = missing
+items (the missing subcommands/profiles are printed to stderr).
 
 ---
 

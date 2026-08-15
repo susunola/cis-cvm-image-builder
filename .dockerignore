@@ -1,0 +1,25 @@
+# Keep the Docker build context small and reproducible.
+.git
+.venv
+venv
+__pycache__
+*.py[cod]
+.mypy_cache
+.ruff_cache
+.pytest_cache
+.coverage
+htmlcov
+
+# Build artifacts (we build a fresh wheel inside the image)
+dist
+build
+*.egg-info
+
+# Local config / secrets — never bake into the image
+cis-image.toml
+*.pkrvars.hcl
+logs
+run.log
+
+# Docs not needed at build time
+docs
