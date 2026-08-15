@@ -10,7 +10,7 @@
   <a href="https://github.com/susunola/cis-image/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-image/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
-# ciscvm — CIS 加固黄金镜像构建
+# cis-image — CIS 加固黄金镜像构建
 
 > **金汤·筑城 (Forge)** — 固若金汤 · cis-* 家族:cis-image(镜像源头)、cis-host(主机加固)、cis-cloud(云上合规)
 
@@ -62,10 +62,10 @@ cd cis-image
 # 推荐：从仓库安装（提供 `ciscvm` 命令）
 pip install .
 
-ciscvm --version
+cis-image --version
 
 # 或免安装直接运行（在仓库根目录）
-python3 -m ciscvm --version
+python3 -m cis-image --version
 ```
 
 **设置凭据**（仅通过环境变量，不写入配置文件）
@@ -82,21 +82,21 @@ export WINRM_PASSWORD=xxxx
 
 ```bash
 # 1. 生成配置文件
-ciscvm init
+cis-image init
 
 # 2. 编辑 ciscvm.toml，填入 VPC、子网、安全组和源镜像 ID
 
 # 3. 构建前自检（校验配置、凭据和前置条件）
-ciscvm preflight
+cis-image preflight
 
 # 4. 干跑校验（渲染模板 + packer validate）
-ciscvm validate
+cis-image validate
 
 # 5. 构建加固镜像
-ciscvm build
+cis-image build
 
 # 可选：清理渲染产物
-ciscvm clean
+cis-image clean
 ```
 
 **构建输出示例（`build`）**
@@ -132,31 +132,31 @@ ciscvm clean
 
 | 命令 | 说明 |
 |---|---|
-| `ciscvm init` | 在当前目录生成 `ciscvm.toml` |
-| `ciscvm preflight` | 校验配置、凭据和前置条件 |
-| `ciscvm validate` | 渲染模板并执行 `packer validate` |
-| `ciscvm build` | 渲染 + `packer build`（产出镜像） |
-| `ciscvm build --skip-if-unchanged` | 输入未变化时跳过重建（变更检测） |
-| `ciscvm scan [--min-score 85]` | 仅审计（不修复）+ 分数闸门 |
-| `ciscvm scan --sarif out.sarif` | 另输出 SARIF 2.1.0 失败报告 |
-| `ciscvm scan --xccdf out.xml` | 另输出 XCCDF 1.2 结果（GRC 平台接入） |
-| `ciscvm test --idempotency` | 重复执行 apply，二次有变更即失败 |
-| `ciscvm list` | 枚举可用 profile 及元数据 |
-| `ciscvm images [--latest] [-n N]` | 列出历史构建（血缘） |
-| `ciscvm pending` | 变更检测：是否需要重建（退出码 0/1） |
-| `ciscvm cleanup-images [--older-than 30]` | 按血缘年龄退役旧镜像 |
-| `ciscvm cleanup-images --apply` | 实际删除（默认仅演练） |
-| `ciscvm cleanup-images --unused-since 60` | 只删除未共享（无下游引用）的镜像 |
-| `ciscvm verify --provenance <file>` | 校验 SLSA 来源签名 |
-| `ciscvm verify --image <img-id>` | 按镜像 ID 定位来源记录 |
-| `ciscvm verify-image --image <img-id>` | 对产出镜像做干净启动验收 |
-| `ciscvm drift --host <ip> [--image <id>]` | 实例配置漂移检测（对比镜像基线） |
-| `ciscvm drift --host <ip> --save-baseline` | 保存当前主机扫描为漂移基线 |
-| `ciscvm check-source` | 源镜像刷新检测（是否需要重建） |
-| `ciscvm audit --tool oscap ...` | 独立审计：OpenSCAP（RHEL 系 SCAP 内容） |
-| `ciscvm audit --tool inspec ...` | 独立审计：Chef InSpec（dev-sec 基线） |
-| `ciscvm audit --tool kitty --parse out.csv` | 独立审计：HardeningKitty（Windows）CSV |
-| `ciscvm clean` | 删除 `.ciscvm-build/` 工作目录 |
+| `cis-image init` | 在当前目录生成 `ciscvm.toml` |
+| `cis-image preflight` | 校验配置、凭据和前置条件 |
+| `cis-image validate` | 渲染模板并执行 `packer validate` |
+| `cis-image build` | 渲染 + `packer build`（产出镜像） |
+| `cis-image build --skip-if-unchanged` | 输入未变化时跳过重建（变更检测） |
+| `cis-image scan [--min-score 85]` | 仅审计（不修复）+ 分数闸门 |
+| `cis-image scan --sarif out.sarif` | 另输出 SARIF 2.1.0 失败报告 |
+| `cis-image scan --xccdf out.xml` | 另输出 XCCDF 1.2 结果（GRC 平台接入） |
+| `cis-image test --idempotency` | 重复执行 apply，二次有变更即失败 |
+| `cis-image list` | 枚举可用 profile 及元数据 |
+| `cis-image images [--latest] [-n N]` | 列出历史构建（血缘） |
+| `cis-image pending` | 变更检测：是否需要重建（退出码 0/1） |
+| `cis-image cleanup-images [--older-than 30]` | 按血缘年龄退役旧镜像 |
+| `cis-image cleanup-images --apply` | 实际删除（默认仅演练） |
+| `cis-image cleanup-images --unused-since 60` | 只删除未共享（无下游引用）的镜像 |
+| `cis-image verify --provenance <file>` | 校验 SLSA 来源签名 |
+| `cis-image verify --image <img-id>` | 按镜像 ID 定位来源记录 |
+| `cis-image verify-image --image <img-id>` | 对产出镜像做干净启动验收 |
+| `cis-image drift --host <ip> [--image <id>]` | 实例配置漂移检测（对比镜像基线） |
+| `cis-image drift --host <ip> --save-baseline` | 保存当前主机扫描为漂移基线 |
+| `cis-image check-source` | 源镜像刷新检测（是否需要重建） |
+| `cis-image audit --tool oscap ...` | 独立审计：OpenSCAP（RHEL 系 SCAP 内容） |
+| `cis-image audit --tool inspec ...` | 独立审计：Chef InSpec（dev-sec 基线） |
+| `cis-image audit --tool kitty --parse out.csv` | 独立审计：HardeningKitty（Windows）CSV |
+| `cis-image clean` | 删除 `.ciscvm-build/` 工作目录 |
 
 所有命令均支持以下参数：
 
@@ -413,7 +413,7 @@ export TENCENTCLOUD_SECRET_KEY=xxx
 # Windows 构建：
 # export WINRM_PASSWORD=xxx
 
-ciscvm build --log-file build.log
+cis-image build --log-file build.log
 ```
 
 下游 CVM / 伸缩组 / Terraform 引用产出的 `image_id`。构建机固定专用 VPC + SG。
@@ -423,7 +423,7 @@ ciscvm build --log-file build.log
 | 症状 | 可能原因 | 解决 |
 |---|---|---|
 | `preflight` 报凭据错误 | 未 export `TENCENTCLOUD_SECRET_ID` / `_KEY` | 在 shell 中 `export TENCENTCLOUD_SECRET_ID=...` |
-| `validate` 报插件下载错误 | `packer init` 失败（如构建机无网络） | 联网重新执行 `ciscvm validate`，Packer 首次下载后会缓存插件 |
+| `validate` 报插件下载错误 | `packer init` 失败（如构建机无网络） | 联网重新执行 `cis-image validate`，Packer 首次下载后会缓存插件 |
 | Packer 等待 SSH 超时 | 安全组未对构建机放行 22 端口 | 添加入站规则：TCP/22，来源为构建机出口 IP |
 | `ansible-playbook` 报 "python3 not found" | 构建实例 OS 未预装 Python | 确保源镜像包含 Python >= 3.6 |
 | Windows 构建 WinRM 连接失败 | 未设 `WINRM_PASSWORD` 或网络不通 | export 密码 + 确保 TCP/5986 对构建 IP 放行 |
@@ -433,28 +433,28 @@ ciscvm build --log-file build.log
 
 - [x] CI 流水线（GitHub Actions + OIDC，零长时 AK/SK）
 - [x] 镜像治理闭环：smoke test / 血缘 / 通知 / SLSA 签名
-- [x] `ciscvm list` — 枚举可用画像及元数据
+- [x] `cis-image list` — 枚举可用画像及元数据
 - [x] 自定义规则选择（`ciscvm.toml` 中的 `rules_include` / `rules_exclude`）
 - [x] PyPI 发布（`pip install ciscvm`）
 - [x] 自动镜像清理（按血缘年龄退役）
-- [x] 独立审计工具（`ciscvm audit` — oscap / inspec / kitty）
+- [x] 独立审计工具（`cis-image audit` — oscap / inspec / kitty）
 - [x] 基准锚定的规则 ID（引擎输出 + SARIF，可与 CIS-CAT 交叉核对）
-- [x] 干净启动验收（`ciscvm verify-image` / `[meta].verify_boot`）
+- [x] 干净启动验收（`cis-image verify-image` / `[meta].verify_boot`）
 - [x] 单条规则参数覆写（`[cis].overrides`）
 - [x] CVE 扫描闸门 + SBOM 输出（`[meta].cve_scan` / `[meta].sbom`）
-- [x] 变更检测（`ciscvm pending` / `build --skip-if-unchanged`）
+- [x] 变更检测（`cis-image pending` / `build --skip-if-unchanged`）
 - [x] XCCDF 1.2 报告导出（`scan --xccdf`、audit `--xccdf`）
 - [x] 跨账号镜像共享（`[image].share_accounts`）
 - [x] provenance + 血缘锚定 SBOM（SLSA L2 风格证据）
 - [x] Windows 经 HardeningKitty CSV 交叉验证（`audit --tool kitty`）
-- [x] 实例配置漂移检测（`ciscvm drift`，对比镜像基线）
+- [x] 实例配置漂移检测（`cis-image drift`，对比镜像基线）
 - [x] 用户自定义测试组件（`[meta].test_components`）
 - [x] 构建成功触发下游（`[notify].deploy_webhook`）
 - [x] 竞价实例构建机（`[build].spot`，最高省 ~90%）
 - [x] 安全清理（`cleanup-images --unused-since`，共享中的镜像保留）
 - [x] 组织级共享（`[image].share_org_units`）
-- [x] 规则集版本化（`ciscvm list --versions`）
-- [x] 源镜像刷新检测（`ciscvm check-source`）
+- [x] 规则集版本化（`cis-image list --versions`）
+- [x] 源镜像刷新检测（`cis-image check-source`）
 - [ ] SLSA L2：完全可复现构建（锁定构建环境）
 - [ ] STIG 基准 profile（同一引擎，DISA 内容 — 路线图）
 
