@@ -418,8 +418,9 @@ def _audit_results_xccdf(audit: dict[str, Any]) -> str:
         rows.append(
             f'  <rule-result idref="{rid}"><result>{status}</result></rule-result>')
     score = audit.get("score")
-    score_f = cast(float, score)
-    score_xml = f"  <score>{score_f / 100.0:.6f}</score>" if score is not None else ""
+    # Same convention as _build_xccdf: engine scores are 0-100 percentages,
+    # emitted with max="100" so GRC tools read both exports identically.
+    score_xml = f'  <score max="100">{score:.6f}</score>' if score is not None else ""
     tool_name = str(audit.get("tool", "audit"))
     from datetime import datetime
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
