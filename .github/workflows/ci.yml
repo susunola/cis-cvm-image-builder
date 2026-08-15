@@ -45,5 +45,61 @@ jobs:
           echo "code version: $CODE_VERSION | binary version: $BIN_VERSION"
           test "$CODE_VERSION" = "$BIN_VERSION"
 
+      # README freshness guard: every subcommand the CLI registers and every
+      # OS profile must be documented in README.md. Adding/removing either
+      # without updating the docs fails CI, so the README can't silently drift
+      # out of date.
+      - name: Verify README documents every subcommand and profile
+        run: |
+          python3 - <<'PY'
+          import re
+          import cis_image
+
+          errors = []
+
+          # 1) Subcommands
+          subs = set(cis_image.build_parser()._subparsers._group_actions[0].choices)
+          readme = open("README.md", encoding="utf-8").read()
+          readme_cmds = set()
+          for m in re.finditer(r"cis-image\s+([a-z][a-z-]*)", readme):
+              word = m.group(1)
+              for c in sorted(subs, key=len, reverse=True):
+                  if word == c or word.startswith(c + "-"):
+                      readme_cmds.add(c)
+                      break
+          missing_cmds = sorted(subs - readme_cmds)
+          if missing_cmds:
+              errors.append(
+                  "README.md does not document these subcommand(s): "
+                  + ", ".join(missing_cmds)
+              )
+
+          # 2) OS profiles
+          profiles = set(cis_image.PROFILES.keys())
+          readme_profiles = set()
+          for m in re.finditer(
+              r"\b(?:ubuntu2004|ubuntu2204|ubuntu2404|rhel8|rhel9|rhel10|"
+              r"tencentos3|tencentos4|win2016|win2019|win2022|win2025)\b",
+              readme,
+          ):
+              readme_profiles.add(m.group(0))
+          missing_profiles = sorted(profiles - readme_profiles)
+          if missing_profiles:
+              errors.append(
+                  "README.md does not mention these OS profile(s): "
+                  + ", ".join(missing_profiles)
+              )
+
+          if errors:
+              raise SystemExit(
+                  "\n".join(errors)
+                  + "\nUpdate README.md to keep docs current with the code."
+              )
+          print(
+              f"README documents all {len(subs)} subcommands "
+              f"and {len(profiles)} profiles OK"
+          )
+          PY
+
       - name: Run tests
         run: pytest -v --tb=short
