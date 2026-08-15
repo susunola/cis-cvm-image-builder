@@ -151,10 +151,21 @@ def run_preflight(r: ResolvedConfig) -> bool:
             all_ok = False
 
     if family == "windows":
-        if os.environ.get(r.winrm_password_env):
+        winrm_pass = os.environ.get(r.winrm_password_env)
+        if winrm_pass:
             ok(f"WinRM password env var {r.winrm_password_env} is set")
         else:
             fail(f"WinRM password env var {r.winrm_password_env} is not set")
+            all_ok = False
+        # The password lands in the packer user_data as `net user
+        # Administrator '${var.winrm_password}'` — a single quote breaks
+        # the PowerShell command and WinRM never comes up ("Timeout waiting
+        # for WinRM" with no diagnosable cause).  Enforce the template's
+        # documented constraint here instead of at build time.
+        if winrm_pass and "'" in winrm_pass:
+            fail(f"WinRM password (from {r.winrm_password_env}) contains a "
+                 "single quote — it is injected into a PowerShell userdata "
+                 "string and would break the build. Remove all ' characters.")
             all_ok = False
         if _check_ansible_windows_collection():
             ok("ansible.windows collection installed")
@@ -243,12 +254,18 @@ def _extract_image_ids(stdout_lines: list[str]) -> list[str]:
       Tencentcloud images(ap-guangzhou: img-abc123
       ap-hongkong: img-def456) were created.
     (older builds printed "Created image ID: img-..." — keep that too).
+
+    A single build can create several images (cross-region copies).  The
+    old "Created image ID:" lines are collected (not early-returned) so a
+    build that mixes both formats still records every image in lineage —
+    an early return here silently orphaned the copies (they never age out
+    of cleanup-images and bill forever).
     """
     image_ids: list[str] = []
     collecting = False
     for line in stdout_lines:
         if m := re.search(r"Created image ID:\s*(\S+)", line):
-            return [m.group(1)]
+            image_ids.append(m.group(1))
         if "Tencentcloud images(" in line:
             collecting = True
         if collecting:
