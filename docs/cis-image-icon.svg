@@ -1,29 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
-  <defs>
-    <linearGradient id="arc-line" x1="30" y1="145" x2="170" y2="145" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#00B4D8"/>
-      <stop offset="50%" stop-color="#0090E0"/>
-      <stop offset="100%" stop-color="#006EFF"/>
-    </linearGradient>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300">
+  <!-- Honey badger (平头哥) — flat mark, front view -->
+  <!-- ears -->
+  <circle cx="56" cy="56" r="13" fill="#16273A"/>
+  <circle cx="244" cy="56" r="13" fill="#16273A"/>
 
-  <!-- Outer arc (thickest) -->
-  <path d="M30 145 Q30 60 100 30 Q170 60 170 145"
-        stroke="url(#arc-line)" stroke-width="9" stroke-linecap="round" fill="none"/>
+  <!-- light cap: flat head + dorsal cape (the signature stripe) -->
+  <path d="M50 62 Q50 26 88 24 L212 24 Q250 26 250 62 L250 112 L240 144 L224 176 L200 196 L150 204 L100 196 L76 176 L60 144 L50 112 Z"
+        fill="#E9EEF5"/>
 
-  <!-- Middle arc -->
-  <path d="M44 135 Q44 70 100 44 Q156 70 156 135"
-        stroke="#0090E0" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.7"/>
+  <!-- dark face (lower head, on cape's lower-front) -->
+  <path d="M50 98 L250 98 L250 120 Q250 142 226 144 L74 144 Q50 142 50 120 Z"
+        fill="#16273A"/>
 
-  <!-- Inner arc -->
-  <path d="M58 125 Q58 82 100 58 Q142 82 142 125"
-        stroke="#00B4D8" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.45"/>
+  <!-- dark lower body (chest/belly/paws, under cape) -->
+  <path d="M70 148 L230 148 L230 226 Q230 256 204 262 L96 262 Q70 256 70 226 Z"
+        fill="#16273A"/>
 
-  <!-- Source node (left endpoint) -->
-  <circle cx="30" cy="145" r="9" fill="#00B4D8"/>
-  <circle cx="30" cy="145" r="4" fill="white"/>
+  <!-- eyes (deadpan stare on dark face) -->
+  <circle cx="112" cy="120" r="8.5" fill="#F4F6F9"/>
+  <circle cx="188" cy="120" r="8.5" fill="#F4F6F9"/>
+  <circle cx="112" cy="121" r="3.2" fill="#16273A"/>
+  <circle cx="188" cy="121" r="3.2" fill="#16273A"/>
 
-  <!-- Target node (right endpoint) -->
-  <circle cx="170" cy="145" r="9" fill="#006EFF"/>
-  <circle cx="170" cy="145" r="4" fill="white"/>
+  <!-- nose -->
+  <ellipse cx="150" cy="132" rx="10" ry="6" fill="#0C1722"/>
 </svg>
