@@ -14,7 +14,7 @@
 
 > สร้าง Golden Image ที่ผ่านการ Hardened ตามมาตรฐาน CIS บน Tencent Cloud
 > ด้วย 5 คำสั่ง ไม่ต้องใช้ Galaxy, ไม่มี dependency ด้าน network ตอน build,
-> ไม่ต้องแก้ไข template เอง — ทุกอย่างขับเคลื่อนด้วย `ciscvm.toml`
+> ไม่ต้องแก้ไข template เอง — ทุกอย่างขับเคลื่อนด้วย `cis-image.toml`
 
 **ฟีเจอร์:** ปั่น CVM ชั่วคราวขึ้นมา, ใช้ [cis-os](https://github.com/susunola/cis-os)
 engine ที่ให้มาด้วยทำการ CIS hardened, รัน gate ภายใน role, แล้วแคปเป็น custom image
@@ -60,7 +60,7 @@ engine ที่ให้มาด้วยทำการ CIS hardened, รั�
 git clone https://github.com/susunola/cis-image.git
 cd cis-image
 
-# แนะนำ: ติดตั้งจาก repository (ได้คำสั่ง `ciscvm`)
+# แนะนำ: ติดตั้งจาก repository (ได้คำสั่ง `cis-image`)
 pip install .
 
 cis-image --version
@@ -88,7 +88,7 @@ export WINRM_PASSWORD=xxxx
 # 1. สร้างไฟล์ตั้งค่า
 cis-image init
 
-# 2. แก้ ciscvm.toml ใส่ค่า VPC, subnet, security group และ source image ID
+# 2. แก้ cis-image.toml ใส่ค่า VPC, subnet, security group และ source image ID
 
 # 3. ตรวจก่อน build (ตรวจ config, credential และข้อกำหนดเบื้องต้น)
 cis-image preflight
@@ -107,7 +107,7 @@ cis-image clean
 
 ```
 ════════════════════════════════════════════════════════
-  ciscvm 0.5.0 — tencentos3 (L1) → ap-guangzhou-4
+  cis-image 0.5.0 — tencentos3 (L1) → ap-guangzhou-4
 ════════════════════════════════════════════════════════
 [packer]  tencentcloud-cvm: output will be in this color
 [packer]  ==> tencentcloud-cvm: Creating temporary keypair...
@@ -128,22 +128,22 @@ cis-image clean
 
 | คำสั่ง | คำอธิบาย |
 |---|---|
-| `cis-image init` | สร้าง `ciscvm.toml` ในไดเรกทอรีปัจจุบัน |
+| `cis-image init` | สร้าง `cis-image.toml` ในไดเรกทอรีปัจจุบัน |
 | `cis-image preflight` | ตรวจ config, credential และข้อกำหนดเบื้องต้น |
 | `cis-image validate` | Render template และรัน `packer validate` |
 | `cis-image build` | Render + `packer build` (สร้าง image) |
-| `cis-image clean` | ลบไดเรกทอรี `.ciscvm-build/` |
+| `cis-image clean` | ลบไดเรกทอรี `.cis-image-build/` |
 
 | Flag | ค่าเริ่มต้น | คำอธิบาย |
 |---|---|---|
-| `--config <path>` | `./ciscvm.toml` | ไฟล์ตั้งค่า |
-| `--workdir <dir>` | `./.ciscvm-build` | ไดเรกทอรีสำหรับ render ผลลัพธ์ |
+| `--config <path>` | `./cis-image.toml` | ไฟล์ตั้งค่า |
+| `--workdir <dir>` | `./.cis-image-build` | ไดเรกทอรีสำหรับ render ผลลัพธ์ |
 | `--quiet` | — | ลด output ของเครื่องมือ (validate / build) |
 | `-y` / `--yes` | — | ข้ามข้อความยืนยันก่อน build |
 
 ## การตั้งค่า
 
-`ciscvm.toml` เป็น single source of truth — ไม่ต้องแก้ไข Packer template เอง
+`cis-image.toml` เป็น single source of truth — ไม่ต้องแก้ไข Packer template เอง
 
 ```toml
 [build]
@@ -210,9 +210,9 @@ benchmark = "CIS-v1.0.0"
 ```
 เครื่อง Build                              Tencent Cloud
 ┌─────────────┐                           ┌──────────────────┐
-│ ciscvm/     │── packer build ──────────▶│ CVM ชั่วคราว       │
+│ cis-image/     │── packer build ──────────▶│ CVM ชั่วคราว       │
 │             │                           │   (SSH port 22)  │
-│ ciscvm.toml │                           │ 1. ติดตั้ง ansible│
+│ cis-image.toml │                           │ 1. ติดตั้ง ansible│
 │             │                           │    (dnf/apt/zypp)│
 │ roles/      │── อัปโหลดไป CVM ─────────▶│ 2. ใช้ CIS        │
 │   cis_*     │      (role ที่ให้มาด้วย)      │    (cis_engine.py)│
@@ -236,7 +236,7 @@ Packer รัน 3 เฟสบน CVM ชั่วคราวผ่าน `ans
 ```
 เครื่อง Build                              Tencent Cloud
 ┌─────────────┐                           ┌──────────────────┐
-│ ciscvm/     │── packer build ──────────▶│ CVM ชั่วคราว       │
+│ cis-image/     │── packer build ──────────▶│ CVM ชั่วคราว       │
 │             │                           │  (WinRM 5986)    │
 │             │                           │                  │
 │ roles/      │── ansible provisioner ───▶│ ใช้ CIS            │
@@ -254,7 +254,7 @@ Role ที่ให้มาด้วยมี `cis_engine.ps1` (PowerShell) �
 ### การตัดสินใจด้านดีไซน์
 
 **role ที่ให้มาด้วย, ไม่ใช้ Galaxy**
-cis-os engine role ทั้ง 12 ตัวถูกรวมไว้ในแพ็กเกจที่ `ciscvm/roles/` ตอน build
+cis-os engine role ทั้ง 12 ตัวถูกรวมไว้ในแพ็กเกจที่ `cis_image/roles/` ตอน build
 เครื่องมือจะคัดลอก role ที่เลือกไปยัง workspace ไม่มี dependency ด้าน network
 ไม่มี version drift
 
@@ -299,7 +299,7 @@ AK/SK ผ่าน environment variable เท่านั้น (HCL `sensitive
 | `win2022` | Windows Server 2022 | Administrator | `roles/cis_win2022/` |
 | `win2025` | Windows Server 2025 | Administrator | `roles/cis_win2025/` |
 
-การสลับ profile ทำได้โดยแก้ `[build].profile` และ `source_image_id` ใน `ciscvm.toml`
+การสลับ profile ทำได้โดยแก้ `[build].profile` และ `source_image_id` ใน `cis-image.toml`
 
 ## ตารางผลการทดสอบ
 
@@ -362,10 +362,10 @@ cis-image build
 ## Roadmap
 
 - [ ] CI pipeline (GitHub Actions) สำหรับ automated image build
-- [ ] PyPI package (`pip install ciscvm`)
+- [ ] PyPI package (`pip install cis-image`)
 - [ ] `cis-image list` — แสดงรายการ profile พร้อม metadata
-- [ ] `ciscvm report` — ดึงและแสดง audit report จาก build ที่เสร็จแล้ว
-- [ ] Custom rule selection (`rules_include` / `rules_exclude` ใน `ciscvm.toml`)
+- [ ] `cis-image report` — ดึงและแสดง audit report จาก build ที่เสร็จแล้ว
+- [ ] Custom rule selection (`rules_include` / `rules_exclude` ใน `cis-image.toml`)
 
 ## การมีส่วนร่วม
 

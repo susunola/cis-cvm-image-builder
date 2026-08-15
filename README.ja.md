@@ -14,7 +14,7 @@
 
 > 5 つのコマンドで Tencent Cloud 上に CIS ハードニング済みゴールデンイメージを
 > 構築。Galaxy 不要、ビルド時ネットワーク依存ゼロ、テンプレート手編集も不要 —
-> すべて `ciscvm.toml` で駆動。
+> すべて `cis-image.toml` で駆動。
 
 **機能：** 一時的な CVM を起動し、同梱の [cis-os](https://github.com/susunola/cis-os)
 エンジンを適用して CIS ハードニングを行い、ロール内ゲートを実行し、カスタムイメー
@@ -61,7 +61,7 @@
 git clone https://github.com/susunola/cis-image.git
 cd cis-image
 
-# 推奨: リポジトリからインストール（`ciscvm` コマンドを提供）
+# 推奨: リポジトリからインストール（`cis-image` コマンドを提供）
 pip install .
 
 cis-image --version
@@ -89,7 +89,7 @@ export WINRM_PASSWORD=xxxx
 # 1. 設定ファイルを初期化
 cis-image init
 
-# 2. ciscvm.toml を編集し、VPC / サブネット / SG / ソースイメージ ID を設定
+# 2. cis-image.toml を編集し、VPC / サブネット / SG / ソースイメージ ID を設定
 
 # 3. ビルド前チェック（設定・資格情報・前提条件を検証）
 cis-image preflight
@@ -108,7 +108,7 @@ cis-image clean
 
 ```
 ════════════════════════════════════════════════════════
-  ciscvm 0.5.0 — tencentos3 (L1) → ap-guangzhou-4
+  cis-image 0.5.0 — tencentos3 (L1) → ap-guangzhou-4
 ════════════════════════════════════════════════════════
 [packer]  tencentcloud-cvm: output will be in this color
 [packer]  ==> tencentcloud-cvm: Creating temporary keypair...
@@ -129,22 +129,22 @@ cis-image clean
 
 | コマンド | 説明 |
 |---|---|
-| `cis-image init` | カレントディレクトリに `ciscvm.toml` を生成 |
+| `cis-image init` | カレントディレクトリに `cis-image.toml` を生成 |
 | `cis-image preflight` | 設定・資格情報・前提条件を検証 |
 | `cis-image validate` | テンプレートをレンダリングし `packer validate` を実行 |
 | `cis-image build` | レンダリング + `packer build`（イメージを生成） |
-| `cis-image clean` | `.ciscvm-build/` 作業ディレクトリを削除 |
+| `cis-image clean` | `.cis-image-build/` 作業ディレクトリを削除 |
 
 | フラグ | デフォルト | 説明 |
 |---|---|---|
-| `--config <path>` | `./ciscvm.toml` | 設定ファイル |
-| `--workdir <dir>` | `./.ciscvm-build` | レンダリング出力ディレクトリ |
+| `--config <path>` | `./cis-image.toml` | 設定ファイル |
+| `--workdir <dir>` | `./.cis-image-build` | レンダリング出力ディレクトリ |
 | `--quiet` | — | ツール出力を抑制（validate / build） |
 | `-y` / `--yes` | — | ビルド確認のプロンプトをスキップ |
 
 ## 設定
 
-`ciscvm.toml` が唯一の信頼できる情報源です — Packer テンプレートの手編集は不要。
+`cis-image.toml` が唯一の信頼できる情報源です — Packer テンプレートの手編集は不要。
 
 ```toml
 [build]
@@ -211,9 +211,9 @@ benchmark = "CIS-v1.0.0"
 ```
 ビルドマシン                                Tencent Cloud
 ┌─────────────┐                           ┌──────────────────┐
-│ ciscvm/     │── packer build ──────────▶│ 一時 CVM          │
+│ cis-image/     │── packer build ──────────▶│ 一時 CVM          │
 │             │                           │   (SSH 22 番)    │
-│ ciscvm.toml │                           │ 1. ansible 導入   │
+│ cis-image.toml │                           │ 1. ansible 導入   │
 │             │                           │    (dnf/apt/zypp) │
 │ roles/      │── CVM へアップロード ────▶│ 2. CIS 適用       │
 │   cis_*     │      (同梱ロール)          │    (cis_engine.py)│
@@ -236,7 +236,7 @@ Packer は一時 CVM 上で `ansible-local` により 3 フェーズを実行し
 ```
 ビルドマシン                                Tencent Cloud
 ┌─────────────┐                           ┌──────────────────┐
-│ ciscvm/     │── packer build ──────────▶│ 一時 CVM          │
+│ cis-image/     │── packer build ──────────▶│ 一時 CVM          │
 │             │                           │  (WinRM 5986)    │
 │             │                           │                  │
 │ roles/      │── ansible プロビジョナー ─▶│ CIS 適用          │
@@ -254,7 +254,7 @@ Windows ビルドは Packer の `ansible` プロビジョナー（コントロ�
 ### 設計上の判断
 
 **ロールは同梱、Galaxy なし。**
-12 種すべての cis-os エンジンロールをパッケージ内の `ciscvm/roles/` に同梱。ビルド
+12 種すべての cis-os エンジンロールをパッケージ内の `cis_image/roles/` に同梱。ビルド
 時にツールが選択されたロールを作業ディレクトリへコピー。ネットワーク依存なし、
 バージョン漂流なし。
 
@@ -298,7 +298,7 @@ AK/SK は環境変数のみ（HCL の `sensitive = true`）。一時インスタ
 | `win2022` | Windows Server 2022 | Administrator | `roles/cis_win2022/` |
 | `win2025` | Windows Server 2025 | Administrator | `roles/cis_win2025/` |
 
-プロファイルを切り替えるには、`ciscvm.toml` の `[build].profile` と `source_image_id`
+プロファイルを切り替えるには、`cis-image.toml` の `[build].profile` と `source_image_id`
 を変更してください。
 
 ## テストマトリクス
@@ -362,10 +362,10 @@ cis-image build
 ## ロードマップ
 
 - [ ] CI パイプライン（GitHub Actions）による自動イメージビルド
-- [ ] PyPI パッケージ（`pip install ciscvm`）
+- [ ] PyPI パッケージ（`pip install cis-image`）
 - [ ] `cis-image list` — 利用可能なプロファイルとメタデータの一覧表示
-- [ ] `ciscvm report` — 完了したビルドの監査レポートを取得・表示
-- [ ] カスタムルール選択（`ciscvm.toml` の `rules_include` / `rules_exclude`）
+- [ ] `cis-image report` — 完了したビルドの監査レポートを取得・表示
+- [ ] カスタムルール選択（`cis-image.toml` の `rules_include` / `rules_exclude`）
 
 ## コントリビューション
 

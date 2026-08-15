@@ -3,13 +3,13 @@ requires = ["setuptools>=59", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ciscvm"
-# Single source of truth: ciscvm/__init__.py VERSION (read via AST, no import).
+name = "cis-image"
+# Single source of truth: cis_image/__init__.py VERSION (read via AST, no import).
 dynamic = ["version"]
 description = "CIS-hardened golden image builder for Tencent Cloud — config-driven CLI, 12 OS profiles, bundled cis-os engine"
 license = {text = "MIT"}
 readme = "README.md"
-authors = [{name = "ciscvm contributors"}]
+authors = [{name = "cis-image contributors"}]
 requires-python = ">=3.9"
 keywords = ["cis", "hardening", "tencent-cloud", "packer", "ansible", "golden-image", "devops", "security"]
 classifiers = [
@@ -34,7 +34,7 @@ Repository = "https://github.com/susunola/cis-image.git"
 Issues = "https://github.com/susunola/cis-image/issues"
 
 [project.scripts]
-cis-image = "ciscvm:main"
+cis-image = "cis_image:main"
 
 [project.optional-dependencies]
 dev = [
@@ -47,14 +47,14 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["ciscvm"]
+packages = ["cis_image"]
 include-package-data = true
 
 [tool.setuptools.dynamic]
-version = {attr = "ciscvm.VERSION"}
+version = {attr = "cis_image.VERSION"}
 
 [tool.setuptools.package-data]
-ciscvm = ["py.typed", "roles/**/*"]
+cis_image = ["py.typed", "roles/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -65,13 +65,13 @@ strict = true
 python_version = "3.11"
 ignore_missing_imports = true
 # tests/ and the vendored cis-os engine (roles/) are not part of the CLI type surface.
-exclude = ["tests/", "ciscvm/roles/"]
+exclude = ["tests/", "cis_image/roles/"]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 110
-# The bundled cis-os engine under ciscvm/roles/ is vendored verbatim — do not lint it.
-extend-exclude = ["ciscvm/roles"]
+# The bundled cis-os engine under cis_image/roles/ is vendored verbatim — do not lint it.
+extend-exclude = ["cis_image/roles"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "C4"]
