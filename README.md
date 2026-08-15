@@ -41,6 +41,26 @@ Beyond the build itself, cis-image covers the full **build → test → distribu
 
 ---
 
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Commands](#commands)
+- [Configuration](#configuration)
+- [Architecture](#architecture)
+- [Profiles](#profiles)
+- [Test Matrix](#test-matrix)
+- [CI/CD Integration](#ci-cd-integration)
+- [Security model (for enterprise review)](#security-model-for-enterprise-review)
+- [Group accounts (organization)](#group-accounts-organization)
+- [Troubleshooting](#troubleshooting)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [CIS Benchmarks Disclaimer](#cis-benchmarks-disclaimer)
+- [License](#license)
+
+---
+
 ## Quick Start
 
 ```bash
@@ -811,12 +831,6 @@ credentials), and the guide for adding a new CIS profile.
 
 ---
 
-## License
-
-MIT — see [LICENSE](LICENSE).
-
----
-
 ## CIS Benchmarks Disclaimer
 
 **Independent project** — cis-image is not affiliated with, sponsored by, or endorsed by the Center for Internet Security (CIS).
@@ -824,3 +838,9 @@ MIT — see [LICENSE](LICENSE).
 This tool applies hardening rules from CIS Benchmark recommendations. CIS Benchmarks are developed and maintained by the [Center for Internet Security](https://www.cisecurity.org/) (CIS). The cis-os engine roles bundled in this repository are derived from [susunola/cis-os](https://github.com/susunola/cis-os) and are provided under their respective licenses.
 
 **Running CIS hardening in `apply` mode modifies system configuration and may affect application compatibility.** Always test hardened images in a staging environment before production use. Neither the CIS organization nor the authors of this tool guarantee complete compliance — official audit requires independent assessment using CIS-CAT or equivalent tools.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
