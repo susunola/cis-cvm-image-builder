@@ -4188,7 +4188,7 @@ def _build_sarif(stdout_lines: list[str], benchmark: str = "") -> str:
     driver: dict[str, Any] = {
         "name": "ciscvm",
         "version": VERSION,
-        "informationUri": "https://github.com/susunola/cis-cvm-image-builder",
+        "informationUri": "https://github.com/susunola/cis-image",
         "rules": rules,
     }
     if benchmark:
@@ -4523,7 +4523,7 @@ def _audit_results_sarif(audit: dict[str, Any]) -> str:
             "tool": {"driver": {
                 "name": f"ciscvm-audit-{audit.get('tool', '?')}",
                 "version": VERSION,
-                "informationUri": "https://github.com/susunola/cis-cvm-image-builder",
+                "informationUri": "https://github.com/susunola/cis-image",
                 "rules": rules}},
             "results": results,
         }],

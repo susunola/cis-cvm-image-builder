@@ -7,10 +7,12 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT">
   <img src="https://img.shields.io/badge/profiles-12-orange" alt="12 profiles">
   <img src="https://img.shields.io/badge/platform-Tencent%20Cloud-0052D9" alt="Tencent Cloud">
-  <a href="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/susunola/cis-image/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-image/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
 # ciscvm — CIS 加固黄金镜像构建
+
+> **金汤·筑城 (Forge)** — 固若金汤 · cis-* 家族:cis-image(镜像源头)、cis-host(主机加固)、cis-cloud(云上合规)
 
 > 五条命令在腾讯云上构建 CIS 加固黄金镜像。无需 Galaxy，构建时零网络依赖，
 > 不用手写模板 — 一切由 `ciscvm.toml` 驱动。
@@ -54,8 +56,8 @@
 **获取工具**
 
 ```bash
-git clone https://github.com/susunola/cis-cvm-image-builder.git
-cd cis-cvm-image-builder
+git clone https://github.com/susunola/cis-image.git
+cd cis-image
 
 # 推荐：从仓库安装（提供 `ciscvm` 命令）
 pip install .

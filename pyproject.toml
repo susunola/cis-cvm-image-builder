@@ -29,9 +29,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/susunola/cis-cvm-image-builder"
-Repository = "https://github.com/susunola/cis-cvm-image-builder.git"
-Issues = "https://github.com/susunola/cis-cvm-image-builder/issues"
+Homepage = "https://github.com/susunola/cis-image"
+Repository = "https://github.com/susunola/cis-image.git"
+Issues = "https://github.com/susunola/cis-image/issues"
 
 [project.scripts]
 ciscvm = "ciscvm:main"

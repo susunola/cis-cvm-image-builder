@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT">
   <img src="https://img.shields.io/badge/profiles-12-orange" alt="12 profiles">
   <img src="https://img.shields.io/badge/platform-Tencent%20Cloud-0052D9" alt="Tencent Cloud">
-  <a href="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/susunola/cis-image/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-image/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
 # ciscvm — CIS ハードニング済みゴールデンイメージビルダー
@@ -58,8 +58,8 @@
 **ツールの入手**
 
 ```bash
-git clone https://github.com/susunola/cis-cvm-image-builder.git
-cd cis-cvm-image-builder
+git clone https://github.com/susunola/cis-image.git
+cd cis-image
 
 # 推奨: リポジトリからインストール（`ciscvm` コマンドを提供）
 pip install .

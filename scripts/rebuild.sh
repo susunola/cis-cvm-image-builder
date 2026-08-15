@@ -3,7 +3,7 @@
 # version consistency -> build with logging.
 set -euo pipefail
 
-REPO=/opt/cis-cvm-image-builder
+REPO=/opt/cis-image
 CONFIG="$REPO/ciscvm.toml"
 ENV_FILE=/opt/env
 LOG=/opt/run.log
@@ -29,7 +29,7 @@ pip cache purge >/dev/null 2>&1 || true
 rm -rf ./.ciscvm-build
 
 echo "[3/6] Cloning latest code (main branch)"
-git clone https://github.com/susunola/cis-cvm-image-builder.git "$REPO"
+git clone https://github.com/susunola/cis-image.git "$REPO"
 cd "$REPO"
 echo "     commit: $(git rev-parse --short HEAD)"
 if [ -f /tmp/ciscvm.toml.save ]; then
