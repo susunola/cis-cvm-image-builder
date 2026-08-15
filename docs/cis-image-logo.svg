@@ -1,27 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300">
-  <!-- Honey badger (平头哥) — flat mark, front view -->
-  <!-- ears -->
-  <circle cx="56" cy="56" r="13" fill="#16273A"/>
-  <circle cx="244" cy="56" r="13" fill="#16273A"/>
-
-  <!-- light cap: flat head + dorsal cape (the signature stripe) -->
-  <path d="M50 62 Q50 26 88 24 L212 24 Q250 26 250 62 L250 112 L240 144 L224 176 L200 196 L150 204 L100 196 L76 176 L60 144 L50 112 Z"
-        fill="#E9EEF5"/>
-
-  <!-- dark face (lower head, on cape's lower-front) -->
-  <path d="M50 98 L250 98 L250 120 Q250 142 226 144 L74 144 Q50 142 50 120 Z"
-        fill="#16273A"/>
-
-  <!-- dark lower body (chest/belly/paws, under cape) -->
-  <path d="M70 148 L230 148 L230 226 Q230 256 204 262 L96 262 Q70 256 70 226 Z"
-        fill="#16273A"/>
-
-  <!-- eyes (deadpan stare on dark face) -->
-  <circle cx="112" cy="120" r="8.5" fill="#F4F6F9"/>
-  <circle cx="188" cy="120" r="8.5" fill="#F4F6F9"/>
-  <circle cx="112" cy="121" r="3.2" fill="#16273A"/>
-  <circle cx="188" cy="121" r="3.2" fill="#16273A"/>
-
-  <!-- nose -->
-  <ellipse cx="150" cy="132" rx="10" ry="6" fill="#0C1722"/>
+  <!-- Honey badger (平头哥) mark — flat minimal, front view, with breathing room -->
+  <g transform="translate(54,50) scale(0.7)">
+    <circle cx="56" cy="56" r="13" fill="#16273A"/>
+    <circle cx="244" cy="56" r="13" fill="#16273A"/>
+    <path d="M50 62 Q50 26 88 24 L212 24 Q250 26 250 62 L250 112 L240 144 L224 176 L200 196 L150 204 L100 196 L76 176 L60 144 L50 112 Z" fill="#E9EEF5"/>
+    <path d="M50 98 L250 98 L250 120 Q250 142 226 144 L74 144 Q50 142 50 120 Z" fill="#16273A"/>
+    <path d="M70 148 L230 148 L230 226 Q230 256 204 262 L96 262 Q70 256 70 226 Z" fill="#16273A"/>
+    <circle cx="112" cy="120" r="8.5" fill="#F4F6F9"/>
+    <circle cx="188" cy="120" r="8.5" fill="#F4F6F9"/>
+    <circle cx="112" cy="121" r="3.2" fill="#16273A"/>
+    <circle cx="188" cy="121" r="3.2" fill="#16273A"/>
+    <ellipse cx="150" cy="132" rx="10" ry="6" fill="#0C1722"/>
+  </g>
 </svg>
