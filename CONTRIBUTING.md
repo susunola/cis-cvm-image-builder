@@ -100,7 +100,16 @@ python3 scripts/real_e2e_test.py \
 - Creates one real CVM instance for the duration of the run (roughly
   5-10 minutes) — this incurs real cloud cost, however small.
 - Pass `--keep-on-failure` to leave a failed instance running for
-  debugging; otherwise it's always destroyed, even on `Ctrl-C`.
+  debugging; otherwise it's always destroyed, even on `Ctrl-C`. After
+  teardown the script verifies the jump box is actually gone
+  (`DescribeInstances`) and warns if it may still be incurring cost.
+- Tune the boot/SSH wait with `--timeout` / `--ssh-timeout` (default 900s /
+  360s). A sustained network outage during the IP poll aborts early rather
+  than waiting out the full timeout.
+- Tencent Cloud API calls (`ImportKeyPair`, `RunInstances`,
+  `TerminateInstances`, `DeleteKeyPairs`, `DeleteImages`) are retried with
+  exponential backoff on transient failures (throttling codes, network
+  blips); deterministic errors (auth / bad params) surface immediately.
 - Installs `python3.12` on the remote box (AlmaLinux 10's default Python —
   RHEL 10 dropped the `python3.11` package name entirely). If you change the
   default `--image-id` to a different OS family, update the `python3.12`
