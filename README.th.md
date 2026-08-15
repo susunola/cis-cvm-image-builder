@@ -369,12 +369,7 @@ cis-image build
 
 ## การมีส่วนร่วม
 
-ยินดีรับ bug report และ pull request กรุณารัน test suite ก่อนส่ง:
-
-```bash
-pip install -e ".[dev]"
-pytest tests/ -v
-```
+ยินดีรับ bug report และ pull request ดูขั้นตอนการตั้งค่าสภาพแวดล้อมการพัฒนา คำสั่ง lint/type-check/test ข้อจำกัดหลักของโปรเจกต์ (ไม่มี dependency ของบุคคลที่สามในตอน runtime, ไม่เก็บ credential ระยะยาว) และคู่มือการเพิ่ม CIS profile ใหม่ ได้ที่ [CONTRIBUTING.md](CONTRIBUTING.md) (ภาษาอังกฤษ)
 
 ## ลิขสิทธิ์
 

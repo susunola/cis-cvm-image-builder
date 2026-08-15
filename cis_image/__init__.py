@@ -2851,6 +2851,10 @@ def run_preflight(r: ResolvedConfig) -> bool:
         warn("[meta].verify_boot is Linux-only — it will be ignored for "
              "Windows builds")
 
+    # Best-effort: catch the #1 support-ticket cause (SG blocks the build
+    # port) before Packer burns ~10 minutes on an SSH/WinRM connect timeout.
+    _check_security_group_ingress(r)
+
     if all_ok:
         info("All pre-flight checks passed.")
     else:
@@ -3421,6 +3425,117 @@ def _tc3_api(service: str, action: str, version: str, region: str,
         return cast("dict[str, Any]", json.loads(resp.read().decode("utf-8")))
 
 
+# ── Security-group ingress preflight check ──────────────────────────────────
+# The #1 recurring support issue (see README troubleshooting table) is a
+# Packer SSH/WinRM connect timeout ~10 minutes into a build because the
+# security group doesn't allow the build port from wherever `ciscvm` runs.
+# Catch it in `preflight` — seconds, not minutes — instead of waiting for
+# Packer to time out.
+def _my_public_ip() -> str | None:
+    """Best-effort discovery of the outbound public IP `ciscvm` runs from.
+
+    Returns None on any failure (offline, blocked egress, DNS) — the caller
+    must treat that as "can't verify" rather than "blocked".
+    """
+    for url in ("https://ifconfig.me/ip", "https://api.ipify.org"):
+        try:
+            with urllib.request.urlopen(url, timeout=3) as resp:  # noqa: S310
+                ip = str(resp.read().decode("utf-8")).strip()
+            import ipaddress
+            ipaddress.ip_address(ip)  # validates it's a real IP, nothing else
+            return ip
+        except Exception:
+            continue
+    return None
+
+
+def _sg_ingress_allows(policies: dict[str, Any], ip: str, port: int) -> bool | None:
+    """Check whether *ip*:*port*/TCP is allowed by a DescribeSecurityGroupPolicies
+    response's Ingress rules.
+
+    Returns True/False when the rules give a definite answer, or None when a
+    rule can't be evaluated locally (references a security-group / address
+    template / service template instead of a plain CidrBlock+Port — those
+    require additional API calls to resolve, so we don't guess).
+    """
+    import ipaddress
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return None
+
+    saw_unresolvable = False
+    for rule in policies.get("Ingress", []):
+        cidr = rule.get("CidrBlock") or rule.get("Ipv6CidrBlock")
+        proto = str(rule.get("Protocol", "")).upper()
+        rule_port = rule.get("Port")
+        action = str(rule.get("Action", "")).upper()
+        if not cidr or proto not in ("TCP", "ALL"):
+            if rule.get("SecurityGroupId") or rule.get("AddressTemplate") or rule.get("ServiceTemplate"):
+                saw_unresolvable = True
+            continue
+        try:
+            net = ipaddress.ip_network(cidr, strict=False)
+        except ValueError:
+            continue
+        if addr not in net:
+            continue
+        if proto == "TCP" and rule_port:
+            ports_ok = False
+            for part in str(rule_port).split(","):
+                part = part.strip()
+                if "-" in part:
+                    lo, hi = part.split("-", 1)
+                    if int(lo) <= port <= int(hi):
+                        ports_ok = True
+                        break
+                elif part and int(part) == port:
+                    ports_ok = True
+                    break
+            if not ports_ok:
+                continue
+        return action == "ACCEPT"
+    return None if saw_unresolvable else False
+
+
+def _check_security_group_ingress(r: ResolvedConfig) -> None:
+    """Warn (never fail) preflight if the SG looks like it will block the
+    build port from this machine's public IP.  Best-effort only: any
+    ambiguity (unresolvable rule, no credentials, API error, no outbound
+    internet) is treated as "can't verify" and silently skipped — this must
+    never produce a false failure that blocks a valid build.
+    """
+    if not r.security_group_id:
+        return
+    port = 3389 if r.family == "windows" else (r.ssh_port or 22)
+    sid = os.environ.get(r.secret_id_env, "")
+    skey = os.environ.get(r.secret_key_env, "")
+    tok = os.environ.get(r.security_token_env, "")
+    if not sid or not skey:
+        return
+    my_ip = _my_public_ip()
+    if not my_ip:
+        return
+    try:
+        resp = _tc3_api("vpc", "DescribeSecurityGroupPolicies", "2017-03-12",
+                        r.region, {"SecurityGroupId": r.security_group_id},
+                        sid, skey, tok or None)
+    except Exception:
+        return
+    policies = resp.get("Response", {}).get("SecurityGroupPolicySet")
+    if not policies or "Error" in resp.get("Response", {}):
+        return
+    allowed = _sg_ingress_allows(policies, my_ip, port)
+    if allowed is False:
+        proto_label = "WinRM/3389" if r.family == "windows" else f"SSH/{port}"
+        warn(f"Security group {r.security_group_id} does not appear to allow "
+             f"{proto_label} from this machine's public IP ({my_ip}) — Packer "
+             f"will likely time out connecting to the build instance. Add an "
+             f"inbound rule for {my_ip}/32 : TCP {port} before running 'build'.")
+    # allowed is True or None (unresolvable/uses a template) → say nothing,
+    # to avoid false confidence or false alarms.
+
+
 def _images_exist(region: str, image_ids: list[str]) -> list[str]:
     """Return which of *image_ids* still exist in *region* (via DescribeImages)."""
     if not image_ids:
@@ -3444,8 +3559,11 @@ def _delete_images(region: str, image_ids: list[str]) -> None:
     sid, skey, tok = (os.environ.get("TENCENTCLOUD_SECRET_ID", ""),
                       os.environ.get("TENCENTCLOUD_SECRET_KEY", ""),
                       os.environ.get("TENCENTCLOUD_SECURITY_TOKEN", ""))
-    resp = _tc3_api("cvm", "DeleteImages", "2017-03-12", region,
-                    {"ImageIds": image_ids}, sid, skey, tok or None)
+    try:
+        resp = _tc3_api("cvm", "DeleteImages", "2017-03-12", region,
+                        {"ImageIds": image_ids}, sid, skey, tok or None)
+    except Exception as exc:
+        raise ConfigError(f"DeleteImages failed: {exc}") from exc
     if "Error" in resp.get("Response", {}):
         raise ConfigError(f"DeleteImages failed: {resp['Response']['Error']}")
 
