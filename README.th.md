@@ -10,7 +10,7 @@
   <a href="https://github.com/susunola/cis-image/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-image/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
-# ciscvm — เครื่องมือสร้าง Golden Image ที่ผ่านการ Hardened ตามมาตรฐาน CIS
+# cis-image — เครื่องมือสร้าง Golden Image ที่ผ่านการ Hardened ตามมาตรฐาน CIS
 
 > สร้าง Golden Image ที่ผ่านการ Hardened ตามมาตรฐาน CIS บน Tencent Cloud
 > ด้วย 5 คำสั่ง ไม่ต้องใช้ Galaxy, ไม่มี dependency ด้าน network ตอน build,
@@ -63,10 +63,10 @@ cd cis-image
 # แนะนำ: ติดตั้งจาก repository (ได้คำสั่ง `ciscvm`)
 pip install .
 
-ciscvm --version
+cis-image --version
 
 # หรือรันโดยไม่ติดตั้ง (ที่ root ของ repo)
-python3 -m ciscvm --version
+python3 -m cis-image --version
 
 # หรือติดตั้งเป็น package
 pip install -e ".[dev]"
@@ -86,21 +86,21 @@ export WINRM_PASSWORD=xxxx
 
 ```bash
 # 1. สร้างไฟล์ตั้งค่า
-ciscvm init
+cis-image init
 
 # 2. แก้ ciscvm.toml ใส่ค่า VPC, subnet, security group และ source image ID
 
 # 3. ตรวจก่อน build (ตรวจ config, credential และข้อกำหนดเบื้องต้น)
-ciscvm preflight
+cis-image preflight
 
 # 4. Dry-run (render template + packer validate)
-ciscvm validate
+cis-image validate
 
 # 5. Build image ที่ hardened แล้ว
-ciscvm build
+cis-image build
 
 # ไม่บังคับ: ล้างไฟล์ที่ render ออก
-ciscvm clean
+cis-image clean
 ```
 
 **ตัวอย่างผลลัพธ์ (`build`)**
@@ -128,11 +128,11 @@ ciscvm clean
 
 | คำสั่ง | คำอธิบาย |
 |---|---|
-| `ciscvm init` | สร้าง `ciscvm.toml` ในไดเรกทอรีปัจจุบัน |
-| `ciscvm preflight` | ตรวจ config, credential และข้อกำหนดเบื้องต้น |
-| `ciscvm validate` | Render template และรัน `packer validate` |
-| `ciscvm build` | Render + `packer build` (สร้าง image) |
-| `ciscvm clean` | ลบไดเรกทอรี `.ciscvm-build/` |
+| `cis-image init` | สร้าง `ciscvm.toml` ในไดเรกทอรีปัจจุบัน |
+| `cis-image preflight` | ตรวจ config, credential และข้อกำหนดเบื้องต้น |
+| `cis-image validate` | Render template และรัน `packer validate` |
+| `cis-image build` | Render + `packer build` (สร้าง image) |
+| `cis-image clean` | ลบไดเรกทอรี `.ciscvm-build/` |
 
 | Flag | ค่าเริ่มต้น | คำอธิบาย |
 |---|---|---|
@@ -342,7 +342,7 @@ export TENCENTCLOUD_SECRET_KEY=xxx
 # Windows build:
 # export WINRM_PASSWORD=xxx
 
-ciscvm build
+cis-image build
 ```
 
 ให้ CVM / Auto Scaling / Terraform ฝั่ง downstream ชี้ไปที่ `image_id` ที่ออกมา
@@ -353,7 +353,7 @@ ciscvm build
 | อาการ | สาเหตุที่เป็นไปได้ | วิธีแก้ไข |
 |---|---|---|
 | `preflight` แจ้ง credential error | ยังไม่ได้ export `TENCENTCLOUD_SECRET_ID` / `_KEY` | `export TENCENTCLOUD_SECRET_ID=...` ใน shell |
-| `validate` แจ้ง plugin download error | `packer init` ล้มเหลว (เช่นเครื่อง build offline) | รัน `ciscvm validate` อีกครั้งเมื่อมีอินเทอร์เน็ต — Packer cache plugin หลังจากดาวน์โหลดครั้งแรก |
+| `validate` แจ้ง plugin download error | `packer init` ล้มเหลว (เช่นเครื่อง build offline) | รัน `cis-image validate` อีกครั้งเมื่อมีอินเทอร์เน็ต — Packer cache plugin หลังจากดาวน์โหลดครั้งแรก |
 | Packer timeout ตอนรอ SSH | security group ไม่อนุญาต port 22 จากเครื่อง build | เพิ่ม inbound rule: TCP/22 จาก egress IP ของเครื่อง build |
 | `ansible-playbook` fail แจ้ง "python3 not found" | OS ของ build instance ไม่มี Python ติดตั้ง | ตรวจสอบว่า source image มี Python >= 3.6 |
 | Windows build fail ด้วย WinRM connection error | ยังไม่ได้ตั้ง `WINRM_PASSWORD` หรือ network ไม่ผ่าน | export password + ตรวจสอบว่า TCP/5986 เปิดจาก build IP |
@@ -363,7 +363,7 @@ ciscvm build
 
 - [ ] CI pipeline (GitHub Actions) สำหรับ automated image build
 - [ ] PyPI package (`pip install ciscvm`)
-- [ ] `ciscvm list` — แสดงรายการ profile พร้อม metadata
+- [ ] `cis-image list` — แสดงรายการ profile พร้อม metadata
 - [ ] `ciscvm report` — ดึงและแสดง audit report จาก build ที่เสร็จแล้ว
 - [ ] Custom rule selection (`rules_include` / `rules_exclude` ใน `ciscvm.toml`)
 

@@ -10,7 +10,7 @@
   <a href="https://github.com/susunola/cis-image/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-image/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
-# ciscvm — CIS ハードニング済みゴールデンイメージビルダー
+# cis-image — CIS ハードニング済みゴールデンイメージビルダー
 
 > 5 つのコマンドで Tencent Cloud 上に CIS ハードニング済みゴールデンイメージを
 > 構築。Galaxy 不要、ビルド時ネットワーク依存ゼロ、テンプレート手編集も不要 —
@@ -64,10 +64,10 @@ cd cis-image
 # 推奨: リポジトリからインストール（`ciscvm` コマンドを提供）
 pip install .
 
-ciscvm --version
+cis-image --version
 
 # またはインストールせず実行（リポジトリのルートで）
-python3 -m ciscvm --version
+python3 -m cis-image --version
 
 # オプション：パッケージとしてインストール
 pip install -e ".[dev]"
@@ -87,21 +87,21 @@ export WINRM_PASSWORD=xxxx
 
 ```bash
 # 1. 設定ファイルを初期化
-ciscvm init
+cis-image init
 
 # 2. ciscvm.toml を編集し、VPC / サブネット / SG / ソースイメージ ID を設定
 
 # 3. ビルド前チェック（設定・資格情報・前提条件を検証）
-ciscvm preflight
+cis-image preflight
 
 # 4. ドライラン：レンダリング + packer validate
-ciscvm validate
+cis-image validate
 
 # 5. ハードニング済みイメージのビルド
-ciscvm build
+cis-image build
 
 # オプション：レンダリング成果物のクリーンアップ
-ciscvm clean
+cis-image clean
 ```
 
 **ビルド出力例（`build`）**
@@ -129,11 +129,11 @@ ciscvm clean
 
 | コマンド | 説明 |
 |---|---|
-| `ciscvm init` | カレントディレクトリに `ciscvm.toml` を生成 |
-| `ciscvm preflight` | 設定・資格情報・前提条件を検証 |
-| `ciscvm validate` | テンプレートをレンダリングし `packer validate` を実行 |
-| `ciscvm build` | レンダリング + `packer build`（イメージを生成） |
-| `ciscvm clean` | `.ciscvm-build/` 作業ディレクトリを削除 |
+| `cis-image init` | カレントディレクトリに `ciscvm.toml` を生成 |
+| `cis-image preflight` | 設定・資格情報・前提条件を検証 |
+| `cis-image validate` | テンプレートをレンダリングし `packer validate` を実行 |
+| `cis-image build` | レンダリング + `packer build`（イメージを生成） |
+| `cis-image clean` | `.ciscvm-build/` 作業ディレクトリを削除 |
 
 | フラグ | デフォルト | 説明 |
 |---|---|---|
@@ -342,7 +342,7 @@ export TENCENTCLOUD_SECRET_KEY=xxx
 # Windows ビルド：
 # export WINRM_PASSWORD=xxx
 
-ciscvm build
+cis-image build
 ```
 
 下流の CVM / Auto Scaling / Terraform は出力された `image_id` を参照してください。
@@ -353,7 +353,7 @@ ciscvm build
 | 症状 | 原因 | 解決策 |
 |---|---|---|
 | `preflight` で資格情報エラー | `TENCENTCLOUD_SECRET_ID` / `_KEY` 未設定 | シェルで `export TENCENTCLOUD_SECRET_ID=...` を実行 |
-| `validate` でプラグインダウンロードエラー | `packer init` 失敗（オフラインビルドマシンなど） | インターネット接続ありで `ciscvm validate` を再実行 — Packer は初回ダウンロード後にプラグインをキャッシュします |
+| `validate` でプラグインダウンロードエラー | `packer init` 失敗（オフラインビルドマシンなど） | インターネット接続ありで `cis-image validate` を再実行 — Packer は初回ダウンロード後にプラグインをキャッシュします |
 | Packer が SSH 待機中にタイムアウト | セキュリティグループがポート 22 を許可していない | インバウンドルールを追加：TCP/22、送信元はビルドマシンの Egress IP |
 | `ansible-playbook` で "python3 not found" | ビルドインスタンスの OS に Python 未導入 | ソースイメージに Python >= 3.6 が含まれていることを確認 |
 | Windows ビルドで WinRM 接続エラー | `WINRM_PASSWORD` 未設定またはネットワーク不通 | パスワードを export + TCP/5986 がビルド IP から接続可能か確認 |
@@ -363,7 +363,7 @@ ciscvm build
 
 - [ ] CI パイプライン（GitHub Actions）による自動イメージビルド
 - [ ] PyPI パッケージ（`pip install ciscvm`）
-- [ ] `ciscvm list` — 利用可能なプロファイルとメタデータの一覧表示
+- [ ] `cis-image list` — 利用可能なプロファイルとメタデータの一覧表示
 - [ ] `ciscvm report` — 完了したビルドの監査レポートを取得・表示
 - [ ] カスタムルール選択（`ciscvm.toml` の `rules_include` / `rules_exclude`）
 

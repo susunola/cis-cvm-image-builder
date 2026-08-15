@@ -34,7 +34,7 @@ Repository = "https://github.com/susunola/cis-image.git"
 Issues = "https://github.com/susunola/cis-image/issues"
 
 [project.scripts]
-ciscvm = "ciscvm:main"
+cis-image = "ciscvm:main"
 
 [project.optional-dependencies]
 dev = [

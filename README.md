@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-image@7203244/docs/ciscvm-logo.png" alt="ciscvm — SecX Series" width="520">
+  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-image@7203244/docs/ciscvm-logo.png" alt="cis-image — SecX Series" width="520">
 </p>
 
 <p align="center">
@@ -25,18 +25,18 @@
   <a href="https://github.com/susunola/cis-cloud">cis-cloud</a> (云上合规)
 </p>
 
-# ciscvm
+# cis-image
 
 **Config-driven CLI that spins up an ephemeral CVM, applies CIS hardening via the bundled cis-os engine, and captures the result as a custom image.** Built for DevOps and security teams who need repeatable, auditable hardened base images — CI pipelines, Auto Scaling launch templates, or Terraform image references.
 
 Zero pip dependencies. 12 OS profiles across Linux and Windows. Build-time gate with configurable score threshold. All roles ship inside the package — no Galaxy, no network drift.
 
-Beyond the build itself, ciscvm covers the full **build → test → distribute** governance loop:
+Beyond the build itself, cis-image covers the full **build → test → distribute** governance loop:
 
 - **Instance-level smoke test** before the snapshot — a broken image never ships
-- **Image lineage** (`ciscvm images`) — source → image IDs, score, version history
+- **Image lineage** (`cis-image images`) — source → image IDs, score, version history
 - **WeCom notifications** — pair with cron/systemd timer for scheduled rebuilds
-- **SLSA-style signed provenance** (`ciscvm verify`) — tamper-evident build records
+- **SLSA-style signed provenance** (`cis-image verify`) — tamper-evident build records
 - **OIDC / STS credentials** — zero long-lived AK/SK in CI; `assume_role` for group accounts
 
 ---
@@ -50,14 +50,14 @@ cd cis-image
 pip install .
 
 # 2. Generate and edit configuration
-ciscvm init
+cis-image init
 # Edit ciscvm.toml — fill in VPC, subnet, security group, and source_image_id
 
 # 3. Build
-ciscvm preflight   # validate credentials and prerequisites
-ciscvm validate    # dry-run: render templates + packer validate
-ciscvm build       # produce the hardened custom image
-ciscvm clean       # remove build artifacts
+cis-image preflight   # validate credentials and prerequisites
+cis-image validate    # dry-run: render templates + packer validate
+cis-image build       # produce the hardened custom image
+cis-image clean       # remove build artifacts
 ```
 
 ```bash
@@ -102,7 +102,7 @@ export WINRM_PASSWORD=xxxx   # Windows builds only
 ✔  Provenance signed with GPG key 0123ABCD -> ...provenance.json.sig
 ```
 
-> **Not installed?** Replace `ciscvm` with `python3 -m ciscvm` in any command.
+> **Not installed?** Replace `cis-image` with `python3 -m ciscvm` in any command.
 
 ---
 
@@ -126,7 +126,7 @@ export WINRM_PASSWORD=xxxx   # Windows builds only
 git clone https://github.com/susunola/cis-image.git
 cd cis-image
 pip install .
-ciscvm --version
+cis-image --version
 ```
 
 ---
@@ -134,31 +134,31 @@ ciscvm --version
 ## Commands
 
 ```bash
-ciscvm                                    # show help
-ciscvm init                               # generate ciscvm.toml
-ciscvm preflight                          # validate config, credentials, prerequisites
-ciscvm validate                           # render templates + packer validate
-ciscvm build                              # render + packer build → custom image
-ciscvm build --skip-if-unchanged          # ... skip when inputs are unchanged (change detection)
-ciscvm scan [--min-score 85]              # audit-only build (no remediation) + score gate
-ciscvm scan --sarif out.sarif             # ... plus a SARIF 2.1.0 failure report
-ciscvm scan --xccdf out.xml               # ... plus an XCCDF 1.2 TestResult (GRC ingestion)
-ciscvm test --idempotency                 # re-run apply, fail if 2nd pass changes anything
-ciscvm list                               # enumerate available profiles with metadata
-ciscvm images [--latest] [-n N]           # list recorded builds (lineage)
-ciscvm pending                            # change detection: is a rebuild required? (exit 0/1)
-ciscvm cleanup-images [--older-than 30]   # retire old images by lineage age
-ciscvm cleanup-images --apply             # actually delete (default = dry run)
-ciscvm verify --provenance <file>         # verify a SLSA provenance signature
-ciscvm verify --image <img-id>            # ... or locate provenance by image ID
-ciscvm verify-image --image <img-id>      # clean-boot verification of a produced image
-ciscvm drift --host <ip> [--image <id>]   # config drift on a running instance vs image baseline
-ciscvm drift --host <ip> --save-baseline  # save the current host scan as a drift baseline
-ciscvm check-source                       # vendor image refresh detection (rebuild needed?)
-ciscvm audit --tool oscap ...             # independent audit: OpenSCAP (RHEL-family SCAP content)
-ciscvm audit --tool inspec ...            # independent audit: Chef InSpec (dev-sec baselines)
-ciscvm audit --tool kitty --parse out.csv # independent audit: HardeningKitty (Windows) CSV
-ciscvm clean                              # remove .ciscvm-build/
+cis-image                                    # show help
+cis-image init                               # generate ciscvm.toml
+cis-image preflight                          # validate config, credentials, prerequisites
+cis-image validate                           # render templates + packer validate
+cis-image build                              # render + packer build → custom image
+cis-image build --skip-if-unchanged          # ... skip when inputs are unchanged (change detection)
+cis-image scan [--min-score 85]              # audit-only build (no remediation) + score gate
+cis-image scan --sarif out.sarif             # ... plus a SARIF 2.1.0 failure report
+cis-image scan --xccdf out.xml               # ... plus an XCCDF 1.2 TestResult (GRC ingestion)
+cis-image test --idempotency                 # re-run apply, fail if 2nd pass changes anything
+cis-image list                               # enumerate available profiles with metadata
+cis-image images [--latest] [-n N]           # list recorded builds (lineage)
+cis-image pending                            # change detection: is a rebuild required? (exit 0/1)
+cis-image cleanup-images [--older-than 30]   # retire old images by lineage age
+cis-image cleanup-images --apply             # actually delete (default = dry run)
+cis-image verify --provenance <file>         # verify a SLSA provenance signature
+cis-image verify --image <img-id>            # ... or locate provenance by image ID
+cis-image verify-image --image <img-id>      # clean-boot verification of a produced image
+cis-image drift --host <ip> [--image <id>]   # config drift on a running instance vs image baseline
+cis-image drift --host <ip> --save-baseline  # save the current host scan as a drift baseline
+cis-image check-source                       # vendor image refresh detection (rebuild needed?)
+cis-image audit --tool oscap ...             # independent audit: OpenSCAP (RHEL-family SCAP content)
+cis-image audit --tool inspec ...            # independent audit: Chef InSpec (dev-sec baselines)
+cis-image audit --tool kitty --parse out.csv # independent audit: HardeningKitty (Windows) CSV
+cis-image clean                              # remove .ciscvm-build/
 ```
 
 | Flag | Applies to | Description |
@@ -304,7 +304,7 @@ benchmark = "CIS-v1.0.0"
 ## Architecture
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-image@main/docs/ciscvm-architecture.png" alt="ciscvm build architecture — TOML config to hardened golden image" width="720">
+  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-image@main/docs/ciscvm-architecture.png" alt="cis-image build architecture — TOML config to hardened golden image" width="720">
 </p>
 
 ### Linux pipeline
@@ -320,7 +320,7 @@ Four phases executed inside the ephemeral CVM via `ansible-local`:
 
 CIS rules can disable root SSH login (`PermitRootLogin no` — TencentOS 3 rule
 5.1.22 / TencentOS 4 rule 5.2.10). Because the builder itself connects as
-`root`, this would lock the build out after the reboot. ciscvm therefore
+`root`, this would lock the build out after the reboot. cis-image therefore
 adds two orchestration-layer guarantees that are regenerated on every build
 (they can never go stale):
 
@@ -475,7 +475,7 @@ every image below was re-verified in the console as `NORMAL` on 2026-08-14.
 ```bash
 export TENCENTCLOUD_SECRET_ID=xxx
 export TENCENTCLOUD_SECRET_KEY=xxx
-ciscvm build --log-file build.log
+cis-image build --log-file build.log
 ```
 
 Point downstream CVM / Auto Scaling / Terraform at the output `image_id`. Pin the build machine to a dedicated VPC and security group.
@@ -516,7 +516,7 @@ What auditors usually ask about, and where each control lives:
 
 ## Group accounts (organization)
 
-ciscvm supports the Tencent Cloud group-account (企业组织) pattern for
+cis-image supports the Tencent Cloud group-account (企业组织) pattern for
 **cross-account golden image builds** — build once from a central account,
 distribute everywhere:
 
@@ -547,7 +547,7 @@ before — no group-account setup required.
 
 For CI pipelines (GitHub Actions etc.) you can build **without storing any
 AK/SK**: the runner obtains short-lived STS credentials via OIDC federation,
-and ciscvm hands the session token straight to Packer.
+and cis-image hands the session token straight to Packer.
 
 1. **CAM side (one-time)**: create an OIDC identity provider pointing at
    `https://token.actions.githubusercontent.com`, then create a CAM role
@@ -570,10 +570,10 @@ and ciscvm hands the session token straight to Packer.
          role-arn: qcs::cam::uin/1234567890:roleName/ci-builder
          oidc-provider-id: github
          region: ap-guangzhou
-     - run: ciscvm build --config ciscvm.toml
+     - run: cis-image build --config ciscvm.toml
    ```
 
-3. **ciscvm side**: nothing to configure — the default
+3. **cis-image side**: nothing to configure — the default
    `security_token_env = "TENCENTCLOUD_SECURITY_TOKEN"` is picked up
    automatically. Override it only if your CI exports the token under a
    different name:
@@ -589,7 +589,7 @@ both at once.
 
 ### Build → test → distribute (image governance)
 
-Beyond building the image, ciscvm covers the governance loop that Packer
+Beyond building the image, cis-image covers the governance loop that Packer
 itself leaves to you (mirroring AWS Image Builder's build → test →
 distribute pipeline):
 
@@ -606,10 +606,10 @@ distribute pipeline):
   `~/.ciscvm/reports/<image-name>.json`.  Query it with:
 
   ```bash
-  ciscvm images            # recent builds, newest first
-  ciscvm images --latest   # the most recent record
-  ciscvm cleanup-images --older-than 30   # dry-run: what would be retired
-  ciscvm cleanup-images --older-than 30 --apply   # actually delete
+  cis-image images            # recent builds, newest first
+  cis-image images --latest   # the most recent record
+  cis-image cleanup-images --older-than 30   # dry-run: what would be retired
+  cis-image cleanup-images --older-than 30 --apply   # actually delete
   ```
 
   `cleanup-images` retires golden images older than N days (default 30),
@@ -632,13 +632,13 @@ distribute pipeline):
 
   ```bash
   # systemd timer / cron example — rebuild monthly, only notify on failure
-  0 3 1 * *  ciscvm build --config /etc/ciscvm/ciscvm.toml -y
+  0 3 1 * *  cis-image build --config /etc/ciscvm/ciscvm.toml -y
   ```
 
-- **SLSA-style provenance** — after a successful build ciscvm writes a
+- **SLSA-style provenance** — after a successful build cis-image writes a
   signed provenance statement (`~/.ciscvm/provenance/…provenance.json`)
   describing exactly what produced the image (source image, profile, level,
-  region, ciscvm version, score). Tencent CVM images are `img-*` artifacts,
+  region, cis-image version, score). Tencent CVM images are `img-*` artifacts,
   not OCI images, so cosign container signing does not apply — instead the
   provenance file is GPG-detached-signed (`[sign].gpg_key`), giving an
   auditable, tamper-evident record (SLSA L1 + signed provenance). Verified
@@ -653,8 +653,8 @@ distribute pipeline):
   Verify any signed provenance (audit / compliance):
 
   ```bash
-  ciscvm verify --provenance ~/.ciscvm/provenance/xxx.provenance.json
-  ciscvm verify --image img-ekny61ig        # auto-locate by image ID
+  cis-image verify --provenance ~/.ciscvm/provenance/xxx.provenance.json
+  cis-image verify --image img-ekny61ig        # auto-locate by image ID
   ```
 
   Output shows subject (image IDs), profile/level/region/source, builder
@@ -666,18 +666,18 @@ distribute pipeline):
   rpm/dpkg query) into the image, and its SHA-256 + package count are pinned
   in lineage and the provenance statement (`sbomSha256` /
   `sbomPackageCount`) — SLSA L2-style evidence of what exactly shipped.
-  `ciscvm build --skip-if-unchanged` / `ciscvm pending` compare a
+  `cis-image build --skip-if-unchanged` / `cis-image pending` compare a
   deterministic input fingerprint (source image, rule catalog hash,
   benchmark, level, filters) against the last successful lineage record and
   skip the rebuild when nothing changed — a scheduled-pipeline cost saver.
 
   ```bash
-  ciscvm build --skip-if-unchanged    # skip if inputs unchanged
-  ciscvm pending                      # exit 0 = no rebuild needed, 1 = rebuild
+  cis-image build --skip-if-unchanged    # skip if inputs unchanged
+  cis-image pending                      # exit 0 = no rebuild needed, 1 = rebuild
   ```
 
 - **Clean-boot verification (`verify-image`)** — AWS Image Builder runs its
-  test phase on the *output* image, not the build instance. `ciscvm
+  test phase on the *output* image, not the build instance. `cis-image
   verify-image --image img-xxx` boots a probe instance from the produced
   image, runs the bundled engine in scan mode on the FRESH boot (catching
   SELinux relabel stalls, first-boot services, cloud-init reconfiguration),
@@ -685,27 +685,27 @@ distribute pipeline):
   = true` chains it automatically after every successful build (Linux only).
 
   ```bash
-  ciscvm verify-image --image img-ekny61ig --min-score 85
+  cis-image verify-image --image img-ekny61ig --min-score 85
   ```
 
 - **Independent audit (`audit`)** — the score is no longer only self-
-  reported by the engine that applied the hardening. `ciscvm audit` runs a
+  reported by the engine that applied the hardening. `cis-image audit` runs a
   third-party tool and gates on the result, exactly like dev-sec (InSpec) /
   RHEL (oscap + SCAP content) / ansible-lockdown (Goss):
 
   ```bash
   # OpenSCAP — RHEL-family: use the scap-security-guide datastream on target
-  ciscvm audit --tool oscap --host 1.2.3.4 --ssh-user root \
+  cis-image audit --tool oscap --host 1.2.3.4 --ssh-user root \
     --datastream /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml \
     --profile xccdf_org.ssgproject.content_profile_cis --min-score 85
 
   # Chef InSpec — dev-sec baselines (Linux)
-  ciscvm audit --tool inspec --host 1.2.3.4 --ssh-user root \
+  cis-image audit --tool inspec --host 1.2.3.4 --ssh-user root \
     --baseline dev-sec/linux-baseline --min-score 85
 
   # HardeningKitty — Windows cross-check (audit runs on the Windows host,
   # export the CSV, parse it here)
-  ciscvm audit --tool kitty --parse kitty-audit.csv --min-score 85
+  cis-image audit --tool kitty --parse kitty-audit.csv --min-score 85
   ```
 
   Every audit can emit SARIF / XCCDF for GRC ingestion
@@ -715,24 +715,24 @@ distribute pipeline):
 
 - **Drift detection** — an image is correct at build time, but instances
   launched from it drift (configs tweaked, packages patched, services
-  changed). `ciscvm drift` re-scans a LIVE instance over SSH and diffs the
+  changed). `cis-image drift` re-scans a LIVE instance over SSH and diffs the
   result against the baseline — the audit result shipped inside the image
   (`/opt/ciscvm-AUDIT-RESULT.json`) or a saved one:
 
   ```bash
-  ciscvm drift --host 1.2.3.4 --image img-ekny61ig --min-score 85
+  cis-image drift --host 1.2.3.4 --image img-ekny61ig --min-score 85
   # reports: new failing rules / recovered rules / score delta; exit 1 = drift
-  ciscvm drift --host 1.2.3.4 --save-baseline   # persist a custom baseline
+  cis-image drift --host 1.2.3.4 --save-baseline   # persist a custom baseline
   ```
 
 - **Vendor image refresh** — when the upstream OS image is updated, the
-  golden image should be rebuilt. `ciscvm check-source` compares the
+  golden image should be rebuilt. `cis-image check-source` compares the
   source image's `CreatedTime` against the last build's lineage record
   (exit 0 = unchanged, 1 = refreshed); schedule it on a timer ahead of
   `build --skip-if-unchanged`:
 
   ```bash
-  ciscvm check-source && echo "source unchanged" || ciscvm build -y
+  cis-image check-source && echo "source unchanged" || cis-image build -y
   ```
 
 - **Deploy trigger** — `[notify].deploy_webhook` POSTs
@@ -776,29 +776,29 @@ distribute pipeline):
 
 - [x] CI pipeline (GitHub Actions + OIDC, zero long-lived AK/SK)
 - [x] Image governance loop: smoke test / lineage / notifications / SLSA signing
-- [x] `ciscvm list` — enumerate available profiles with metadata
-- [x] `ciscvm scan` — audit-only mode (no remediation, gate on findings)
+- [x] `cis-image list` — enumerate available profiles with metadata
+- [x] `cis-image scan` — audit-only mode (no remediation, gate on findings)
 - [x] Custom rule selection (`rules_include` / `rules_exclude` in `ciscvm.toml`)
 - [x] PyPI package (`pip install ciscvm`) — publish workflow included
 - [x] Automatic image cleanup (retire old images by lineage age)
-- [x] Independent audit tool (`ciscvm audit` — oscap / inspec / kitty)
+- [x] Independent audit tool (`cis-image audit` — oscap / inspec / kitty)
 - [x] Benchmark-pinned rule IDs in engine output + SARIF (CIS-CAT cross-reference)
-- [x] Clean-boot verification (`ciscvm verify-image` / `[meta].verify_boot`)
+- [x] Clean-boot verification (`cis-image verify-image` / `[meta].verify_boot`)
 - [x] Per-control overrides (`[cis].overrides` in `ciscvm.toml`)
 - [x] CVE scan gate + SBOM emission (`[meta].cve_scan` / `[meta].sbom`)
-- [x] Change detection (`ciscvm pending` / `build --skip-if-unchanged`)
+- [x] Change detection (`cis-image pending` / `build --skip-if-unchanged`)
 - [x] XCCDF 1.2 report export (`scan --xccdf`, audit `--xccdf`)
 - [x] Cross-account image sharing (`[image].share_accounts`)
 - [x] SBOM pinning in provenance + lineage (SLSA L2-style evidence)
 - [x] Windows cross-check via HardeningKitty CSV (`audit --tool kitty`)
-- [x] Config drift detection (`ciscvm drift` vs the image baseline)
+- [x] Config drift detection (`cis-image drift` vs the image baseline)
 - [x] User test components (`[meta].test_components`, Image Builder style)
 - [x] Deploy trigger webhook (`[notify].deploy_webhook`, EventBridge style)
 - [x] Spot-instance build VM (`[build].spot`, up to ~90% cheaper)
 - [x] Safe cleanup (`cleanup-images --unused-since`, shared images kept)
 - [x] Org-level sharing (`[image].share_org_units`)
-- [x] Rule-set versioning (`ciscvm list --versions`)
-- [x] Vendor image refresh detection (`ciscvm check-source`)
+- [x] Rule-set versioning (`cis-image list --versions`)
+- [x] Vendor image refresh detection (`cis-image check-source`)
 - [ ] SLSA L2: fully reproducible builds (pinned build environment)
 - [ ] STIG benchmark profiles (same engine, DISA content — roadmap)
 
