@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@7203244/docs/ciscvm-logo.png" alt="ciscvm — SecX Series" width="520">
+  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-image@7203244/docs/ciscvm-logo.png" alt="ciscvm — SecX Series" width="520">
 </p>
 
 <p align="center">
@@ -15,7 +15,14 @@
   <img src="https://img.shields.io/badge/profiles-12-orange" alt="12 profiles">
   <img src="https://img.shields.io/badge/platform-Tencent%20Cloud-0052D9" alt="Tencent Cloud">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT">
-  <a href="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-cvm-image-builder/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/susunola/cis-image/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-image/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
+
+<p align="center">
+  <b>金汤·筑城 (Forge)</b> — 固若金汤 · part of the <b>cis-*</b> family:
+  <a href="https://github.com/susunola/cis-image">cis-image</a> (镜像源头) ·
+  <a href="https://github.com/susunola/cis-host">cis-host</a> (主机加固) ·
+  <a href="https://github.com/susunola/cis-cloud">cis-cloud</a> (云上合规)
 </p>
 
 # ciscvm
@@ -38,8 +45,8 @@ Beyond the build itself, ciscvm covers the full **build → test → distribute*
 
 ```bash
 # 1. Install
-git clone https://github.com/susunola/cis-cvm-image-builder.git
-cd cis-cvm-image-builder
+git clone https://github.com/susunola/cis-image.git
+cd cis-image
 pip install .
 
 # 2. Generate and edit configuration
@@ -116,8 +123,8 @@ export WINRM_PASSWORD=xxxx   # Windows builds only
 ### Install from source
 
 ```bash
-git clone https://github.com/susunola/cis-cvm-image-builder.git
-cd cis-cvm-image-builder
+git clone https://github.com/susunola/cis-image.git
+cd cis-image
 pip install .
 ciscvm --version
 ```
@@ -297,7 +304,7 @@ benchmark = "CIS-v1.0.0"
 ## Architecture
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-cvm-image-builder@main/docs/ciscvm-architecture.png" alt="ciscvm build architecture — TOML config to hardened golden image" width="720">
+  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-image@main/docs/ciscvm-architecture.png" alt="ciscvm build architecture — TOML config to hardened golden image" width="720">
 </p>
 
 ### Linux pipeline
@@ -545,7 +552,7 @@ and ciscvm hands the session token straight to Packer.
 1. **CAM side (one-time)**: create an OIDC identity provider pointing at
    `https://token.actions.githubusercontent.com`, then create a CAM role
    whose trust conditions pin `oidc:iss`, `oidc:aud` (the client ID you
-   configured) and `oidc:sub` (e.g. `repo:susunola/cis-cvm-image-builder:
+   configured) and `oidc:sub` (e.g. `repo:susunola/cis-image:
    ref:refs/heads/main`). Attach the builder permissions
    (`cvm:RunInstances`, `cvm:CreateImage`, `cvm:DescribeImages`, ...).
 
@@ -813,6 +820,8 @@ MIT — see [LICENSE](LICENSE).
 ---
 
 ## CIS Benchmarks Disclaimer
+
+**Independent project** — cis-image is not affiliated with, sponsored by, or endorsed by the Center for Internet Security (CIS).
 
 This tool applies hardening rules from CIS Benchmark recommendations. CIS Benchmarks are developed and maintained by the [Center for Internet Security](https://www.cisecurity.org/) (CIS). The cis-os engine roles bundled in this repository are derived from [susunola/cis-os](https://github.com/susunola/cis-os) and are provided under their respective licenses.
 
