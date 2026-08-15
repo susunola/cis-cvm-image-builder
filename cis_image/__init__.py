@@ -55,6 +55,34 @@ __all__ = [
     'render_site', 'render_site_audit', 'resolve', 'run_packer', 'run_preflight', 'warn',
 ]
 
+# ---------------------------------------------------------------------------
+# Module map (dependency direction is strictly upward — no import cycles):
+#
+#   _logging.py     logging/colors + ConfigError + VERSION          (no deps)
+#   _templates.py   embedded HCL/YAML/shell template strings        (no deps)
+#   _profiles.py    12 OS profile definitions                       (no deps)
+#   _config.py      config load/resolve/validate, dataclasses,
+#                   path helpers                                    -> logging, profiles
+#   _render.py      packer/HCL rendering, rule overrides, role bundling
+#                                                                   -> config, templates, logging
+#   _tc_cloud.py    Tencent Cloud API signing, SG checks, instance probes
+#                                                                   -> config, logging
+#   _packer.py      packer exec + output parsing                    -> config, render, tc_cloud, logging
+#   _audit.py       oscap/inspec/kitty parsing + SARIF/XCCDF        -> config, packer, logging
+#   _reports.py     fingerprint/lineage/provenance/notifications    -> config, tc_cloud, logging
+#   _commands.py    the cmd_* subcommands                           -> audit, config, packer,
+#                                                                      profiles, render, reports,
+#                                                                      tc_cloud, logging
+#   _cli.py         build_parser + main                             -> commands, audit, config,
+#                                                                      logging, profiles
+#
+# NOTE on monkeypatching: tests patch symbols via `cis_image.<name>`. To keep
+# those patches effective, internal cross-module calls to the ~25 patched
+# symbols resolve through the package at call time (`cis_image.<name>`) rather
+# than a frozen module-global reference — so a submodule that defines a symbol
+# also routes its own internal call sites through the package.
+# ---------------------------------------------------------------------------
+
 
 from ._audit import (
     _RULE_FAIL_RE,
