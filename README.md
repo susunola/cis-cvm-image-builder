@@ -224,6 +224,13 @@ subnet_id           = "subnet-xxxxxxxx"
 security_group_id   = "sg-xxxxxxxx"
 associate_public_ip = true
 # spot = true                             # use a spot instance for the build VM (up to ~90% cheaper)
+# instance_name = "my-build-cvm"          # optional explicit name for the temporary build CVM ("" = plugin auto)
+# # [build.packer] — passthrough of arbitrary tencentcloud-cvm Packer builder
+# # args (inherits the full Packer capability set). E.g. some SA-series
+# # instance types do not support the default CLOUD_PREMIUM root disk:
+# #   [build.packer]
+# #   disk_type = "CLOUD_SSD"
+# #   disk_size = 100
 
 [image]
 name_prefix  = "tencentos3-cis"
@@ -287,6 +294,8 @@ benchmark = "CIS-v1.0.0"
 | | `security_group_id` | string | Must start with `sg-` |
 | | `associate_public_ip` | bool | Assign public IP |
 | | `spot` | bool | Use a spot instance for the build VM (`instance_charge_type=SPOTPAID`; up to ~90% cheaper, may be repossessed mid-build, default `false`) |
+| | `instance_name` | string | Optional explicit name for the temporary build CVM (empty = Packer auto-generates) |
+| | `packer` | table | Passthrough of arbitrary `tencentcloud-cvm` Packer builder args (e.g. `disk_type`, `disk_size`, `data_disks`), injected verbatim into the generated HCL source block |
 | `[image]` | `name_prefix` | string | Output image name prefix |
 | | `name` | string | Fixed image name (empty = auto `prefix-level-timestamp`) |
 | | `copy_regions` | []string | Regions to replicate (empty = skip) |
