@@ -1,0 +1,61 @@
+name: Docker
+
+# Builds the check_readme.py Docker image (see Dockerfile) and verifies the
+# packaged artifact is complete and behaves correctly inside the container.
+# This guards the README-freshness check in a clean, reproducible Python
+# environment and catches packaging regressions (missing submodules / roles)
+# that a source-checkout-only CI wouldn't.
+#
+# No cloud credentials are needed — this is pure local validation.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # docker build runs check_readme.py as the image entrypoint during the
+      # final stage test, so a successful build already proves README.md is
+      # current. We also re-run it explicitly below for a clear signal.
+      - name: Build Docker image
+        run: docker build -t cis-image:check-readme .
+
+      - name: Verify README check inside container
+        run: docker run --rm cis-image:check-readme
+
+      - name: Verify packaged artifact (version / submodules / roles)
+        run: |
+          docker run --rm --entrypoint python3 cis-image:check-readme -c '
+          import os, cis_image
+
+          # 1) version single-source
+          assert cis_image.VERSION, "missing VERSION"
+
+          # 2) every split submodule present
+          for m in ["_tc_cloud", "_commands", "_config", "_render", "_cli",
+                    "_audit", "_reports", "_packer", "_profiles", "_templates",
+                    "_logging"]:
+              assert hasattr(cis_image, m), f"missing submodule {m}"
+
+          # 3) every bundled OS role shipped (package-data)
+          roles_dir = os.path.join(os.path.dirname(cis_image.__file__), "roles")
+          roles = sorted(os.listdir(roles_dir))
+          assert len(roles) == 12, f"expected 12 roles, got {len(roles)}: {roles}"
+
+          # spot-check a role data file made it into the wheel
+          rp = os.path.join(roles_dir, "cis_tencentos4", "files", "rules.json")
+          assert os.path.exists(rp), "missing roles package-data"
+
+          print(f"packaged artifact OK: v{cis_image.VERSION}, "
+                f"{len(roles)} roles, all submodules present")
+          '
