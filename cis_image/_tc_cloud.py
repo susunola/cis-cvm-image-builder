@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import urllib.error
 import urllib.request
 from datetime import UTC
 from typing import Any, cast
@@ -11,6 +12,17 @@ import cis_image
 
 from ._config import ResolvedConfig
 from ._logging import ConfigError, ok, warn
+
+
+def _creds(sid_env: str, skey_env: str, tok_env: str) -> tuple[str, str, str | None]:
+    """Read Tencent Cloud credentials from the environment by env-var name.
+
+    Returns (secret_id, secret_key, token).  The token is None when the
+    optional token env-var is unset.  No validation here — callers decide
+    whether missing credentials are fatal or fail-open.
+    """
+    tok = os.environ.get(tok_env, "") or None
+    return os.environ.get(sid_env, ""), os.environ.get(skey_env, ""), tok
 
 
 def _image_ids_still_exist(region: str, image_ids: list[str]) -> bool:
@@ -74,8 +86,15 @@ def _tc3_api(service: str, action: str, version: str, region: str,
         headers["X-TC-Token"] = token
     req = urllib.request.Request(f"https://{host}", data=payload.encode("utf-8"),
                                  headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return cast("dict[str, Any]", json.loads(resp.read().decode("utf-8")))
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return cast("dict[str, Any]", json.loads(resp.read().decode("utf-8")))
+    except urllib.error.URLError as exc:
+        raise ConfigError(f"Tencent Cloud API {action} ({service}) request failed: {exc.reason}") from exc
+    except OSError as exc:  # socket.timeout / connection reset / DNS
+        raise ConfigError(f"Tencent Cloud API {action} ({service}) network error: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ConfigError(f"Tencent Cloud API {action} ({service}) returned invalid JSON") from exc
 
 def _my_public_ip() -> str | None:
     """Best-effort discovery of the outbound public IP `cis-image` runs from.
@@ -152,9 +171,7 @@ def _check_security_group_ingress(r: ResolvedConfig) -> None:
     if not r.security_group_id:
         return
     port = 3389 if r.family == "windows" else (r.ssh_port or 22)
-    sid = os.environ.get(r.secret_id_env, "")
-    skey = os.environ.get(r.secret_key_env, "")
-    tok = os.environ.get(r.security_token_env, "")
+    sid, skey, tok = _creds(r.secret_id_env, r.secret_key_env, r.security_token_env)
     if not sid or not skey:
         return
     my_ip = cis_image._my_public_ip()
@@ -181,9 +198,9 @@ def _images_exist(region: str, image_ids: list[str]) -> list[str]:
     """Return which of *image_ids* still exist in *region* (via DescribeImages)."""
     if not image_ids:
         return []
-    sid, skey, tok = (os.environ.get("TENCENTCLOUD_SECRET_ID", ""),
-                      os.environ.get("TENCENTCLOUD_SECRET_KEY", ""),
-                      os.environ.get("TENCENTCLOUD_SECURITY_TOKEN", ""))
+    sid, skey, tok = _creds("TENCENTCLOUD_SECRET_ID",
+                         "TENCENTCLOUD_SECRET_KEY",
+                         "TENCENTCLOUD_SECURITY_TOKEN")
     if not sid or not skey:
         raise ConfigError("TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY not set — "
                           "cannot query images for cleanup")
@@ -196,9 +213,9 @@ def _images_exist(region: str, image_ids: list[str]) -> list[str]:
     return existing
 
 def _delete_images(region: str, image_ids: list[str]) -> None:
-    sid, skey, tok = (os.environ.get("TENCENTCLOUD_SECRET_ID", ""),
-                      os.environ.get("TENCENTCLOUD_SECRET_KEY", ""),
-                      os.environ.get("TENCENTCLOUD_SECURITY_TOKEN", ""))
+    sid, skey, tok = _creds("TENCENTCLOUD_SECRET_ID",
+                         "TENCENTCLOUD_SECRET_KEY",
+                         "TENCENTCLOUD_SECURITY_TOKEN")
     try:
         resp = cis_image._tc3_api("cvm", "DeleteImages", "2017-03-12", region,
                         {"ImageIds": image_ids}, sid, skey, tok or None)
@@ -214,9 +231,9 @@ def _image_is_shared(region: str, image_id: str) -> bool:
     "keep the image") when credentials/API are unavailable so cleanup
     never deletes an image it cannot prove is unused.
     """
-    sid, skey, tok = (os.environ.get("TENCENTCLOUD_SECRET_ID", ""),
-                      os.environ.get("TENCENTCLOUD_SECRET_KEY", ""),
-                      os.environ.get("TENCENTCLOUD_SECURITY_TOKEN", ""))
+    sid, skey, tok = _creds("TENCENTCLOUD_SECRET_ID",
+                         "TENCENTCLOUD_SECRET_KEY",
+                         "TENCENTCLOUD_SECURITY_TOKEN")
     if not sid or not skey:
         return True  # can't prove it's unused → keep
     try:
@@ -234,9 +251,7 @@ def _image_is_shared(region: str, image_id: str) -> bool:
 
 def _source_image_created(r: ResolvedConfig) -> str:
     """Query the source image's CreatedTime ("" when unavailable)."""
-    sid, skey, tok = (os.environ.get(r.secret_id_env, ""),
-                      os.environ.get(r.secret_key_env, ""),
-                      os.environ.get(r.security_token_env, ""))
+    sid, skey, tok = _creds(r.secret_id_env, r.secret_key_env, r.security_token_env)
     if not sid or not skey:
         return ""
     try:
@@ -252,9 +267,7 @@ def _source_image_created(r: ResolvedConfig) -> str:
 
 def _probe_launch(r: ResolvedConfig, image_id: str, instance_name: str) -> str:
     """Launch a probe instance from *image_id*; return instance-id."""
-    sid, skey, tok = (os.environ.get(r.secret_id_env, ""),
-                      os.environ.get(r.secret_key_env, ""),
-                      os.environ.get(r.security_token_env, ""))
+    sid, skey, tok = _creds(r.secret_id_env, r.secret_key_env, r.security_token_env)
     if not sid or not skey:
         raise ConfigError(
             f"{r.secret_id_env} / {r.secret_key_env} not set — "
@@ -294,9 +307,7 @@ def _probe_public_ip(r: ResolvedConfig, instance_id: str) -> str:
     "" when the timeout (default ~15 min) expires.
     """
     import time as _time
-    sid, skey, tok = (os.environ.get(r.secret_id_env, ""),
-                      os.environ.get(r.secret_key_env, ""),
-                      os.environ.get(r.security_token_env, ""))
+    sid, skey, tok = _creds(r.secret_id_env, r.secret_key_env, r.security_token_env)
     deadline = _time.time() + 900
     while _time.time() < deadline:
         try:
@@ -327,9 +338,7 @@ def _probe_public_ip(r: ResolvedConfig, instance_id: str) -> str:
     return ""
 
 def _probe_terminate(r: ResolvedConfig, instance_id: str) -> None:
-    sid, skey, tok = (os.environ.get(r.secret_id_env, ""),
-                      os.environ.get(r.secret_key_env, ""),
-                      os.environ.get(r.security_token_env, ""))
+    sid, skey, tok = _creds(r.secret_id_env, r.secret_key_env, r.security_token_env)
     try:
         cis_image._tc3_api("cvm", "TerminateInstances", "2017-03-12", r.region,
                  {"InstanceIds": [instance_id]}, sid, skey, tok or None)
@@ -413,9 +422,7 @@ def _share_images(r: ResolvedConfig, image_ids: list[str], accounts: list[str]) 
     """
     if not image_ids or not accounts:
         return
-    sid, skey, tok = (os.environ.get(r.secret_id_env, ""),
-                      os.environ.get(r.secret_key_env, ""),
-                      os.environ.get(r.security_token_env, ""))
+    sid, skey, tok = _creds(r.secret_id_env, r.secret_key_env, r.security_token_env)
     if not sid or not skey:
         warn(f"{r.secret_id_env} / {r.secret_key_env} not set — "
              "cannot share images")

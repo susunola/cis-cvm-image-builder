@@ -2048,6 +2048,42 @@ class TestCleanupImages:
         assert captured["token"] == "sts-token-abc"
         assert out["Response"]["ImageSet"] == []
 
+    def test_tc3_network_error_raises_config_error(self, tmp_path):
+        """A transport failure (timeout/DNS/conn reset) must surface as a
+        ConfigError, not a raw urllib/OSError, so callers can degrade
+        gracefully instead of crashing."""
+        import urllib.error
+
+        import cis_image
+        from cis_image import ConfigError
+
+        with mock.patch("cis_image.urllib.request.urlopen",
+                        side_effect=urllib.error.URLError("connection timed out")), \
+                pytest.raises(ConfigError, match="request failed"):
+            cis_image._tc3_api("cvm", "DescribeImages", "2017-03-12",
+                               "ap-guangzhou", {"ImageIds": ["img-x"]},
+                               "AKIDtest", "sk-test")
+
+    def test_tc3_invalid_json_raises_config_error(self, tmp_path):
+        """A non-JSON response body must surface as a ConfigError."""
+        import cis_image
+        from cis_image import ConfigError
+
+        def fake_urlopen(req, *a, **kw):
+            class R:
+                def read(self):
+                    return b"<html>not json</html>"
+                def __enter__(self):
+                    return self
+                def __exit__(self, *a):
+                    return False
+            return R()
+        with mock.patch("cis_image.urllib.request.urlopen", side_effect=fake_urlopen), \
+                pytest.raises(ConfigError, match="invalid JSON"):
+            cis_image._tc3_api("cvm", "DescribeImages", "2017-03-12",
+                               "ap-guangzhou", {"ImageIds": ["img-x"]},
+                               "AKIDtest", "sk-test")
+
 
 class TestIdempotencyAndSarif:
     """cis-image test --idempotency + scan --sarif."""
