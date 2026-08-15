@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-image@main/docs/cis-image-logo.png" alt="cis-image — SecX Series" width="520">
+  <img src="https://cdn.jsdelivr.net/gh/susunola/cis-image@main/docs/cis-image-logo.png" alt="cis-image" width="520">
 </p>
 
 <p align="center">
@@ -19,10 +19,10 @@
 </p>
 
 <p align="center">
-  <b>金汤·筑城 (Forge)</b> — 固若金汤 · part of the <b>cis-*</b> family:
-  <a href="https://github.com/susunola/cis-image">cis-image</a> (镜像源头) ·
-  <a href="https://github.com/susunola/cis-host">cis-host</a> (主机加固) ·
-  <a href="https://github.com/susunola/cis-cloud">cis-cloud</a> (云上合规)
+  part of the <b>cis-*</b> family:
+  <a href="https://github.com/susunola/cis-image">cis-image</a> ·
+  <a href="https://github.com/susunola/cis-host">cis-host</a> ·
+  <a href="https://github.com/susunola/cis-cloud">cis-cloud</a>
 </p>
 
 # cis-image
@@ -358,7 +358,7 @@ build-time audit — the Windows counterpart of `/opt/cis-image-AUDIT-RESULT.jso
 ```bash
 $ ssh cisimage@<host>
               .---..---.
-          .-'          '-.           SECX  SERIES
+          .-'          '-.           CIS IMAGE
         .'                '.           ___ ___  ___  ___
       .'                    '.       / __/ _ \/ __|/ __|
      /         ()    ()       \      | (_| (_) \__ \ (__ 

@@ -12,7 +12,7 @@
 
 # cis-image — CIS 加固黄金镜像构建
 
-> **金汤·筑城 (Forge)** — 固若金汤 · cis-* 家族:cis-image(镜像源头)、cis-host(主机加固)、cis-cloud(云上合规)
+> 属于 cis-* 家族:cis-image(镜像源头)、cis-host(主机加固)、cis-cloud(云上合规)
 
 > 五条命令在腾讯云上构建 CIS 加固黄金镜像。无需 Galaxy，构建时零网络依赖，
 > 不用手写模板 — 一切由 `cis-image.toml` 驱动。
