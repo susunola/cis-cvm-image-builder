@@ -837,6 +837,28 @@ def c_sysctl(ctx, p):
     return "pass", "; ".join(good) or "ok"
 
 
+@fix("sysctl")
+def f_sysctl(ctx, p):
+    path = "/etc/sysctl.d/60-cis-hardening.conf"
+    done = []
+    for kv in p["params"]:
+        k, v = kv["key"], str(kv["value"])
+        rc, _, _ = sh(["sysctl", "-n", k])
+        if rc != 0:
+            continue
+        set_kv_in_file(ctx, path, k, v, sep=" = ")
+        sh(["sysctl", "-w", "%s=%s" % (k, v)])
+        done.append(k)
+    # flush route cache for net.* changes
+    if any(kv["key"].startswith("net.ipv") for kv in p["params"]):
+        sh(["sysctl", "-w", "net.ipv4.route.flush=1"])
+        sh(["sysctl", "-w", "net.ipv6.route.flush=1"])
+    if not done:
+        return False, "none of the parameters exist on this kernel"
+    ensure_cis_sysctl_service(ctx)
+    return True, "set + persisted: %s" % ", ".join(done)
+
+
 def ensure_cis_sysctl_service(ctx):
     """Re-assert the CIS sysctl drop-in late in boot.
 
@@ -867,28 +889,6 @@ def ensure_cis_sysctl_service(ctx):
     ctx.add_changed_file(unit)
     sh(["systemctl", "daemon-reload"], 30)
     sh(["systemctl", "enable", "cis-sysctl-apply.service"], 30)
-
-
-@fix("sysctl")
-def f_sysctl(ctx, p):
-    path = "/etc/sysctl.d/60-cis-hardening.conf"
-    done = []
-    for kv in p["params"]:
-        k, v = kv["key"], str(kv["value"])
-        rc, _, _ = sh(["sysctl", "-n", k])
-        if rc != 0:
-            continue
-        set_kv_in_file(ctx, path, k, v, sep=" = ")
-        sh(["sysctl", "-w", "%s=%s" % (k, v)])
-        done.append(k)
-    # flush route cache for net.* changes
-    if any(kv["key"].startswith("net.ipv") for kv in p["params"]):
-        sh(["sysctl", "-w", "net.ipv4.route.flush=1"])
-        sh(["sysctl", "-w", "net.ipv6.route.flush=1"])
-    if not done:
-        return False, "none of the parameters exist on this kernel"
-    ensure_cis_sysctl_service(ctx)
-    return True, "set + persisted: %s" % ", ".join(done)
 
 
 @check("file_perm")

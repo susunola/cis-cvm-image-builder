@@ -76,12 +76,14 @@
     ],
     "platforms": [],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "partition",
     "params": {
       "mount": "/tmp",
-      "note": "manual: site-specific partition/tmpfs decision; never live-mount at build time"
+      "note": "mount /tmp as tmpfs via /etc/fstab; effective at next boot (no live-mount during build)",
+      "allow_tmpfs": true,
+      "fstab_only": true
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 36
   },
   {
