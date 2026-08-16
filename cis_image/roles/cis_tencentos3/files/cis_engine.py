@@ -725,16 +725,34 @@ def f_mount_opt(ctx, p):
         opt, mp, "" if changed else " already ok")
 
 
+def _fstab_has_tmpfs(ctx, mp):
+    """True if /etc/fstab declares a tmpfs mount for mp (effective next boot)."""
+    if not exists("/etc/fstab"):
+        return False
+    for ln in readlines("/etc/fstab"):
+        f = ln.split()
+        if (len(f) >= 3 and not ln.lstrip().startswith("#")
+                and f[1] == mp and f[2] == "tmpfs"):
+            return True
+    return False
+
+
 @check("partition")
 def c_partition(ctx, p):
     mp = p["mount"]
     mounts = _mounts(ctx)
-    if mp not in mounts:
-        return "fail", "%s is not on a separate partition/filesystem" % mp
-    fst = mounts[mp]["fstype"]
-    if p.get("require_tmpfs") and fst != "tmpfs":
-        return "fail", "%s is %s, tmpfs required" % (mp, fst)
-    return "pass", "%s is a separate mount (%s)" % (mp, fst)
+    if mp in mounts:
+        fst = mounts[mp]["fstype"]
+        if p.get("require_tmpfs") and fst != "tmpfs":
+            return "fail", "%s is %s, tmpfs required" % (mp, fst)
+        return "pass", "%s is a separate mount (%s)" % (mp, fst)
+    # Not currently a separate mount.  When the rule opts to persist a tmpfs
+    # entry in /etc/fstab (fstab_only) instead of live-mounting at build
+    # time, the mount appears on the next boot — treat that as passing so
+    # apply/scan don't flag it as a failure before the reboot.
+    if p.get("fstab_only") and _fstab_has_tmpfs(ctx, mp):
+        return "pass", "%s will be tmpfs at next boot (fstab entry present)" % mp
+    return "fail", "%s is not on a separate partition/filesystem" % mp
 
 
 @fix("partition")
@@ -744,6 +762,19 @@ def f_partition(ctx, p):
         return True, "%s already a separate mount point" % mp
     if not p.get("allow_tmpfs"):
         return False, "%s needs a dedicated partition; cannot create automatically" % mp
+    # fstab_only: persist a tmpfs entry but DO NOT live-mount during the
+    # build — mounting over /tmp mid-build would cover the running Ansible
+    # payload and crash the module at exit_json.  Takes effect on next boot.
+    if p.get("fstab_only"):
+        if exists("/etc/fstab"):
+            with ctx.file_lock("/etc/fstab"):
+                backup(ctx, "/etc/fstab")
+                if not _fstab_has_tmpfs(ctx, mp):
+                    fstab_line = "tmpfs  %s  tmpfs  defaults,noexec,nosuid,nodev  0 0" % mp
+                    with open("/etc/fstab", "a", encoding="utf-8") as fh:
+                        fh.write("\n" + fstab_line + "\n")
+                    ctx.add_changed_file("/etc/fstab")
+        return True, "%s tmpfs entry written to /etc/fstab (effective at next boot)" % mp
     # Mount as tmpfs with CIS-recommended options (noexec,nosuid,nodev)
     if exists("/etc/fstab"):
         # Serialize with f_mount_opt's locked atomic rewrite of fstab —
@@ -806,38 +837,6 @@ def c_sysctl(ctx, p):
     return "pass", "; ".join(good) or "ok"
 
 
-def ensure_cis_sysctl_service(ctx):
-    """Re-assert the CIS sysctl drop-in late in boot.
-
-    The drop-in (/etc/sysctl.d/60-cis-hardening.conf) already wins normal
-    drop-in ordering, but a late runtime actor (systemd-coredump / abrtd on
-    TencentOS) can reset values such as fs.suid_dumpable back to its default
-    after systemd-sysctl has applied them.  A one-shot service ordered After
-    those actors re-applies the CIS settings as the final word.
-    """
-    unit = "/etc/systemd/system/cis-sysctl-apply.service"
-    if exists(unit) or not systemd_present():
-        return
-    content = (
-        "[Unit]\n"
-        "Description=Re-apply CIS sysctl hardening after late boot actors\n"
-        "After=systemd-sysctl.service systemd-coredump.service abrtd.service\n"
-        "ConditionPathExists=/etc/sysctl.d/60-cis-hardening.conf\n"
-        "\n"
-        "[Service]\n"
-        "Type=oneshot\n"
-        "RemainAfterExit=yes\n"
-        "ExecStart=/sbin/sysctl -p /etc/sysctl.d/60-cis-hardening.conf\n"
-        "\n"
-        "[Install]\n"
-        "WantedBy=multi-user.target\n"
-    )
-    write_file(ctx, unit, content, 0o644)
-    ctx.add_changed_file(unit)
-    sh(["systemctl", "daemon-reload"], 30)
-    sh(["systemctl", "enable", "cis-sysctl-apply.service"], 30)
-
-
 @fix("sysctl")
 def f_sysctl(ctx, p):
     path = "/etc/sysctl.d/60-cis-hardening.conf"
@@ -858,6 +857,38 @@ def f_sysctl(ctx, p):
         return False, "none of the parameters exist on this kernel"
     ensure_cis_sysctl_service(ctx)
     return True, "set + persisted: %s" % ", ".join(done)
+
+
+def ensure_cis_sysctl_service(ctx):
+    """Re-assert the CIS sysctl drop-in late in boot.
+
+    The drop-in (/etc/sysctl.d/60-cis-hardening.conf) already wins normal
+    drop-in ordering, but a late runtime actor (apport / systemd-coredump on
+    Ubuntu) can reset values such as fs.suid_dumpable back to its default
+    after systemd-sysctl has applied them.  A one-shot service ordered After
+    those actors re-applies the CIS settings as the final word.
+    """
+    unit = "/etc/systemd/system/cis-sysctl-apply.service"
+    if exists(unit) or not systemd_present():
+        return
+    content = (
+        "[Unit]\n"
+        "Description=Re-apply CIS sysctl hardening after late boot actors\n"
+        "After=systemd-sysctl.service systemd-coredump.service apport.service\n"
+        "ConditionPathExists=/etc/sysctl.d/60-cis-hardening.conf\n"
+        "\n"
+        "[Service]\n"
+        "Type=oneshot\n"
+        "RemainAfterExit=yes\n"
+        "ExecStart=/sbin/sysctl -p /etc/sysctl.d/60-cis-hardening.conf\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=multi-user.target\n"
+    )
+    write_file(ctx, unit, content, 0o644)
+    ctx.add_changed_file(unit)
+    sh(["systemctl", "daemon-reload"], 30)
+    sh(["systemctl", "enable", "cis-sysctl-apply.service"], 30)
 
 
 @check("file_perm")

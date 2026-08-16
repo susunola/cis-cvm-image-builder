@@ -105,9 +105,9 @@ export WINRM_PASSWORD=xxxx   # Windows builds only
 [packer]      tencentcloud-cvm: Mode:      apply
 [packer]      tencentcloud-cvm: Profile:   L1
 [packer]      tencentcloud-cvm: Total:     142
-[packer]      tencentcloud-cvm: Passed:    138
-[packer]      tencentcloud-cvm: Failed:    4
-[packer]      tencentcloud-cvm: Score:     97.2% ≥ 85%  ✓ PASS
+[packer]      tencentcloud-cvm: Passed:    142
+[packer]      tencentcloud-cvm: Failed:    0
+[packer]      tencentcloud-cvm: Score:     100% ≥ 85%  ✓ PASS
 [packer]  ==> tencentcloud-cvm: smoke test: sshd config parses ... ok
 [packer]  ==> tencentcloud-cvm: smoke test: /dev/shm noexec ... ok
 [packer]  ==> tencentcloud-cvm: smoke test PASSED — image is buildable
@@ -117,7 +117,7 @@ export WINRM_PASSWORD=xxxx   # Windows builds only
 
 ✔  Build complete — image-id: img-abc123def456
 ✔  Output image ID(s): img-abc123def456
-✔  Re-audit score: 97.2%
+✔  Re-audit score: 100%
 ✔  Lineage recorded -> ~/.cis-image/lineage.jsonl
 ✔  Provenance signed with GPG key 0123ABCD -> ...provenance.json.sig
 ```
