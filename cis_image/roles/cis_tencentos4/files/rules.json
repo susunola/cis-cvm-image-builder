@@ -79,9 +79,9 @@
     "family": "partition",
     "params": {
       "mount": "/tmp",
-      "note": "mount /tmp as tmpfs via /etc/fstab; effective at next boot (no live-mount during build)",
       "allow_tmpfs": true,
-      "fstab_only": true
+      "fstab_only": true,
+      "note": "mount /tmp as tmpfs via /etc/fstab; effective at next boot (no live-mount during build)"
     },
     "risk": "safe",
     "page": 36
