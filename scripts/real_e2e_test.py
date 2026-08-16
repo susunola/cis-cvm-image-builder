@@ -688,7 +688,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, "REPO_DIR_PLACEHOLDER")
-from ohbs_image import _extract_image_ids  # noqa: E402
+from ohbs_image import _extract_image_ids, _tc3_api  # noqa: E402
 
 TOML_TEMPLATE = """[build]
 profile = "{profile}"
@@ -762,25 +762,85 @@ def _parse_score(all_lines):
     return None
 
 
-def _instance_types():
-    """Ordered list of target build instance types to try: the primary
-    (BUILD_INSTANCE_TYPE) first, then fallbacks. E2E_BUILD_INSTANCE_TYPES
-    overrides the whole list."""
-    env_types = os.environ.get("E2E_BUILD_INSTANCE_TYPES", "").strip()
-    if env_types:
-        return [t.strip() for t in env_types.split(",") if t.strip()]
-    return [BUILD_INSTANCE_TYPE] + DEFAULT_FALLBACK_INSTANCE_TYPES
+def _disk_type_for(instance_type):
+    """Map an instance type to the root-disk type it actually supports.
+
+    Packer's tencentcloud-cvm builder defaults to CLOUD_PREMIUM, but not
+    every family supports it — SA-series (SA2/SA5/...) only take CLOUD_SSD and
+    fail with '[19045] CVM not support the required disk' otherwise. Other
+    families (S5/S6/M5/...) are fine on CLOUD_PREMIUM. We derive the family
+    from the leading alphabetic prefix (e.g. 'SA5.MEDIUM4' -> 'SA') so the
+    mapping is explicit and covers every family, not just a SA heuristic."""
+    family = re.match(r"([A-Za-z]+)", instance_type or "").group(1).upper()
+    if family.startswith("SA"):
+        return "CLOUD_SSD"
+    return "CLOUD_PREMIUM"
 
 
 def _disk_block(instance_type):
-    """TOML block setting a root disk type for the target build CVM when the
-    instance type needs it. Some SA-series types do not support the packer
-    default CLOUD_PREMIUM root disk (they fail with "CVM not support the
-    required disk"); give them CLOUD_SSD. Other series keep the default
-    (empty block). Uses the [build.packer] passthrough added to ohbs-image."""
-    if instance_type.upper().startswith("SA"):
-        return "\\n[build.packer]\\ndisk_type = \\"CLOUD_SSD\\""
-    return ""
+    """TOML block pinning the root-disk type for the target build CVM to the
+    one its instance family supports (see _disk_type_for). Uses ohbs-image's
+    [build.packer] passthrough. Returns '' when the default (CLOUD_PREMIUM)
+    already applies, so behaviour is unchanged for non-SA types."""
+    disk = _disk_type_for(instance_type)
+    if disk == "CLOUD_PREMIUM":
+        return ""
+    return "\\n[build.packer]\\ndisk_type = \\"CLOUD_SSD\\""
+
+
+def _stock_aware_types():
+    """Pick target build instance types by ACTUAL zone inventory, not a
+    hard-coded list.
+
+    Queries Tencent Cloud DescribeZoneInstanceConfigInfos for the target zone,
+    keeps 2c4g (Cpu=2, Memory=4 -> 'MEDIUM4') types whose Status is SELL,
+    deduplicates, and ranks them: S-series (CLOUD_PREMIUM, cheapest/first)
+    before SA-series (need CLOUD_SSD), then by name for determinism. This
+    means we launch a type that is known to be in stock instead of blindly
+    trying types that may be SOLD_OUT (which packer surfaces as
+    ResourceInsufficient.SpecifiedInstanceType).
+
+    Overrides:
+      * E2E_BUILD_INSTANCE_TYPES (comma-separated) wins if set — explicit
+        operator choice.
+      * On any API/parse failure, or if no 2c4g type is SELL, we fall back to
+        [BUILD_INSTANCE_TYPE] + DEFAULT_FALLBACK_INSTANCE_TYPES so the run
+        still proceeds.
+    """
+    env_types = os.environ.get("E2E_BUILD_INSTANCE_TYPES", "").strip()
+    if env_types:
+        return [t.strip() for t in env_types.split(",") if t.strip()]
+    try:
+        sid = os.environ.get("TENCENTCLOUD_SECRET_ID", "")
+        skey = os.environ.get("TENCENTCLOUD_SECRET_KEY", "")
+        tok = os.environ.get("TENCENTCLOUD_SECURITY_TOKEN") or None
+        resp = _tc3_api("cvm", "DescribeZoneInstanceConfigInfos", "2017-03-12",
+                        TARGET_REGION,
+                        {"Filters": [{"Name": "zone", "Values": [TARGET_ZONE]}]},
+                        sid, skey, tok)
+        qset = (resp.get("Response", {}) or {}).get("InstanceTypeQuotaSet", [])
+        sell = set()
+        for it in qset:
+            name = it.get("InstanceType") or ""
+            if it.get("Cpu") == 2 and it.get("Memory") == 4 \
+               and name.endswith("MEDIUM4") \
+               and it.get("Status") == "SELL":
+                sell.add(name)
+        if not sell:
+            return [BUILD_INSTANCE_TYPE] + DEFAULT_FALLBACK_INSTANCE_TYPES
+        # Rank: S-series first (CLOUD_PREMIUM), then SA-series (CLOUD_SSD),
+        # then the rest, each subgroup sorted by name for determinism.
+        def _rank(t):
+            fam = re.match(r"([A-Za-z]+)", t).group(1).upper()
+            if fam.startswith("S") and not fam.startswith("SA"):
+                return (0, t)
+            if fam.startswith("SA"):
+                return (1, t)
+            return (2, t)
+        return sorted(sell, key=_rank)
+    except Exception:
+        # Inventory lookup is best-effort; never let it block a run.
+        return [BUILD_INSTANCE_TYPE] + DEFAULT_FALLBACK_INSTANCE_TYPES
 
 
 def _attempt_build(combo, instance_type, attempt_dir):
@@ -825,7 +885,7 @@ def _attempt_build(combo, instance_type, attempt_dir):
 
 def build_one(combo):
     profile, level = combo["profile"], combo["level"]
-    types = _instance_types()
+    types = _stock_aware_types()
     last = None
     for idx, instance_type in enumerate(types):
         attempt_dir = WORKDIR / f"{profile}-l{level}" if idx == 0 else WORKDIR / f"{profile}-l{level}-{idx}"
