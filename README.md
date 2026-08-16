@@ -477,7 +477,7 @@ ran on Tencent Cloud Guangzhou region with `cis_allow_disruptive: false`;
 every image below was re-verified in the console as `NORMAL` on 2026-08-14.
 
 Full matrix — including the CVM instance type used per build —
-is in **[docs/TEST-MATRIX.md](docs/TEST-MATRIX.md)**.
+is in **[tests/TEST-MATRIX.md](tests/TEST-MATRIX.md)**.
 
 ---
 
