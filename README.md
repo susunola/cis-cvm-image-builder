@@ -24,9 +24,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/susunola/ohbs-image"><img src="https://img.shields.io/badge/ohbs--image-golden%20image%20builder-1f6feb?style=for-the-badge&logo=packer&logoColor=white" alt="ohbs-image — golden image builder"></a>
-  <a href="https://github.com/susunola/ohbs-host"><img src="https://img.shields.io/badge/ohbs--host-CIS%20Benchmark%20CLI-1f6feb?style=for-the-badge&logo=ansible&logoColor=white" alt="ohbs-host — CIS Benchmark CLI"></a>
-  <a href="https://github.com/susunola/ohbs-cloud"><img src="https://img.shields.io/badge/ohbs--cloud-Terraform%20policy-1f6feb?style=for-the-badge&logo=terraform&logoColor=white" alt="ohbs-cloud — Terraform hardening policy"></a>
+  <a href="https://github.com/susunola/ohbs-image"><img src="https://img.shields.io/badge/ohbs--image-golden%20image%20builder-1f6feb?style=flat-square&logo=packer&logoColor=white" alt="ohbs-image — golden image builder"></a>&nbsp;
+  <a href="https://github.com/susunola/ohbs-host"><img src="https://img.shields.io/badge/ohbs--host-CIS%20Benchmark%20CLI-1f6feb?style=flat-square&logo=ansible&logoColor=white" alt="ohbs-host — CIS Benchmark CLI"></a>&nbsp;
+  <a href="https://github.com/susunola/ohbs-cloud"><img src="https://img.shields.io/badge/ohbs--cloud-Terraform%20policy-1f6feb?style=flat-square&logo=terraform&logoColor=white" alt="ohbs-cloud — Terraform hardening policy"></a>
 </p>
 
 # oh baseline image
