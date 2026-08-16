@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "ohbs-image"
 # Single source of truth: ohbs_image/_logging.py VERSION (read via AST, no import).
 dynamic = ["version"]
-description = "CIS-hardened golden image builder for Tencent Cloud — config-driven CLI, 12 OS profiles, bundled ohbs-os engine"
+description = "ohbs-hardened golden image builder for Tencent Cloud — config-driven CLI, 12 OS profiles, bundled ohbs-os engine"
 license = {text = "MIT"}
 readme = "README.md"
 authors = [{name = "ohbs-image contributors"}]

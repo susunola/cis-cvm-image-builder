@@ -215,7 +215,7 @@ benchmark = "CIS-v1.0.0"
 │ ohbs-image.toml │                           │ 1. ติดตั้ง ansible│
 │             │                           │    (dnf/apt/zypp)│
 │ roles/      │── อัปโหลดไป CVM ─────────▶│ 2. ใช้ CIS        │
-│   cis_*     │      (role ที่ให้มาด้วย)      │    (ohbs_engine.py)│
+│   ohbs-*    │      (role ที่ให้มาด้วย)      │    (ohbs_engine.py)│
 │             │                           │ 3. Gate:         │
 │             │                           │    fail_on_findings│
 │             │◀── image-id ──────────────│ 4. CreateImage    │

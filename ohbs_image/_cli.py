@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="ohbs-image",
-        description="CIS-hardened Golden Image Builder (Packer × Tencent Cloud CVM)",
+        description="ohbs-hardened Golden Image Builder (Packer × Tencent Cloud CVM)",
         epilog=f"Supported profiles: {PROFILE_NAMES_HELP}",
     )
     parser.add_argument("--version", action="version", version=f"ohbs-image {VERSION}")

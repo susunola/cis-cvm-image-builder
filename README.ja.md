@@ -216,7 +216,7 @@ benchmark = "CIS-v1.0.0"
 │ ohbs-image.toml │                           │ 1. ansible 導入   │
 │             │                           │    (dnf/apt/zypp) │
 │ roles/      │── CVM へアップロード ────▶│ 2. CIS 適用       │
-│   cis_*     │      (同梱ロール)          │    (ohbs_engine.py)│
+│   ohbs-*    │      (同梱ロール)          │    (ohbs_engine.py)│
 │             │                           │ 3. ゲート：       │
 │             │                           │    fail_on_findings│
 │             │◀── image-id ──────────────│ 4. CreateImage    │

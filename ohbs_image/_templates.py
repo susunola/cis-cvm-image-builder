@@ -500,7 +500,7 @@ build {
       "# final image state (finalize rewrites banner/motd/issue, which flips",
       "# CIS 1.7.x banner results).  Engine + catalog were kept under",
       "# /opt/ohbs-image-ansible/roles/ by the cleanup step.",
-      "ENG=$(ls -d /opt/ohbs-image-ansible/roles/cis_*/files 2>/dev/null | head -1)",
+      "ENG=$(ls -d /opt/ohbs-image-ansible/roles/ohbs-*/files 2>/dev/null | head -1)",
       "if [ -n \"$ENG\" ] && [ -f \"$ENG/ohbs_engine.py\" ]; then",
       "  CAT=\"$ENG/rules.json\"; [ -f \"$ENG/__IMAGE_CATALOG__\" ] && CAT=\"$ENG/__IMAGE_CATALOG__\";",
       "  sudo /opt/ohbs-image-ansible/bin/python \"$ENG/ohbs_engine.py\" --catalog \"$CAT\" --mode scan --profile '__CIS_PROFILE_SHORT__' --out /tmp/cis-final-scan.json >/dev/null 2>&1 && sudo install -m 0600 -o root -g root /tmp/cis-final-scan.json /opt/ohbs-image-AUDIT-RESULT.json && sudo rm -f /tmp/cis-final-scan.json && echo '[ohbs-image] final-state audit refreshed' || echo '[ohbs-image] WARNING: final-state re-scan failed; keeping pre-finalize audit'",
@@ -1125,12 +1125,12 @@ echo "ansible ready in $VENV (ohbs-os engine)"
 
 _BANNER_ART = (
     "\x1b[38;5;117m              .---..---.\x1b[0m\n"
-    "\x1b[38;5;117m          .-'          '-.           \x1b[1;37mCIS IMAGE\x1b[0m\n"
+    "\x1b[38;5;117m          .-'          '-.           \x1b[1;37mOHBS IMAGE\x1b[0m\n"
     "\x1b[38;5;75m        .'                '.         \x1b[38;5;75m  ___ ___  ___  ___\x1b[0m\n"
     "\x1b[1;38;5;75m      .'                    '.       \x1b[1;38;5;75m / __/ _ \\/ __|/ __|\x1b[0m\n"
     "\x1b[1;38;5;75m     /         ()    ()       \\      \x1b[1;38;5;75m| (_| (_) \\__ \\ (__ \x1b[0m\n"
     "\x1b[1;38;5;75m    |                        |      \x1b[1;38;5;75m \\___\\___/|___/\\___|\x1b[0m\n"
-    "\x1b[1;38;5;33m     \\                      /       \x1b[37m  CIS-HARDENED IMAGE BUILDER\x1b[0m\n"
+    "\x1b[1;38;5;33m     \\                      /       \x1b[37m  OHBS-HARDENED IMAGE BUILDER\x1b[0m\n"
     "\x1b[1;38;5;33m      '.                  .'\n"
     "\x1b[1;38;5;33m        '.              .'\n"
     "\x1b[1;38;5;33m          '---.------.---'"
@@ -1190,7 +1190,7 @@ _bar "issue + issue.net"
 # 3. /etc/issue, /etc/issue.net — console
 #    colour escape sequences render as garbage on serial consoles).
 {
-    printf 'ohbs-image  CIS-HARDENED IMAGE BUILDER  --  %s\n' "__IMAGE_NAME__"
+    printf 'ohbs-image  OHBS-HARDENED IMAGE BUILDER  --  %s\n' "__IMAGE_NAME__"
     printf 'OS/Level: %s / %s   Benchmark: %s\n' "__IMAGE_OS__" "__CIS_LEVEL__" "__IMAGE_BENCHMARK__"
     printf 'Built:    %s   by ohbs-image %s\n' "$BUILD_TS" "__CIS_IMAGE_VERSION__"
     printf 'Report:   /opt/ohbs-image-REPORT.md  (run "ohbs-image-info")\n'
@@ -1198,7 +1198,7 @@ _bar "issue + issue.net"
 } | sudo tee /etc/issue      > /dev/null
 _bar "issue.net"
 {
-    printf 'ohbs-image  CIS-HARDENED IMAGE BUILDER  --  %s\n' "__IMAGE_NAME__"
+    printf 'ohbs-image  OHBS-HARDENED IMAGE BUILDER  --  %s\n' "__IMAGE_NAME__"
     printf 'OS/Level: %s / %s   Built: %s by ohbs-image %s\n' "__IMAGE_OS__" "__CIS_LEVEL__" "$BUILD_TS" "__CIS_IMAGE_VERSION__"
     printf 'Report: /opt/ohbs-image-REPORT.md\n'
 } | sudo tee /etc/issue.net  > /dev/null
@@ -1267,9 +1267,9 @@ lines = []
 # cis_level_tag is e.g. "level1-server"; the engine's --profile token is "L1".
 level_num = level.replace("level", "").replace("-server", "")
 level_short = "L" + level_num
-lines.append("# ohbs-image — CIS Hardening Report")
+lines.append("# ohbs-image — OHBS Hardening Report")
 lines.append("")
-lines.append("This image was hardened by **ohbs-image** (CIS-hardened image builder).")
+lines.append("This image was hardened by **ohbs-image** (ohbs-hardened image builder).")
 lines.append("It documents what was done to the base image and how to use the system.")
 lines.append("")
 lines.append("## Build metadata")
@@ -1371,8 +1371,8 @@ lines.append("sudo -i")
 lines.append("")
 lines.append("# 4. Re-run the scan on this machine")
 lines.append("sudo /opt/ohbs-image-ansible/bin/python \\")
-lines.append("  /opt/ohbs-image-ansible/roles/cis_*/files/ohbs_engine.py \\")
-lines.append("  --catalog /opt/ohbs-image-ansible/roles/cis_*/files/rules.json \\")
+lines.append("  /opt/ohbs-image-ansible/roles/ohbs-*/files/ohbs_engine.py \\")
+lines.append("  --catalog /opt/ohbs-image-ansible/roles/ohbs-*/files/rules.json \\")
 lines.append("  --mode scan --profile {} --out /tmp/cis-recheck.json".format(level_short))
 lines.append("```")
 lines.append("")

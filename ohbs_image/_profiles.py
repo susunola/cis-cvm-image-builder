@@ -109,13 +109,13 @@ associate_public_ip = false               # set to true only if a public IP is r
 # #   disk_size = 100
 
 [image]
-name_prefix  = "tencentos3-cis"
+name_prefix  = "tencentos3-ohbs"
 # name = "my-ohbs-image"                  # optional: fixed image name (empty = auto prefix-level-timestamp)
 copy_regions = []                         # add regions (e.g. ["ap-shanghai"]) to copy the image
 # share_accounts = ["uin/1234567890"]    # optional: share the built image with other accounts
 # share_org_units = ["uin/1234567890"]   # optional: org-level sharing (same ModifyImageSharePermission API as share_accounts)
 
-[cis]
+[ohbs]
 level = 1                                 # 1 or 2
 # min_score = 85                          # post-reboot audit gate (0 disables; default 85)
 # Rule selection (optional) — rule IDs to run / skip. Empty = all rules.
@@ -124,7 +124,7 @@ level = 1                                 # 1 or 2
 # Control-level overrides (optional) — tune individual rule parameters
 # without editing the bundled catalog. Key = CIS rule ID, value = params to
 # deep-merge into that rule (mirrors ansible-lockdown's per-control vars).
-# [cis.overrides."5.2.2"]
+# [ohbs.overrides."5.2.2"]
 # ssh_max_auth_tries = 4                  # example: tighten LoginGraceTime/MaxAuthTries
 
 [cloud]

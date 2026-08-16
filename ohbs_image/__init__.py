@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ohbs-image — CIS-hardened Golden Image Builder (Packer × Tencent Cloud CVM)
+ohbs-image — ohbs-hardened Golden Image Builder (Packer × Tencent Cloud CVM)
 
 Spins up an ephemeral CVM, applies the bundled ohbs-os engine role for CIS
 hardening, and captures the result as a custom image.  All configuration is

@@ -1,6 +1,3 @@
-> ⚠️ **Not affiliated with, endorsed by, or sponsored by the Center for Internet
-> Security (CIS).** See [DISCLAIMER.md](./DISCLAIMER.md). This project implements
-> hardening *aligned with* the CIS Benchmarks™; it references CIS as a standard only.
 
 <p align="center">
   <img src="docs/ohbs-image-logo.png" alt="ohbs-image" width="440">
@@ -392,12 +389,12 @@ build-time audit — the Windows counterpart of `/opt/ohbs-image-AUDIT-RESULT.js
 ```bash
 $ ssh ohbsimage@<host>
               .---..---.
-          .-'          '-.           CIS IMAGE
+          .-'          '-.           OHBS IMAGE
         .'                '.           ___ ___  ___  ___
       .'                    '.       / __/ _ \/ __|/ __|
      /         ()    ()       \      | (_| (_) \__ \ (__ 
     |                        |       \___\___/|___/\___|
-     \                      /         CIS-HARDENED IMAGE BUILDER
+     \                      /         OHBS-HARDENED IMAGE BUILDER
       '.                  .'
         '.              .'
           '---.------.---'

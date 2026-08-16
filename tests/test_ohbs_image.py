@@ -1,4 +1,4 @@
-"""Tests for ohbs-image — CIS-hardened Golden Image Builder."""
+"""Tests for ohbs-image — ohbs-hardened Golden Image Builder."""
 
 from __future__ import annotations
 
@@ -622,8 +622,8 @@ class TestRenderAll:
         assert valid_toml["build"]["source_image_id"] in finalize
         assert valid_toml["meta"]["os_tag"] in finalize
         # The ohbs-image banner ASCII is embedded.
-        assert "CIS IMAGE" in finalize
-        assert "CIS-HARDENED IMAGE BUILDER" in finalize
+        assert "OHBS IMAGE" in finalize
+        assert "OHBS-HARDENED IMAGE BUILDER" in finalize
         # Bash syntax must be clean (catches missing fi/quote before delivery).
         import subprocess
         p = subprocess.run(
@@ -775,7 +775,7 @@ class TestRenderAll:
         assert report_p.exists(), "report file not created"
         body = report_p.read_text()
         # Headings + key facts.
-        assert "# ohbs-image — CIS Hardening Report" in body
+        assert "# ohbs-image — OHBS Hardening Report" in body
         assert "Build metadata" in body
         assert valid_toml["build"]["source_image_id"] in body
         assert valid_toml["meta"]["os_tag"] in body
@@ -3429,7 +3429,7 @@ class TestRuleIdAndBenchmark:
         risk=none partition rule must carry family=manual so it is never
         live-mounted at build time."""
         import glob as _g
-        for path in _g.glob("ohbs_image/roles/cis_*/files/rules.json"):
+        for path in _g.glob("ohbs_image/roles/ohbs-*/files/rules.json"):
             with open(path, encoding="utf-8") as fh:
                 rules = json.load(fh)
             for r in rules:
@@ -4782,7 +4782,7 @@ class TestLinuxRulePolicyConsistency:
     These decisions are platform-wide, not TOS4-specific: assert every
     Linux role honours them so the catalogs cannot drift again."""
 
-    CATALOGS = sorted(glob.glob("ohbs_image/roles/cis_*/files/rules.json"))
+    CATALOGS = sorted(glob.glob("ohbs_image/roles/ohbs-*/files/rules.json"))
 
     def _rules(self, path):
         with open(path, encoding="utf-8") as fh:
@@ -5094,7 +5094,7 @@ class TestEngineSummarizeCounts:
     def _load_engine():
         import importlib.util as _ilu
         import glob as _g
-        path = sorted(_g.glob("ohbs_image/roles/cis_*/files/ohbs_engine.py"))[0]
+        path = sorted(_g.glob("ohbs_image/roles/ohbs-*/files/ohbs_engine.py"))[0]
         spec = _ilu.spec_from_file_location("ohbs_engine_under_test", path)
         mod = _ilu.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -5151,7 +5151,7 @@ class TestOutputYmlListsSkippedManual:
 
     def test_all_output_ymls_include_skipped_manual(self):
         import glob as _g
-        outputs = sorted(_g.glob("ohbs_image/roles/cis_*/tasks/output.yml"))
+        outputs = sorted(_g.glob("ohbs_image/roles/ohbs-*/tasks/output.yml"))
         assert len(outputs) == 12
         for p in outputs:
             content = open(p, encoding="utf-8").read()
@@ -5168,7 +5168,7 @@ class TestEngineScoreFormula:
     def _engine():
         import importlib.util as _ilu
         import glob as _g
-        path = sorted(_g.glob("ohbs_image/roles/cis_*/files/ohbs_engine.py"))[0]
+        path = sorted(_g.glob("ohbs_image/roles/ohbs-*/files/ohbs_engine.py"))[0]
         spec = _ilu.spec_from_file_location("ohbs_engine_score_test", path)
         mod = _ilu.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -5203,7 +5203,7 @@ class TestEngineDocStructure:
     @staticmethod
     def _src():
         import glob as _g
-        path = sorted(_g.glob("ohbs_image/roles/cis_*/files/ohbs_engine.py"))[0]
+        path = sorted(_g.glob("ohbs_image/roles/ohbs-*/files/ohbs_engine.py"))[0]
         return open(path, encoding="utf-8").read()
 
     def test_doc_has_top_level_score_mirror(self):
@@ -5239,7 +5239,7 @@ class TestLinuxRunYmlSurvivesEngineCrash:
 
     def test_linux_run_yml_has_failed_when_false(self):
         import glob as _g
-        linux = [p for p in _g.glob("ohbs_image/roles/cis_*/tasks/run.yml")
+        linux = [p for p in _g.glob("ohbs_image/roles/ohbs-*/tasks/run.yml")
                  if "cis_win" not in p]
         assert len(linux) == 8
         for p in linux:
@@ -5248,7 +5248,7 @@ class TestLinuxRunYmlSurvivesEngineCrash:
 
     def test_windows_run_yml_untouched(self):
         import glob as _g
-        win = [p for p in _g.glob("ohbs_image/roles/cis_*/tasks/run.yml")
+        win = [p for p in _g.glob("ohbs_image/roles/ohbs-*/tasks/run.yml")
                if "cis_win" in p]
         assert len(win) == 4
         for p in win:
@@ -5263,7 +5263,7 @@ class TestLinuxRunYmlSurvivesEngineCrash:
         crash document must be slurped AND then an explicit fail task must
         abort the play on mode == 'error'."""
         import glob as _g
-        linux = [p for p in _g.glob("ohbs_image/roles/cis_*/tasks/run.yml")
+        linux = [p for p in _g.glob("ohbs_image/roles/ohbs-*/tasks/run.yml")
                  if "cis_win" not in p]
         for p in linux:
             content = open(p, encoding="utf-8").read()
@@ -5285,7 +5285,7 @@ class TestPreflightRangeValidation:
 
     def test_linux_preflight_has_both_checks(self):
         import glob as _g
-        linux = [p for p in _g.glob("ohbs_image/roles/cis_*/tasks/preflight.yml")
+        linux = [p for p in _g.glob("ohbs_image/roles/ohbs-*/tasks/preflight.yml")
                  if "cis_win" not in p]
         assert len(linux) == 8
         for p in linux:
@@ -5297,7 +5297,7 @@ class TestPreflightRangeValidation:
 
     def test_windows_preflight_has_both_checks(self):
         import glob as _g
-        win = [p for p in _g.glob("ohbs_image/roles/cis_*/tasks/preflight.yml")
+        win = [p for p in _g.glob("ohbs_image/roles/ohbs-*/tasks/preflight.yml")
                if "cis_win" in p]
         assert len(win) == 4
         for p in win:

@@ -57,14 +57,14 @@ class ResolvedConfig:
     image_benchmark: str
     catalog_basename: str              # rules.json or rules_<slug>.json — which catalog the build uses
     level: int
-    min_score: int                      # [cis].min_score — post-reboot audit gate, 0 disables (default 85)
+    min_score: int                      # [ohbs].min_score — post-reboot audit gate, 0 disables (default 85)
     role_dir: str
     smoke_test: bool                    # [meta].smoke_test — run instance-level smoke checks before snapshot (default true)
     cve_scan: bool                      # [meta].cve_scan — trivy vulnerability scan gate before snapshot (default false)
     sbom: bool                          # [meta].sbom — emit SBOM into image + provenance (default false)
-    rules_include: list[str]            # [cis].rules_include — rule-id filter (empty = all)
-    rules_exclude: list[str]            # [cis].rules_exclude — rule-id filter (wins over include)
-    rules_overrides: dict[str, dict[str, Any]]    # [cis.overrides] — per-rule param deep-merge (rule_id -> {param: value})
+    rules_include: list[str]            # [ohbs].rules_include — rule-id filter (empty = all)
+    rules_exclude: list[str]            # [ohbs].rules_exclude — rule-id filter (wins over include)
+    rules_overrides: dict[str, dict[str, Any]]    # [ohbs.overrides] — per-rule param deep-merge (rule_id -> {param: value})
     notify_webhook: str                 # [notify].webhook — WeCom group-robot webhook URL ("" = off)
     notify_on: str                      # [notify].on — "always" | "success" | "failure" (default "failure")
     deploy_webhook: str                 # [notify].deploy_webhook — POST image metadata on build success ("" = off)
@@ -107,13 +107,20 @@ def load_config(path: Path) -> dict[str, Any]:
     except Exception as exc:
         raise ConfigError(f"Failed to parse {path}: {exc}") from exc
 
+    # Backward-compat: accept either [ohbs] (new) or [cis] (legacy) as the
+    # hardening section. New configs should use [ohbs]; [cis] keeps working.
+    if "ohbs" in data and "cis" not in data:
+        data["cis"] = data["ohbs"]
+    elif "cis" in data and "ohbs" not in data:
+        data["ohbs"] = data["cis"]
+
     required: dict[str, list[str]] = {
         "build": [
             "profile", "region", "zone", "instance_type", "source_image_id",
             "vpc_id", "subnet_id", "security_group_id", "associate_public_ip",
         ],
         "image": ["name_prefix", "copy_regions"],
-        "cis": ["level"],
+        "ohbs": ["level"],
         "cloud": ["secret_id_env", "secret_key_env"],
     }
 
@@ -131,9 +138,9 @@ def load_config(path: Path) -> dict[str, Any]:
             f"  Valid choices: {PROFILE_NAMES_HELP}"
         )
 
-    level = data["cis"]["level"]
+    level = data["ohbs"]["level"]
     if level not in (1, 2):
-        raise ConfigError(f"[cis].level must be 1 or 2, got: {level}")
+        raise ConfigError(f"[ohbs].level must be 1 or 2, got: {level}")
 
     itype = str(data["build"]["instance_type"])
     if "." not in itype:
@@ -195,10 +202,15 @@ def _sanitize_region_zone(value: str, label: str) -> str:
 
 def resolve(data: dict[str, Any]) -> ResolvedConfig:
     """Flatten raw config + profile lookup into a ResolvedConfig."""
+    # Backward-compat: ensure both [ohbs] and [cis] sections are present.
+    if "ohbs" in data and "cis" not in data:
+        data["cis"] = data["ohbs"]
+    elif "cis" in data and "ohbs" not in data:
+        data["ohbs"] = data["cis"]
     profile_name: str = data["build"]["profile"]
     p = PROFILES[profile_name]
     meta: dict[str, Any] = data.get("meta", {})
-    level: int = int(data["cis"]["level"])
+    level: int = int(data["ohbs"]["level"])
     family: str = str(p.get("family", ""))
 
     copy_regions_raw = data["image"]["copy_regions"]
@@ -295,33 +307,33 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
     # [sign] — GPG key for SLSA-style provenance signing ("" = off).
     sign_key = str(data.get("sign", {}).get("gpg_key", "")).strip()
 
-    # [cis].rules_include / rules_exclude — optional rule-id filters.
-    rules_include = [str(x).strip() for x in data.get("cis", {}).get("rules_include", []) if str(x).strip()]
-    rules_exclude = [str(x).strip() for x in data.get("cis", {}).get("rules_exclude", []) if str(x).strip()]
+    # [ohbs].rules_include / rules_exclude — optional rule-id filters.
+    rules_include = [str(x).strip() for x in data.get("ohbs", {}).get("rules_include", []) if str(x).strip()]
+    rules_exclude = [str(x).strip() for x in data.get("ohbs", {}).get("rules_exclude", []) if str(x).strip()]
     if rules_include and rules_exclude:
         overlap = sorted(set(rules_include) & set(rules_exclude))
         if overlap:
             raise ConfigError(
-                f"[cis] rules_include and rules_exclude overlap: {overlap}")
+                f"[ohbs] rules_include and rules_exclude overlap: {overlap}")
 
-    # [cis.overrides] — per-rule parameter deep-merge (rule_id -> {param: value}).
+    # [ohbs.overrides] — per-rule parameter deep-merge (rule_id -> {param: value}).
     # Mirrors ansible-lockdown's per-control vars: tune a rule's parameters
     # without editing the bundled catalog.  Keys must be dotted rule IDs.
-    overrides_raw = data.get("cis", {}).get("overrides", {})
+    overrides_raw = data.get("ohbs", {}).get("overrides", {})
     if not isinstance(overrides_raw, dict):
         raise ConfigError(
-            f"[cis].overrides must be a table of rule_id -> params, got "
+            f"[ohbs].overrides must be a table of rule_id -> params, got "
             f"{type(overrides_raw).__name__}.")
     rules_overrides: dict[str, dict[str, Any]] = {}
     for rid, params in overrides_raw.items():
         rid = str(rid).strip()
         if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)+", rid):
             raise ConfigError(
-                f"[cis].overrides key {rid!r} is not a dotted CIS rule ID "
+                f"[ohbs].overrides key {rid!r} is not a dotted CIS rule ID "
                 "(e.g. \"5.2.2\").")
         if not isinstance(params, dict):
             raise ConfigError(
-                f"[cis].overrides.{rid} must be a table of parameter values, "
+                f"[ohbs].overrides.{rid} must be a table of parameter values, "
                 f"got {type(params).__name__}.")
         rules_overrides[rid] = {str(k): v for k, v in params.items()}
 
@@ -354,11 +366,11 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
     # [meta].verify_boot — clean-boot verification after the snapshot.
     verify_boot = _read_bool(data, "meta", "verify_boot", False)
 
-    # [cis].min_score — post-reboot audit gate (0 disables; default 85).
-    min_score = int(data.get("cis", {}).get("min_score", 85))
+    # [ohbs].min_score — post-reboot audit gate (0 disables; default 85).
+    min_score = int(data.get("ohbs", {}).get("min_score", 85))
     if not (0 <= min_score <= 100):
         raise ConfigError(
-            f"[cis].min_score must be 0-100, got {min_score}. "
+            f"[ohbs].min_score must be 0-100, got {min_score}. "
             "0 disables the gate; 85 is the default.")
 
     return ResolvedConfig(
