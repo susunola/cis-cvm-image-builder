@@ -24,14 +24,14 @@ import pytest
 
 # Map of role name -> engine file path (relative to repo root).
 ENGINE_PATHS = {
-    "ohbs-rhel8": "ohbs_image/roles/ohbs-rhel8/files/ohbs_engine.py",
-    "ohbs-rhel9": "ohbs_image/roles/ohbs-rhel9/files/ohbs_engine.py",
-    "ohbs-rhel10": "ohbs_image/roles/ohbs-rhel10/files/ohbs_engine.py",
-    "ohbs-tencentos3": "ohbs_image/roles/ohbs-tencentos3/files/ohbs_engine.py",
-    "ohbs-tencentos4": "ohbs_image/roles/ohbs-tencentos4/files/ohbs_engine.py",
-    "ohbs-ubuntu2004": "ohbs_image/roles/ohbs-ubuntu2004/files/ohbs_engine.py",
-    "ohbs-ubuntu2204": "ohbs_image/roles/ohbs-ubuntu2204/files/ohbs_engine.py",
-    "ohbs-ubuntu2404": "ohbs_image/roles/ohbs-ubuntu2404/files/ohbs_engine.py",
+    "cis-rhel8": "ohbs_image/roles/cis-rhel8/files/ohbs_engine.py",
+    "cis-rhel9": "ohbs_image/roles/cis-rhel9/files/ohbs_engine.py",
+    "cis-rhel10": "ohbs_image/roles/cis-rhel10/files/ohbs_engine.py",
+    "cis-tencentos3": "ohbs_image/roles/cis-tencentos3/files/ohbs_engine.py",
+    "cis-tencentos4": "ohbs_image/roles/cis-tencentos4/files/ohbs_engine.py",
+    "cis-ubuntu2004": "ohbs_image/roles/cis-ubuntu2004/files/ohbs_engine.py",
+    "cis-ubuntu2204": "ohbs_image/roles/cis-ubuntu2204/files/ohbs_engine.py",
+    "cis-ubuntu2404": "ohbs_image/roles/cis-ubuntu2404/files/ohbs_engine.py",
 }
 
 
@@ -234,7 +234,7 @@ def mock_systemd(monkeypatch, engine, present=True, sh_calls=None):
 
 # -- a smoke test proving the harness loads an engine and mocks it ----------
 def test_harness_loads_ubuntu2404_and_mocks():
-    eng = load_engine("ohbs-ubuntu2404")
+    eng = load_engine("cis-ubuntu2404")
     assert callable(eng.c_partition)
     assert callable(getattr(eng, "_fstab_has_tmpfs", None)), \
         "PR #5 helper missing -- harness out of sync with engine"

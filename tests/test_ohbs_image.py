@@ -253,7 +253,7 @@ class TestResolve:
         assert r.level == 1
         assert r.cis_level_tag == "level1-server"
         assert r.ssh_username == "root"
-        assert r.role_dir == "ohbs-tencentos3"
+        assert r.role_dir == "cis-tencentos3"
         assert r.associate_public_ip is False
         assert r.family == ""
 
@@ -403,7 +403,7 @@ class TestExtractImageIds:
         assert r.family == "windows"
         assert r.winrm_username == "Administrator"
         assert r.winrm_password_env == "WINRM_PASSWORD"
-        assert r.role_dir == "ohbs-win2022"
+        assert r.role_dir == "cis-win2022"
         assert r.ssh_username == ""
 
     def test_ubuntu_uses_ssh_ubuntu(self, valid_toml):
@@ -539,20 +539,20 @@ class TestRenderSite:
         out = render_site(p, level=1)
         assert "cis_fail_on_findings" in out
         assert "cis_profile: L1" in out
-        assert "ohbs-tencentos3" in out
+        assert "cis-tencentos3" in out
         assert "localhost" in out
 
     def test_linux_level2(self):
         p = PROFILES["tencentos4"]
         out = render_site(p, level=2)
         assert "cis_profile: L2" in out
-        assert "ohbs-tencentos4" in out
+        assert "cis-tencentos4" in out
 
     def test_windows_site_yml(self):
         p = PROFILES["win2022"]
         out = render_site(p, level=1)
         assert "cis_profile: L1" in out
-        assert "ohbs-win2022" in out
+        assert "cis-win2022" in out
         assert "ansible_connection: winrm" in out
         assert "hosts: all" in out
 
@@ -569,7 +569,7 @@ class TestRenderAll:
         assert os.access(wd / "packer" / "scripts" / "install-ansible.sh", os.X_OK)
         assert (wd / "packer" / "scripts" / "ohbs-image-finalize.sh").exists()
         assert os.access(wd / "packer" / "scripts" / "ohbs-image-finalize.sh", os.X_OK)
-        assert (wd / "ansible" / "roles" / "ohbs-tencentos3" / "tasks" / "main.yml").exists()
+        assert (wd / "ansible" / "roles" / "cis-tencentos3" / "tasks" / "main.yml").exists()
         assert not (wd / "packer" / "scripts" / "verify-cis.sh").exists()
 
     def test_no_unreplaced_markers(self, valid_toml, tmp_path):
@@ -845,7 +845,7 @@ class TestRenderAll:
         # Windows: no install script
         assert not (wd / "packer" / "scripts" / "install-ansible.sh").exists()
         # Role copied
-        assert (wd / "ansible" / "roles" / "ohbs-win2022" / "tasks" / "main.yml").exists()
+        assert (wd / "ansible" / "roles" / "cis-win2022" / "tasks" / "main.yml").exists()
         # HCL has winrm, not ssh
         hcl = (wd / "packer" / "main.pkr.hcl").read_text()
         assert "winrm" in hcl
@@ -868,13 +868,13 @@ class TestRenderAll:
 class TestBundleRole:
     def test_copies_linux_role(self, tmp_path):
         wd = tmp_path / "build"
-        _bundle_role(wd, "ohbs-tencentos3")
-        assert (wd / "ansible" / "roles" / "ohbs-tencentos3" / "tasks" / "main.yml").exists()
+        _bundle_role(wd, "cis-tencentos3")
+        assert (wd / "ansible" / "roles" / "cis-tencentos3" / "tasks" / "main.yml").exists()
 
     def test_copies_windows_role(self, tmp_path):
         wd = tmp_path / "build"
-        _bundle_role(wd, "ohbs-win2022")
-        assert (wd / "ansible" / "roles" / "ohbs-win2022" / "tasks" / "main.yml").exists()
+        _bundle_role(wd, "cis-win2022")
+        assert (wd / "ansible" / "roles" / "cis-win2022" / "tasks" / "main.yml").exists()
 
     def test_missing_role_raises(self, tmp_path):
         wd = tmp_path / "build"
@@ -896,10 +896,10 @@ class TestBundleRole:
 
 class TestCheckBundledRole:
     def test_exists(self):
-        assert _check_bundled_role("ohbs-tencentos3") is True
+        assert _check_bundled_role("cis-tencentos3") is True
 
     def test_windows_exists(self):
-        assert _check_bundled_role("ohbs-win2022") is True
+        assert _check_bundled_role("cis-win2022") is True
 
     def test_not_exists(self):
         assert _check_bundled_role("no_such_role") is False
@@ -1493,7 +1493,7 @@ class TestCmdBuildOutput:
     def _prep(self, tmp_path):
         r = mock.MagicMock()
         r.family = ""
-        r.profile_name = "ohbs-ubuntu2204"
+        r.profile_name = "cis-ubuntu2204"
         r.level = 1
         r.region = "ap-guangzhou"
         r.source_image_id = "img-abc"
@@ -2740,7 +2740,7 @@ class TestAuditRuleMatching:
         import importlib.util
         spec = importlib.util.spec_from_file_location(
             "ohbs_engine",
-            "ohbs_image/roles/ohbs-tencentos4/files/ohbs_engine.py")
+            "ohbs_image/roles/cis-tencentos4/files/ohbs_engine.py")
         eng = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(eng)
         return eng
@@ -2779,7 +2779,7 @@ class TestAuditDedup:
 
     def test_4_1_3_24_key_not_privileged(self):
         import json
-        d = json.load(open("ohbs_image/roles/ohbs-tencentos4/files/rules.json"))
+        d = json.load(open("ohbs_image/roles/cis-tencentos4/files/rules.json"))
         rules = d if isinstance(d, list) else d.get("rules", [])
         for r in rules:
             if r.get("id") == "4.1.3.24":
@@ -2793,7 +2793,7 @@ class TestAuditDedup:
     def test_engine_cross_file_dedup(self):
         """f_audit_rule / f_audit_privileged must both skip rules already in
         the sibling ruleset so augenrules --load never sees a duplicate."""
-        with open("ohbs_image/roles/ohbs-tencentos4/files/ohbs_engine.py", encoding="utf-8") as fh:
+        with open("ohbs_image/roles/cis-tencentos4/files/ohbs_engine.py", encoding="utf-8") as fh:
             src = fh.read()
         assert "6*-cis-privileged.rules" in src, "f_audit_rule lacks privileged dedup"
         assert "6[0-9]-cis-hardening.rules" in src, "f_audit_privileged lacks hardening dedup"
@@ -2869,12 +2869,12 @@ class TestRuleOverrides:
         wd = tmp_path / "w"
         render_all(wd, r)
         rules = json.loads(
-            (wd / "ansible" / "roles" / "ohbs-tencentos3" / "files" / "rules.json")
+            (wd / "ansible" / "roles" / "cis-tencentos3" / "files" / "rules.json")
             .read_text(encoding="utf-8"))
         target = next(x for x in rules if x.get("id") == "1.1.1.1")
         assert target["params"]["module"] == "overridden"
         # bundled catalog untouched
-        with open("ohbs_image/roles/ohbs-tencentos3/files/rules.json", encoding="utf-8") as fh:
+        with open("ohbs_image/roles/cis-tencentos3/files/rules.json", encoding="utf-8") as fh:
             bundled = json.loads(fh.read())
         btarget = next(x for x in bundled if x.get("id") == "1.1.1.1")
         assert btarget["params"]["module"] == "cramfs"
@@ -3386,7 +3386,7 @@ class TestRuleIdAndBenchmark:
     the benchmark reference so findings cross-reference CIS/SCAP."""
 
     def test_engine_rule_id_present(self):
-        with open("ohbs_image/roles/ohbs-tencentos4/files/ohbs_engine.py", encoding="utf-8") as fh:
+        with open("ohbs_image/roles/cis-tencentos4/files/ohbs_engine.py", encoding="utf-8") as fh:
             src = fh.read()
         assert '"rule_id": (_bm + " " + rule["id"]).strip()' in src
         assert '"benchmark": _bm' in src
@@ -3394,9 +3394,9 @@ class TestRuleIdAndBenchmark:
     def test_all_linux_engines_in_sync(self):
         import hashlib
         hashes = set()
-        for role in ("ohbs-tencentos4", "ohbs-tencentos3", "ohbs-rhel8",
-                     "ohbs-rhel9", "ohbs-rhel10", "ohbs-ubuntu2004",
-                     "ohbs-ubuntu2204", "ohbs-ubuntu2404"):
+        for role in ("cis-tencentos4", "cis-tencentos3", "cis-rhel8",
+                     "cis-rhel9", "cis-rhel10", "cis-ubuntu2004",
+                     "cis-ubuntu2204", "cis-ubuntu2404"):
             with open(f"ohbs_image/roles/{role}/files/ohbs_engine.py", "rb") as fh:
                 data = fh.read()
             hashes.add(hashlib.sha256(data).hexdigest())
@@ -3407,7 +3407,7 @@ class TestRuleIdAndBenchmark:
         a none-risk rule with a real fixer (e.g. the /tmp partition rule)
         was live-applied and mounted tmpfs over /tmp mid-build, covering
         the running Ansible payload (ubuntu2404 module crash)."""
-        with open("ohbs_image/roles/ohbs-ubuntu2404/files/ohbs_engine.py", encoding="utf-8") as fh:
+        with open("ohbs_image/roles/cis-ubuntu2404/files/ohbs_engine.py", encoding="utf-8") as fh:
             src = fh.read()
         assert 'rule.get("risk") == "none"' in src
         assert '"skipped_manual"' in src
@@ -3415,7 +3415,7 @@ class TestRuleIdAndBenchmark:
     def test_pkg_fixes_are_platform_aware(self):
         """v0.16.15: package fix paths must not call dnf directly — they
         route through _install_pkgs/_remove_pkgs (dnf / apt-get)."""
-        with open("ohbs_image/roles/ohbs-ubuntu2404/files/ohbs_engine.py", encoding="utf-8") as fh:
+        with open("ohbs_image/roles/cis-ubuntu2404/files/ohbs_engine.py", encoding="utf-8") as fh:
             src = fh.read()
         assert "_remove_pkgs" in src
         assert 'DEBIAN_FRONTEND=noninteractive' in src
@@ -3429,7 +3429,7 @@ class TestRuleIdAndBenchmark:
         risk=none partition rule must carry family=manual so it is never
         live-mounted at build time."""
         import glob as _g
-        for path in _g.glob("ohbs_image/roles/ohbs-*/files/rules.json"):
+        for path in _g.glob("ohbs_image/roles/cis-*/files/rules.json"):
             with open(path, encoding="utf-8") as fh:
                 rules = json.load(fh)
             for r in rules:
@@ -3662,7 +3662,7 @@ class TestBuildNewFeatures:
     def _prep(self, tmp_path):
         r = mock.MagicMock()
         r.family = ""
-        r.profile_name = "ohbs-ubuntu2204"
+        r.profile_name = "cis-ubuntu2204"
         r.level = 1
         r.region = "ap-guangzhou"
         r.source_image_id = "img-abc"
@@ -4774,7 +4774,7 @@ class TestEnginePy38Compat:
 
 class TestLinuxRulePolicyConsistency:
     """v0.16.12: engineering decisions made during the TOS4 L2 campaign
-    (v0.14.23-.30) only landed in ohbs-tencentos4/rules.json while the
+    (v0.14.23-.30) only landed in cis-tencentos4/rules.json while the
     engine was synced to all roles — rhel8/9/10 kept auto-executing
     SELinux enforcing (first-boot autorelabel stall -> CREATEFAILED) and
     kept scoring PermitRootLogin (guard deliberately restores
@@ -4782,7 +4782,7 @@ class TestLinuxRulePolicyConsistency:
     These decisions are platform-wide, not TOS4-specific: assert every
     Linux role honours them so the catalogs cannot drift again."""
 
-    CATALOGS = sorted(glob.glob("ohbs_image/roles/ohbs-*/files/rules.json"))
+    CATALOGS = sorted(glob.glob("ohbs_image/roles/cis-*/files/rules.json"))
 
     def _rules(self, path):
         with open(path, encoding="utf-8") as fh:
@@ -5094,7 +5094,7 @@ class TestEngineSummarizeCounts:
     def _load_engine():
         import importlib.util as _ilu
         import glob as _g
-        path = sorted(_g.glob("ohbs_image/roles/ohbs-*/files/ohbs_engine.py"))[0]
+        path = sorted(_g.glob("ohbs_image/roles/cis-*/files/ohbs_engine.py"))[0]
         spec = _ilu.spec_from_file_location("ohbs_engine_under_test", path)
         mod = _ilu.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -5151,7 +5151,7 @@ class TestOutputYmlListsSkippedManual:
 
     def test_all_output_ymls_include_skipped_manual(self):
         import glob as _g
-        outputs = sorted(_g.glob("ohbs_image/roles/ohbs-*/tasks/output.yml"))
+        outputs = sorted(_g.glob("ohbs_image/roles/cis-*/tasks/output.yml"))
         assert len(outputs) == 12
         for p in outputs:
             content = open(p, encoding="utf-8").read()
@@ -5168,7 +5168,7 @@ class TestEngineScoreFormula:
     def _engine():
         import importlib.util as _ilu
         import glob as _g
-        path = sorted(_g.glob("ohbs_image/roles/ohbs-*/files/ohbs_engine.py"))[0]
+        path = sorted(_g.glob("ohbs_image/roles/cis-*/files/ohbs_engine.py"))[0]
         spec = _ilu.spec_from_file_location("ohbs_engine_score_test", path)
         mod = _ilu.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -5203,7 +5203,7 @@ class TestEngineDocStructure:
     @staticmethod
     def _src():
         import glob as _g
-        path = sorted(_g.glob("ohbs_image/roles/ohbs-*/files/ohbs_engine.py"))[0]
+        path = sorted(_g.glob("ohbs_image/roles/cis-*/files/ohbs_engine.py"))[0]
         return open(path, encoding="utf-8").read()
 
     def test_doc_has_top_level_score_mirror(self):
@@ -5239,7 +5239,7 @@ class TestLinuxRunYmlSurvivesEngineCrash:
 
     def test_linux_run_yml_has_failed_when_false(self):
         import glob as _g
-        linux = [p for p in _g.glob("ohbs_image/roles/ohbs-*/tasks/run.yml")
+        linux = [p for p in _g.glob("ohbs_image/roles/cis-*/tasks/run.yml")
                  if "cis_win" not in p]
         assert len(linux) == 8
         for p in linux:
@@ -5248,7 +5248,7 @@ class TestLinuxRunYmlSurvivesEngineCrash:
 
     def test_windows_run_yml_untouched(self):
         import glob as _g
-        win = [p for p in _g.glob("ohbs_image/roles/ohbs-*/tasks/run.yml")
+        win = [p for p in _g.glob("ohbs_image/roles/cis-*/tasks/run.yml")
                if "cis_win" in p]
         assert len(win) == 4
         for p in win:
@@ -5263,7 +5263,7 @@ class TestLinuxRunYmlSurvivesEngineCrash:
         crash document must be slurped AND then an explicit fail task must
         abort the play on mode == 'error'."""
         import glob as _g
-        linux = [p for p in _g.glob("ohbs_image/roles/ohbs-*/tasks/run.yml")
+        linux = [p for p in _g.glob("ohbs_image/roles/cis-*/tasks/run.yml")
                  if "cis_win" not in p]
         for p in linux:
             content = open(p, encoding="utf-8").read()
@@ -5285,7 +5285,7 @@ class TestPreflightRangeValidation:
 
     def test_linux_preflight_has_both_checks(self):
         import glob as _g
-        linux = [p for p in _g.glob("ohbs_image/roles/ohbs-*/tasks/preflight.yml")
+        linux = [p for p in _g.glob("ohbs_image/roles/cis-*/tasks/preflight.yml")
                  if "cis_win" not in p]
         assert len(linux) == 8
         for p in linux:
@@ -5297,7 +5297,7 @@ class TestPreflightRangeValidation:
 
     def test_windows_preflight_has_both_checks(self):
         import glob as _g
-        win = [p for p in _g.glob("ohbs_image/roles/ohbs-*/tasks/preflight.yml")
+        win = [p for p in _g.glob("ohbs_image/roles/cis-*/tasks/preflight.yml")
                if "cis_win" in p]
         assert len(win) == 4
         for p in win:

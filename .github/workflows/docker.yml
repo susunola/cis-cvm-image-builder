@@ -53,7 +53,7 @@ jobs:
           assert len(roles) == 12, f"expected 12 roles, got {len(roles)}: {roles}"
 
           # spot-check a role data file made it into the wheel
-          rp = os.path.join(roles_dir, "ohbs-tencentos4", "files", "rules.json")
+          rp = os.path.join(roles_dir, "cis-tencentos4", "files", "rules.json")
           assert os.path.exists(rp), "missing roles package-data"
 
           print(f"packaged artifact OK: v{ohbs_image.VERSION}, "

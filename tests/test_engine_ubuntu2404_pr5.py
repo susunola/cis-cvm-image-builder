@@ -1,6 +1,6 @@
 """Unit tests for PR #5 (ubuntu2404-l1 100% gap closure).
 
-Covers the four behaviors PR #5 added to ohbs-ubuntu2404's engine, all exercised
+Covers the four behaviors PR #5 added to cis-ubuntu2404's engine, all exercised
 under mocked filesystem / mounts / systemd -- no root or real mounts required.
 
   * _fstab_has_tmpfs()
@@ -22,7 +22,7 @@ from tests.engine_fixtures import (
     mock_systemd,
 )
 
-ENG = load_engine("ohbs-ubuntu2404")
+ENG = load_engine("cis-ubuntu2404")
 
 
 # --------------------------------------------------------------------------

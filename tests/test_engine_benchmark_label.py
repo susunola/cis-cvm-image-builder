@@ -27,7 +27,7 @@ def _make_opts(benchmark):
 
 @pytest.mark.parametrize("benchmark", ["", "CIS-v1.0.0", "STIG-RHEL9", "NIST-800-53"])
 def test_engine_labels_result_with_any_benchmark(benchmark):
-    eng = load_engine("ohbs-rhel9")
+    eng = load_engine("cis-rhel9")
     opts = _make_opts(benchmark)
     ctx = eng.Ctx(opts)
 
@@ -56,7 +56,7 @@ def test_engine_dispatches_on_family_registry_not_benchmark():
     """The check/fix registry is keyed purely by family — a non-CIS benchmark
     string never appears as a dispatch key, so adding STIG/NIST families is a
     pure additive operation on the CHECKS/FIXES dicts."""
-    eng = load_engine("ohbs-rhel9")
+    eng = load_engine("cis-rhel9")
     # Real families resolve to callables regardless of any benchmark concept.
     for fam in ("kmod", "sysctl", "partition", "file_perm", "world_writable",
                 "svc_disabled"):

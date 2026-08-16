@@ -109,9 +109,9 @@ ohbs-image clean
 [packer]  ==> tencentcloud-cvm: Creating temporary keypair...
 [packer]  ==> tencentcloud-cvm: Launching instance (S5.MEDIUM2)...
 [packer]  ==> tencentcloud-cvm: Provisioning with ansible-local...
-[packer]      tencentcloud-cvm: TASK [ohbs-tencentos3 : apply CIS Level 1] ***
+[packer]      tencentcloud-cvm: TASK [cis-tencentos3 : apply CIS Level 1] ***
 [packer]      tencentcloud-cvm: ok: 142  changed: 38  failed: 0
-[packer]      tencentcloud-cvm: TASK [ohbs-tencentos3 : gate] **************
+[packer]      tencentcloud-cvm: TASK [cis-tencentos3 : gate] **************
 [packer]      tencentcloud-cvm: PASS — 0 remaining findings
 [packer]      tencentcloud-cvm:
 [packer]      tencentcloud-cvm: ═══ CIS Hardening Results ═══
@@ -274,7 +274,7 @@ benchmark = "CIS-v1.0.0"
 │ ohbs-image.toml │                           │ 1. 安装 ansible   │
 │             │                           │    (dnf/apt/zypp)│
 │ roles/      │── 上传至 CVM ────────────▶│ 2. CIS 执行       │
-│   ohbs-*    │      (捆绑角色)            │    (ohbs_engine.py)│
+│   cis-*    │      (捆绑角色)            │    (ohbs_engine.py)│
 │             │                           │ 3. 门禁：         │
 │             │                           │    fail_on_findings│
 │             │◀── image-id ──────────────│ 4. CreateImage    │
@@ -354,23 +354,23 @@ AK/SK 仅通过环境变量传入（HCL `sensitive = true`）。临时实例打�
 
 | Profile | 操作系统 | SSH 用户 | 包管理器 | 角色 |
 |---|---|---|---|---|
-| `ubuntu2004` | Ubuntu 20.04 LTS | ubuntu | apt | `roles/ohbs-ubuntu2004/` |
-| `ubuntu2204` | Ubuntu 22.04 LTS | ubuntu | apt | `roles/ohbs-ubuntu2204/` |
-| `ubuntu2404` | Ubuntu 24.04 LTS | ubuntu | apt | `roles/ohbs-ubuntu2404/` |
-| `rhel8` | RHEL 8 | root | dnf | `roles/ohbs-rhel8/` |
-| `rhel9` | RHEL 9 | root | dnf | `roles/ohbs-rhel9/` |
-| `rhel10` | RHEL 10 | root | dnf | `roles/ohbs-rhel10/` |
-| `tencentos3` | TencentOS Server 3 | root | dnf | `roles/ohbs-tencentos3/` |
-| `tencentos4` | TencentOS Server 4 | root | dnf | `roles/ohbs-tencentos4/` |
+| `ubuntu2004` | Ubuntu 20.04 LTS | ubuntu | apt | `roles/cis-ubuntu2004/` |
+| `ubuntu2204` | Ubuntu 22.04 LTS | ubuntu | apt | `roles/cis-ubuntu2204/` |
+| `ubuntu2404` | Ubuntu 24.04 LTS | ubuntu | apt | `roles/cis-ubuntu2404/` |
+| `rhel8` | RHEL 8 | root | dnf | `roles/cis-rhel8/` |
+| `rhel9` | RHEL 9 | root | dnf | `roles/cis-rhel9/` |
+| `rhel10` | RHEL 10 | root | dnf | `roles/cis-rhel10/` |
+| `tencentos3` | TencentOS Server 3 | root | dnf | `roles/cis-tencentos3/` |
+| `tencentos4` | TencentOS Server 4 | root | dnf | `roles/cis-tencentos4/` |
 
 ### Windows（WinRM × 控制器侧 ansible）
 
 | Profile | 操作系统 | 用户 | 角色 |
 |---|---|---|---|
-| `win2016` | Windows Server 2016 | Administrator | `roles/ohbs-win2016/` |
-| `win2019` | Windows Server 2019 | Administrator | `roles/ohbs-win2019/` |
-| `win2022` | Windows Server 2022 | Administrator | `roles/ohbs-win2022/` |
-| `win2025` | Windows Server 2025 | Administrator | `roles/ohbs-win2025/` |
+| `win2016` | Windows Server 2016 | Administrator | `roles/cis-win2016/` |
+| `win2019` | Windows Server 2019 | Administrator | `roles/cis-win2019/` |
+| `win2022` | Windows Server 2022 | Administrator | `roles/cis-win2022/` |
+| `win2025` | Windows Server 2025 | Administrator | `roles/cis-win2025/` |
 
 切换画像仅需改 `ohbs-image.toml` 中的 `[build].profile` 和 `source_image_id`。
 

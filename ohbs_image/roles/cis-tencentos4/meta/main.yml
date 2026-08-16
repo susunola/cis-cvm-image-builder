@@ -1,17 +1,17 @@
 ---
 galaxy_info:
-  role_name: ohbs-tencentos3
+  role_name: cis-tencentos4
   author: Platform Security Engineering
   description: >-
-    Scan and remediate TencentOS Linux 3 hosts against the
-    CIS TencentOS Linux 3 Benchmark v1.0.0 (Level 1 / Level 2),
+    Scan and remediate TencentOS Linux 4 hosts against the
+    CIS TencentOS Linux 4 Benchmark v1.0.0 (Level 1 / Level 2),
     producing a self-contained HTML compliance report.
   license: MIT
   min_ansible_version: "2.12"
   platforms:
     - name: TencentOS
       versions:
-        - "3"
+        - "4"
   galaxy_tags:
     - cis
     - security

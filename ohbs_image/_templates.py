@@ -500,7 +500,7 @@ build {
       "# final image state (finalize rewrites banner/motd/issue, which flips",
       "# CIS 1.7.x banner results).  Engine + catalog were kept under",
       "# /opt/ohbs-image-ansible/roles/ by the cleanup step.",
-      "ENG=$(ls -d /opt/ohbs-image-ansible/roles/ohbs-*/files 2>/dev/null | head -1)",
+      "ENG=$(ls -d /opt/ohbs-image-ansible/roles/cis_*/files 2>/dev/null | head -1)",
       "if [ -n \"$ENG\" ] && [ -f \"$ENG/ohbs_engine.py\" ]; then",
       "  CAT=\"$ENG/rules.json\"; [ -f \"$ENG/__IMAGE_CATALOG__\" ] && CAT=\"$ENG/__IMAGE_CATALOG__\";",
       "  sudo /opt/ohbs-image-ansible/bin/python \"$ENG/ohbs_engine.py\" --catalog \"$CAT\" --mode scan --profile '__CIS_PROFILE_SHORT__' --out /tmp/cis-final-scan.json >/dev/null 2>&1 && sudo install -m 0600 -o root -g root /tmp/cis-final-scan.json /opt/ohbs-image-AUDIT-RESULT.json && sudo rm -f /tmp/cis-final-scan.json && echo '[ohbs-image] final-state audit refreshed' || echo '[ohbs-image] WARNING: final-state re-scan failed; keeping pre-finalize audit'",
@@ -1371,8 +1371,8 @@ lines.append("sudo -i")
 lines.append("")
 lines.append("# 4. Re-run the scan on this machine")
 lines.append("sudo /opt/ohbs-image-ansible/bin/python \\")
-lines.append("  /opt/ohbs-image-ansible/roles/ohbs-*/files/ohbs_engine.py \\")
-lines.append("  --catalog /opt/ohbs-image-ansible/roles/ohbs-*/files/rules.json \\")
+lines.append("  /opt/ohbs-image-ansible/roles/cis_*/files/ohbs_engine.py \\")
+lines.append("  --catalog /opt/ohbs-image-ansible/roles/cis_*/files/rules.json \\")
 lines.append("  --mode scan --profile {} --out /tmp/cis-recheck.json".format(level_short))
 lines.append("```")
 lines.append("")

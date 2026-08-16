@@ -37,43 +37,43 @@ def _tlinux_profile(role_dir: str, os_tag: str, **kw: Any) -> dict[str, Any]:
     }
 
 PROFILES: dict[str, dict[str, Any]] = {
-    "ubuntu2004":  _ubuntu_profile("ohbs-ubuntu2004", "ubuntu-20.04",
+    "ubuntu2004":  _ubuntu_profile("cis-ubuntu2004", "ubuntu-20.04",
                                    # focal ships python3.8; ansible-core 2.15+
                                    # needs 3.9+ — pin to the 2.11 line (same
                                    # as rhel8/tos3, proven in production).
                                    ansible_core_spec="ansible-core>=2.11"),
-    "ubuntu2204":  _ubuntu_profile("ohbs-ubuntu2204", "ubuntu-22.04"),
-    "ubuntu2404":  _ubuntu_profile("ohbs-ubuntu2404", "ubuntu-24.04"),
-    "rhel8":       _rhel_profile("ohbs-rhel8", "rhel-8", ansible_core_spec="ansible-core>=2.11"),
-    "rhel9":       _rhel_profile("ohbs-rhel9", "rhel-9"),
-    "rhel10":      _rhel_profile("ohbs-rhel10", "rhel-10"),
-    "tencentos3":  _tlinux_profile("ohbs-tencentos3", "tencentos-3", ansible_core_spec="ansible-core>=2.11"),
-    "tencentos4":  _tlinux_profile("ohbs-tencentos4", "tencentos-4"),
+    "ubuntu2204":  _ubuntu_profile("cis-ubuntu2204", "ubuntu-22.04"),
+    "ubuntu2404":  _ubuntu_profile("cis-ubuntu2404", "ubuntu-24.04"),
+    "rhel8":       _rhel_profile("cis-rhel8", "rhel-8", ansible_core_spec="ansible-core>=2.11"),
+    "rhel9":       _rhel_profile("cis-rhel9", "rhel-9"),
+    "rhel10":      _rhel_profile("cis-rhel10", "rhel-10"),
+    "tencentos3":  _tlinux_profile("cis-tencentos3", "tencentos-3", ansible_core_spec="ansible-core>=2.11"),
+    "tencentos4":  _tlinux_profile("cis-tencentos4", "tencentos-4"),
     # ── Windows Server (winrm + controller-side ansible) ──
     "win2016": {
         "family": "windows",
-        "role_dir": "ohbs-win2016",
+        "role_dir": "cis-win2016",
         "winrm_username": "Administrator",
         "os_tag": "windows-2016",
         "benchmark": "CIS-v4.0.0",
     },
     "win2019": {
         "family": "windows",
-        "role_dir": "ohbs-win2019",
+        "role_dir": "cis-win2019",
         "winrm_username": "Administrator",
         "os_tag": "windows-2019",
         "benchmark": "CIS-v5.0.0",
     },
     "win2022": {
         "family": "windows",
-        "role_dir": "ohbs-win2022",
+        "role_dir": "cis-win2022",
         "winrm_username": "Administrator",
         "os_tag": "windows-2022",
         "benchmark": "CIS-v5.1.0",
     },
     "win2025": {
         "family": "windows",
-        "role_dir": "ohbs-win2025",
+        "role_dir": "cis-win2025",
         "winrm_username": "Administrator",
         "os_tag": "windows-2025",
         "benchmark": "CIS-v2.1.0",

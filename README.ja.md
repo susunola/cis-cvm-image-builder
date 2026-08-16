@@ -114,9 +114,9 @@ ohbs-image clean
 [packer]  ==> tencentcloud-cvm: Creating temporary keypair...
 [packer]  ==> tencentcloud-cvm: Launching instance (S5.MEDIUM2)...
 [packer]  ==> tencentcloud-cvm: Provisioning with ansible-local...
-[packer]      tencentcloud-cvm: TASK [ohbs-tencentos3 : apply CIS Level 1] ***
+[packer]      tencentcloud-cvm: TASK [cis-tencentos3 : apply CIS Level 1] ***
 [packer]      tencentcloud-cvm: ok: 142  changed: 38  failed: 0
-[packer]      tencentcloud-cvm: TASK [ohbs-tencentos3 : gate] **************
+[packer]      tencentcloud-cvm: TASK [cis-tencentos3 : gate] **************
 [packer]      tencentcloud-cvm: PASS — 0 remaining findings
 [packer]  ==> tencentcloud-cvm: Creating custom image...
 [packer]  ==> tencentcloud-cvm: Image created: img-abc123def456
@@ -216,7 +216,7 @@ benchmark = "CIS-v1.0.0"
 │ ohbs-image.toml │                           │ 1. ansible 導入   │
 │             │                           │    (dnf/apt/zypp) │
 │ roles/      │── CVM へアップロード ────▶│ 2. CIS 適用       │
-│   ohbs-*    │      (同梱ロール)          │    (ohbs_engine.py)│
+│   cis-*    │      (同梱ロール)          │    (ohbs_engine.py)│
 │             │                           │ 3. ゲート：       │
 │             │                           │    fail_on_findings│
 │             │◀── image-id ──────────────│ 4. CreateImage    │
@@ -280,23 +280,23 @@ AK/SK は環境変数のみ（HCL の `sensitive = true`）。一時インスタ
 
 | プロファイル | OS | SSH ユーザー | パッケージマネージャ | ロール |
 |---|---|---|---|---|
-| `ubuntu2004` | Ubuntu 20.04 LTS | ubuntu | apt | `roles/ohbs-ubuntu2004/` |
-| `ubuntu2204` | Ubuntu 22.04 LTS | ubuntu | apt | `roles/ohbs-ubuntu2204/` |
-| `ubuntu2404` | Ubuntu 24.04 LTS | ubuntu | apt | `roles/ohbs-ubuntu2404/` |
-| `rhel8` | RHEL 8 | root | dnf | `roles/ohbs-rhel8/` |
-| `rhel9` | RHEL 9 | root | dnf | `roles/ohbs-rhel9/` |
-| `rhel10` | RHEL 10 | root | dnf | `roles/ohbs-rhel10/` |
-| `tencentos3` | TencentOS Server 3 | root | dnf | `roles/ohbs-tencentos3/` |
-| `tencentos4` | TencentOS Server 4 | root | dnf | `roles/ohbs-tencentos4/` |
+| `ubuntu2004` | Ubuntu 20.04 LTS | ubuntu | apt | `roles/cis-ubuntu2004/` |
+| `ubuntu2204` | Ubuntu 22.04 LTS | ubuntu | apt | `roles/cis-ubuntu2204/` |
+| `ubuntu2404` | Ubuntu 24.04 LTS | ubuntu | apt | `roles/cis-ubuntu2404/` |
+| `rhel8` | RHEL 8 | root | dnf | `roles/cis-rhel8/` |
+| `rhel9` | RHEL 9 | root | dnf | `roles/cis-rhel9/` |
+| `rhel10` | RHEL 10 | root | dnf | `roles/cis-rhel10/` |
+| `tencentos3` | TencentOS Server 3 | root | dnf | `roles/cis-tencentos3/` |
+| `tencentos4` | TencentOS Server 4 | root | dnf | `roles/cis-tencentos4/` |
 
 ### Windows（WinRM × コントローラ側 ansible）
 
 | プロファイル | OS | ユーザー | ロール |
 |---|---|---|---|
-| `win2016` | Windows Server 2016 | Administrator | `roles/ohbs-win2016/` |
-| `win2019` | Windows Server 2019 | Administrator | `roles/ohbs-win2019/` |
-| `win2022` | Windows Server 2022 | Administrator | `roles/ohbs-win2022/` |
-| `win2025` | Windows Server 2025 | Administrator | `roles/ohbs-win2025/` |
+| `win2016` | Windows Server 2016 | Administrator | `roles/cis-win2016/` |
+| `win2019` | Windows Server 2019 | Administrator | `roles/cis-win2019/` |
+| `win2022` | Windows Server 2022 | Administrator | `roles/cis-win2022/` |
+| `win2025` | Windows Server 2025 | Administrator | `roles/cis-win2025/` |
 
 プロファイルを切り替えるには、`ohbs-image.toml` の `[build].profile` と `source_image_id`
 を変更してください。
