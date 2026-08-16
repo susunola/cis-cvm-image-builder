@@ -104,11 +104,16 @@ def _record_lineage(r: ResolvedConfig, image_ids: list[str], image_name: str,
     except OSError:
         return None
 
-def _bundled_rules_hash(role_dir: str) -> str:
-    """SHA-256 of the bundled rules.json for *role_dir* ("" if unavailable)."""
+def _bundled_rules_hash(role_dir: str, catalog: str = "rules.json") -> str:
+    """SHA-256 of the bundled catalog for *role_dir* ("" if unavailable).
+
+    *catalog* is the catalog basename (``rules.json`` for CIS, or
+    ``rules_<slug>.json`` for a non-CIS benchmark).  Defaults to the CIS
+    catalog to preserve prior callers.
+    """
     import hashlib
     project_root = Path(__file__).parent.resolve()
-    p = (project_root / "roles" / role_dir / "files" / "rules.json").resolve()
+    p = (project_root / "roles" / role_dir / "files" / catalog).resolve()
     try:
         p.relative_to((project_root / "roles").resolve())
     except ValueError:
@@ -138,7 +143,7 @@ def _build_fingerprint(r: ResolvedConfig) -> str:
         "instance", r.instance_type,
         "benchmark", r.image_benchmark,
         "os", r.image_os_tag,
-        "rules", ohbs_image._bundled_rules_hash(r.role_dir),
+        "rules", ohbs_image._bundled_rules_hash(r.role_dir, r.catalog_basename),
         "include", ",".join(r.rules_include),
         "exclude", ",".join(r.rules_exclude),
         "overrides", json.dumps(r.rules_overrides, sort_keys=True, ensure_ascii=False),
@@ -274,7 +279,7 @@ def _write_provenance(r: ResolvedConfig, image_ids: list[str], image_name: str,
                         # P1#4 — pin the exact rule catalog version that was
                         # applied, so the provenance is auditable against the
                         # benchmark edition (ansible-lockdown pins per-benchmark).
-                        "rules_sha256": ohbs_image._bundled_rules_hash(r.role_dir),
+                        "rules_sha256": ohbs_image._bundled_rules_hash(r.role_dir, r.catalog_basename),
                         "fingerprint": ohbs_image._build_fingerprint(r),
                     },
                     "internalParameters": {"ohbs_image_version": VERSION},

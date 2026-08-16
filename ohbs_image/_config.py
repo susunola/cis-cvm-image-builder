@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ._catalog import _catalog_basename
 from ._logging import ConfigError, warn
 from ._profiles import PROFILE_NAMES_HELP, PROFILES
 
@@ -54,6 +55,7 @@ class ResolvedConfig:
     assume_role_duration: int          # [cloud].assume_role_duration (default 7200, 0-43200)
     image_os_tag: str
     image_benchmark: str
+    catalog_basename: str              # rules.json or rules_<slug>.json — which catalog the build uses
     level: int
     min_score: int                      # [cis].min_score — post-reboot audit gate, 0 disables (default 85)
     role_dir: str
@@ -394,6 +396,8 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         assume_role_duration=assume_role_duration,
         image_os_tag=str(meta.get("os_tag", p.get("os_tag", ""))),
         image_benchmark=str(meta.get("benchmark", p.get("benchmark", ""))),
+        catalog_basename=_catalog_basename(role_dir=str(p["role_dir"]),
+                                            benchmark=str(meta.get("benchmark", p.get("benchmark", "")))),
         level=level,
         role_dir=str(p["role_dir"]),
         smoke_test=smoke_test,

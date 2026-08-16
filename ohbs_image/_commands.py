@@ -777,12 +777,13 @@ def cmd_list(args: argparse.Namespace) -> int:
     """
     show_versions = bool(getattr(args, "versions", False))
     if show_versions:
-        print(f"{'profile':<12} {'benchmark':<14} {'rules_sha256':<18} engine")
+        print(f"{'profile':<12} {'benchmark':<14} {'catalog':<22} {'rules_sha256':<18} engine")
         for name, meta in sorted(PROFILES.items()):
             role = str(meta.get("role_dir", ""))
             bm = str(meta.get("benchmark", ""))
-            rh = ohbs_image._bundled_rules_hash(role)[:16] if role else "-"
-            print(f"{name:<12} {bm:<14} {rh:<18} {VERSION}")
+            cat = ohbs_image._catalog_basename(role, bm) if role else "-"
+            rh = ohbs_image._bundled_rules_hash(role, cat)[:16] if role else "-"
+            print(f"{name:<12} {bm:<14} {cat:<22} {rh:<18} {VERSION}")
         return 0
     print(f"{'profile':<12} {'family':<8} {'os':<12} {'comm':<6} {'benchmark':<14} user")
     for name, meta in sorted(PROFILES.items()):
