@@ -21,7 +21,8 @@
   ansible.builtin.debug:
     msg: |-
       {%- for r in cis_result.results %}
-      {%- if r.status in ['fail', 'error'] or r.apply_status == 'failed' %}
+      {%- if r.status in ['fail', 'error'] or r.apply_status == 'failed'
+         or r.apply_status == 'skipped_manual' %}
       ✗ {{ r.id }} | {{ r.title }}
         {{ (r.apply_detail or r.detail or '(no detail)') | trim | regex_replace('\n', '\n        ') }}
       {%- endif %}

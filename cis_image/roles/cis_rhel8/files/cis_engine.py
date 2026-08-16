@@ -37,9 +37,9 @@ VERSION = "1.0.0"
 
 # --------------------------------------------------------------------------
 # Result vocabulary
-#   status      : pass | fail | error | manual | skipped | notapplicable
+#   status      : pass | fail | error | manual | notapplicable
 #   apply_status: n/a | applied | already | failed | skipped_disruptive
-#                 | skipped_scan | unsupported
+#                 | skipped_manual | unsupported | applied_pending
 # --------------------------------------------------------------------------
 
 CHECKS = {}
@@ -4876,7 +4876,7 @@ def summarize(results, skipped_count):
         return {"total": 0, "pass": 0, "fail": 0, "manual": 0, "error": 0,
                 "notapplicable": 0, "applied": 0, "applied_pending": 0,
                 "apply_failed": 0, "skipped_disruptive": 0, "unsupported": 0,
-                "already": 0}
+                "skipped_manual": 0, "already": 0}
     s = {"all": blank(), "L1": blank(), "L2": blank()}
     for r in results:
         buckets = [s["all"], s["L1" if r["level"] == 1 else "L2"]]
@@ -4884,7 +4884,11 @@ def summarize(results, skipped_count):
             b["total"] += 1
             b[r["status"]] = b.get(r["status"], 0) + 1
             a = r["apply_status"]
-            if a in b:
+            # the bucket key is apply_failed (Windows engine emits the same
+            # key); the engine writes 'failed' — map it so the summary's
+            # apply_failed count is not silently always zero.
+            b["apply_failed"] += 1 if a == "failed" else 0
+            if a in b and a != "failed":
                 b[a] += 1
     for b in s.values():
         scored = b["pass"] + b["fail"]
