@@ -85,6 +85,9 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--readme", default=str(REPO_ROOT / "README.md"),
                    help="Path to README.md (default: repo README)")
+    p.add_argument("--check-tests", action="store_true",
+                   help="Also verify tests/test_check_readme.py's hardcoded "
+                        "command/profile lists match the live CLI (default: off)")
     args = p.parse_args(argv)
 
     readme_path = Path(args.readme)
@@ -104,16 +107,60 @@ def main(argv: list[str] | None = None) -> int:
 
     readme_text = readme_path.read_text(encoding="utf-8")
     errors = check_readme(readme_text, registered, profiles)
+
+    if args.check_tests:
+        errors += check_test_consistency(registered, profiles)
+
     if errors:
-        print("check_readme: README is out of date with the code:", file=sys.stderr)
+        print("check_readme: documentation is out of date with the code:", file=sys.stderr)
         for e in errors:
             print(f"  - {e}", file=sys.stderr)
-        print("  Update README.md to keep docs current.", file=sys.stderr)
+        print("  Update README.md / tests to keep docs current.",
+              file=sys.stderr)
         return 1
 
     print(f"check_readme: README documents all {len(registered)} subcommands "
           f"and {len(profiles)} profiles OK")
     return 0
+
+
+def check_test_consistency(registered: set[str],
+                           profiles: set[str]) -> list[str]:
+    """Ensure tests/test_check_readme.py's hardcoded expected lists match the
+    live CLI, so a command/profile added to the parser but not to the tests
+    (or vice-versa) is caught instead of silently drifting."""
+    errors: list[str] = []
+
+    test_file = REPO_ROOT / "tests" / "test_check_readme.py"
+    if not test_file.exists():
+        errors.append(f"test file not found: {test_file}")
+        return errors
+
+    text = test_file.read_text(encoding="utf-8")
+
+    # ALL_CMDS: a Python set literal in the test, e.g.
+    #   ALL_CMDS = {"audit", "build", ..., "verify-image"}
+    m = re.search(r"ALL_CMDS\s*=\s*\{(.*?)\}", text, re.DOTALL)
+    test_cmds: set[str] = set()
+    if m:
+        test_cmds = set(re.findall(r"['\"]([A-Za-z0-9_-]+)['\"]", m.group(1)))
+    missing_cmds = sorted(registered - test_cmds)
+    if missing_cmds:
+        errors.append("tests/test_check_readme.py ALL_CMDS is missing command(s): "
+                      + ", ".join(missing_cmds))
+    extra_cmds = sorted(test_cmds - registered)
+    if extra_cmds:
+        errors.append("tests/test_check_readme.py ALL_CMDS lists unknown command(s): "
+                      + ", ".join(extra_cmds))
+
+    # The test references the script's own _PROFILE_NAMES via
+    # `check_readme._PROFILE_NAMES`, so it can't drift from this module; the
+    # canonical list here is _PROFILE_NAMES. Verify the test references it.
+    if "check_readme._PROFILE_NAMES" not in text:
+        errors.append("tests/test_check_readme.py no longer references "
+                      "check_readme._PROFILE_NAMES for profile checks")
+
+    return errors
 
 
 if __name__ == "__main__":
