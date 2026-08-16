@@ -7,17 +7,17 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT">
   <img src="https://img.shields.io/badge/profiles-12-orange" alt="12 profiles">
   <img src="https://img.shields.io/badge/platform-Tencent%20Cloud-0052D9" alt="Tencent Cloud">
-  <a href="https://github.com/susunola/cis-image/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-image/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/susunola/ohbs-image/actions/workflows/ci.yml"><img src="https://github.com/susunola/ohbs-image/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
-# cis-image — CIS 加固黄金镜像构建
+# ohbs-image — CIS 加固黄金镜像构建
 
-> 属于 cis-* 家族:cis-image(镜像源头)、cis-host(主机加固)、cis-cloud(云上合规)
+> 属于 cis-* 家族:ohbs-image(镜像源头)、ohbs-host(主机加固)、ohbs-cloud(云上合规)
 
 > 五条命令在腾讯云上构建 CIS 加固黄金镜像。无需 Galaxy，构建时零网络依赖，
-> 不用手写模板 — 一切由 `cis-image.toml` 驱动。
+> 不用手写模板 — 一切由 `ohbs-image.toml` 驱动。
 
-**做什么：** 起一台临时 CVM，应用捆绑的 [cis-os](https://github.com/susunola/cis-os)
+**做什么：** 起一台临时 CVM，应用捆绑的 [ohbs-os](https://github.com/susunola/ohbs-os)
 引擎执行 CIS 加固，跑内建门禁，产出自定义镜像。加固后仍有残留发现项则构建失败，镜像不入库。
 
 **给谁用：** 需要可重复、可审计的 CIS 加固基础镜像的 DevOps 和安全工程师 —
@@ -56,16 +56,16 @@
 **获取工具**
 
 ```bash
-git clone https://github.com/susunola/cis-image.git
-cd cis-image
+git clone https://github.com/susunola/ohbs-image.git
+cd ohbs-image
 
-# 推荐：从仓库安装（提供 `cis-image` 命令）
+# 推荐：从仓库安装（提供 `ohbs-image` 命令）
 pip install .
 
-cis-image --version
+ohbs-image --version
 
 # 或免安装直接运行（在仓库根目录）
-python3 -m cis-image --version
+python3 -m ohbs-image --version
 ```
 
 **设置凭据**（仅通过环境变量，不写入配置文件）
@@ -82,36 +82,36 @@ export WINRM_PASSWORD=xxxx
 
 ```bash
 # 1. 生成配置文件
-cis-image init
+ohbs-image init
 
-# 2. 编辑 cis-image.toml，填入 VPC、子网、安全组和源镜像 ID
+# 2. 编辑 ohbs-image.toml，填入 VPC、子网、安全组和源镜像 ID
 
 # 3. 构建前自检（校验配置、凭据和前置条件）
-cis-image preflight
+ohbs-image preflight
 
 # 4. 干跑校验（渲染模板 + packer validate）
-cis-image validate
+ohbs-image validate
 
 # 5. 构建加固镜像
-cis-image build
+ohbs-image build
 
 # 可选：清理渲染产物
-cis-image clean
+ohbs-image clean
 ```
 
 **构建输出示例（`build`）**
 
 ```
 ════════════════════════════════════════════════════════
-  cis-image 0.5.0 — tencentos3 (L1) → ap-guangzhou-4
+  ohbs-image 0.5.0 — tencentos3 (L1) → ap-guangzhou-4
 ════════════════════════════════════════════════════════
 [packer]  tencentcloud-cvm: output will be in this color
 [packer]  ==> tencentcloud-cvm: Creating temporary keypair...
 [packer]  ==> tencentcloud-cvm: Launching instance (S5.MEDIUM2)...
 [packer]  ==> tencentcloud-cvm: Provisioning with ansible-local...
-[packer]      tencentcloud-cvm: TASK [cis_tencentos3 : apply CIS Level 1] ***
+[packer]      tencentcloud-cvm: TASK [ohbs-tencentos3 : apply CIS Level 1] ***
 [packer]      tencentcloud-cvm: ok: 142  changed: 38  failed: 0
-[packer]      tencentcloud-cvm: TASK [cis_tencentos3 : gate] **************
+[packer]      tencentcloud-cvm: TASK [ohbs-tencentos3 : gate] **************
 [packer]      tencentcloud-cvm: PASS — 0 remaining findings
 [packer]      tencentcloud-cvm:
 [packer]      tencentcloud-cvm: ═══ CIS Hardening Results ═══
@@ -132,38 +132,38 @@ cis-image clean
 
 | 命令 | 说明 |
 |---|---|
-| `cis-image init` | 在当前目录生成 `cis-image.toml` |
-| `cis-image preflight` | 校验配置、凭据和前置条件 |
-| `cis-image validate` | 渲染模板并执行 `packer validate` |
-| `cis-image build` | 渲染 + `packer build`（产出镜像） |
-| `cis-image build --skip-if-unchanged` | 输入未变化时跳过重建（变更检测） |
-| `cis-image scan [--min-score 85]` | 仅审计（不修复）+ 分数闸门 |
-| `cis-image scan --sarif out.sarif` | 另输出 SARIF 2.1.0 失败报告 |
-| `cis-image scan --xccdf out.xml` | 另输出 XCCDF 1.2 结果（GRC 平台接入） |
-| `cis-image test --idempotency` | 重复执行 apply，二次有变更即失败 |
-| `cis-image list` | 枚举可用 profile 及元数据 |
-| `cis-image images [--latest] [-n N]` | 列出历史构建（血缘） |
-| `cis-image pending` | 变更检测：是否需要重建（退出码 0/1） |
-| `cis-image cleanup-images [--older-than 30]` | 按血缘年龄退役旧镜像 |
-| `cis-image cleanup-images --apply` | 实际删除（默认仅演练） |
-| `cis-image cleanup-images --unused-since 60` | 只删除未共享（无下游引用）的镜像 |
-| `cis-image verify --provenance <file>` | 校验 SLSA 来源签名 |
-| `cis-image verify --image <img-id>` | 按镜像 ID 定位来源记录 |
-| `cis-image verify-image --image <img-id>` | 对产出镜像做干净启动验收 |
-| `cis-image drift --host <ip> [--image <id>]` | 实例配置漂移检测（对比镜像基线） |
-| `cis-image drift --host <ip> --save-baseline` | 保存当前主机扫描为漂移基线 |
-| `cis-image check-source` | 源镜像刷新检测（是否需要重建） |
-| `cis-image audit --tool oscap ...` | 独立审计：OpenSCAP（RHEL 系 SCAP 内容） |
-| `cis-image audit --tool inspec ...` | 独立审计：Chef InSpec（dev-sec 基线） |
-| `cis-image audit --tool kitty --parse out.csv` | 独立审计：HardeningKitty（Windows）CSV |
-| `cis-image clean` | 删除 `.cis-image-build/` 工作目录 |
+| `ohbs-image init` | 在当前目录生成 `ohbs-image.toml` |
+| `ohbs-image preflight` | 校验配置、凭据和前置条件 |
+| `ohbs-image validate` | 渲染模板并执行 `packer validate` |
+| `ohbs-image build` | 渲染 + `packer build`（产出镜像） |
+| `ohbs-image build --skip-if-unchanged` | 输入未变化时跳过重建（变更检测） |
+| `ohbs-image scan [--min-score 85]` | 仅审计（不修复）+ 分数闸门 |
+| `ohbs-image scan --sarif out.sarif` | 另输出 SARIF 2.1.0 失败报告 |
+| `ohbs-image scan --xccdf out.xml` | 另输出 XCCDF 1.2 结果（GRC 平台接入） |
+| `ohbs-image test --idempotency` | 重复执行 apply，二次有变更即失败 |
+| `ohbs-image list` | 枚举可用 profile 及元数据 |
+| `ohbs-image images [--latest] [-n N]` | 列出历史构建（血缘） |
+| `ohbs-image pending` | 变更检测：是否需要重建（退出码 0/1） |
+| `ohbs-image cleanup-images [--older-than 30]` | 按血缘年龄退役旧镜像 |
+| `ohbs-image cleanup-images --apply` | 实际删除（默认仅演练） |
+| `ohbs-image cleanup-images --unused-since 60` | 只删除未共享（无下游引用）的镜像 |
+| `ohbs-image verify --provenance <file>` | 校验 SLSA 来源签名 |
+| `ohbs-image verify --image <img-id>` | 按镜像 ID 定位来源记录 |
+| `ohbs-image verify-image --image <img-id>` | 对产出镜像做干净启动验收 |
+| `ohbs-image drift --host <ip> [--image <id>]` | 实例配置漂移检测（对比镜像基线） |
+| `ohbs-image drift --host <ip> --save-baseline` | 保存当前主机扫描为漂移基线 |
+| `ohbs-image check-source` | 源镜像刷新检测（是否需要重建） |
+| `ohbs-image audit --tool oscap ...` | 独立审计：OpenSCAP（RHEL 系 SCAP 内容） |
+| `ohbs-image audit --tool inspec ...` | 独立审计：Chef InSpec（dev-sec 基线） |
+| `ohbs-image audit --tool kitty --parse out.csv` | 独立审计：HardeningKitty（Windows）CSV |
+| `ohbs-image clean` | 删除 `.ohbs-image-build/` 工作目录 |
 
 所有命令均支持以下参数：
 
 | 参数 | 默认值 | 适用范围 | 说明 |
 |---|---|---|---|
-| `--config <path>` | `./cis-image.toml` | 全部 | 配置文件路径 |
-| `--workdir <dir>` | `./.cis-image-build` | 全部 | 渲染输出目录 |
+| `--config <path>` | `./ohbs-image.toml` | 全部 | 配置文件路径 |
+| `--workdir <dir>` | `./.ohbs-image-build` | 全部 | 渲染输出目录 |
 | `--quiet` | — | validate / build | 精简 packer 输出 |
 | `--debug` | — | validate / build | 启用 Packer 调试日志（`PACKER_LOG=1`） |
 | `-y` / `--yes` | — | build | 跳过构建确认提示 |
@@ -182,7 +182,7 @@ cis-image clean
 
 ## 配置文件
 
-`cis-image.toml` 是唯一事实来源，无需手写 Packer 模板。
+`ohbs-image.toml` 是唯一事实来源，无需手写 Packer 模板。
 
 ```toml
 [build]
@@ -269,12 +269,12 @@ benchmark = "CIS-v1.0.0"
 ```
 构建机                                     腾讯云
 ┌─────────────┐                           ┌──────────────────┐
-│ cis-image/     │── packer build ──────────▶│ 临时 CVM          │
+│ ohbs-image/     │── packer build ──────────▶│ 临时 CVM          │
 │             │                           │   (SSH 端口 22)  │
-│ cis-image.toml │                           │ 1. 安装 ansible   │
+│ ohbs-image.toml │                           │ 1. 安装 ansible   │
 │             │                           │    (dnf/apt/zypp)│
 │ roles/      │── 上传至 CVM ────────────▶│ 2. CIS 执行       │
-│   cis_*     │      (捆绑角色)            │    (cis_engine.py)│
+│   cis_*     │      (捆绑角色)            │    (ohbs_engine.py)│
 │             │                           │ 3. 门禁：         │
 │             │                           │    fail_on_findings│
 │             │◀── image-id ──────────────│ 4. CreateImage    │
@@ -284,7 +284,7 @@ benchmark = "CIS-v1.0.0"
 Packer 在临时 CVM 上通过 `ansible-local` 执行三个阶段：
 
 1. **安装** — 通过系统包管理器 + pip 安装 ansible-core。
-2. **加固** — 运行捆绑的 cis-os 引擎（`cis_engine.py` + `rules.json`）。
+2. **加固** — 运行捆绑的 ohbs-os 引擎（`ohbs_engine.py` + `rules.json`）。
    变量：`cis_mode: apply`、`cis_profile: L1/L2`、`cis_platform: server`。
 3. **门禁** — 角色内执行：`cis_fail_on_findings: true` + `cis_min_score: 0`。
    加固后仍有残留发现项则 `ansible-playbook` 非零退出，Packer 构建失败。
@@ -293,10 +293,10 @@ Packer 在临时 CVM 上通过 `ansible-local` 执行三个阶段：
 
 CIS 规则会禁用 root 的 SSH 登录（`PermitRootLogin no` —— TencentOS 3 规则
 5.1.22 / TencentOS 4 规则 5.2.10）。由于构建工具本身以 `root` 连接，
-重启后会被锁在外面。cis-image 因此在编排层增加两道每次构建都会重新生成的
+重启后会被锁在外面。ohbs-image 因此在编排层增加两道每次构建都会重新生成的
 保障（不会因安装旧包而过期）：
 
-1. **专用构建用户 `cis-image`** —— 由 `install-ansible.sh` 创建，具备免密
+1. **专用构建用户 `ohbs-image`** —— 由 `install-ansible.sh` 创建，具备免密
    sudo，并继承当前 SSH 用户的 `authorized_keys`；即使 root 登录被完全
    禁用也能重连。
 2. **SSH guard** —— 在 firewalld / nftables / iptables 中放行实际 SSH
@@ -304,7 +304,7 @@ CIS 规则会禁用 root 的 SSH 登录（`PermitRootLogin no` —— TencentOS 
    root 登录，保证 Packer 能重连。
 
 **最终镜像交付时仍为加固态**：cleanup 阶段在快照前重新应用
-`PermitRootLogin no`。管理构建出的镜像请使用 `cis-image` 用户（`sudo -i`
+`PermitRootLogin no`。管理构建出的镜像请使用 `ohbs-image` 用户（`sudo -i`
 获取 root），或自行创建用户 —— 按 CIS 要求，root 密码登录默认关闭。
 
 ### Windows 构建流水线（WinRM × 控制器侧 ansible）
@@ -312,12 +312,12 @@ CIS 规则会禁用 root 的 SSH 登录（`PermitRootLogin no` —— TencentOS 
 ```
 构建机                                     腾讯云
 ┌─────────────┐                           ┌──────────────────┐
-│ cis-image/     │── packer build ──────────▶│ 临时 CVM          │
+│ ohbs-image/     │── packer build ──────────▶│ 临时 CVM          │
 │             │                           │  (WinRM 5986)    │
-│ cis-image.toml │                           │                  │
+│ ohbs-image.toml │                           │                  │
 │             │                           │                  │
 │ roles/      │── ansible provisioner ───▶│ CIS 执行           │
-│   cis_win*  │   (控制器侧，winrm 连接)   │ (cis_engine.ps1)  │
+│   cis_win*  │   (控制器侧，winrm 连接)   │ (ohbs_engine.ps1)  │
 │             │                           │                  │
 │             │                           │ 门禁在角色内       │
 │             │◀── image-id ──────────────│ CreateImage      │
@@ -325,13 +325,13 @@ CIS 规则会禁用 root 的 SSH 登录（`PermitRootLogin no` —— TencentOS 
 ```
 
 Windows 构建使用 Packer 的 `ansible` provisioner（控制器侧），通过 WinRM 连接。
-捆绑角色包含 `cis_engine.ps1`（PowerShell）。实例内无需安装任何软件 —
+捆绑角色包含 `ohbs_engine.ps1`（PowerShell）。实例内无需安装任何软件 —
 控制器本地需要 `ansible-core`。
 
 ### 设计要点
 
 **捆绑角色，无 Galaxy。**
-12 个 cis-os 引擎角色全部随包发布在 `cis_image/roles/` 目录下。构建时工具
+12 个 ohbs-os 引擎角色全部随包发布在 `ohbs_image/roles/` 目录下。构建时工具
 将角色复制到工作目录。无网络依赖，无版本漂移。
 
 **`ansible-local`（Linux）— 实例内自包含。**
@@ -354,25 +354,25 @@ AK/SK 仅通过环境变量传入（HCL `sensitive = true`）。临时实例打�
 
 | Profile | 操作系统 | SSH 用户 | 包管理器 | 角色 |
 |---|---|---|---|---|
-| `ubuntu2004` | Ubuntu 20.04 LTS | ubuntu | apt | `roles/cis_ubuntu2004/` |
-| `ubuntu2204` | Ubuntu 22.04 LTS | ubuntu | apt | `roles/cis_ubuntu2204/` |
-| `ubuntu2404` | Ubuntu 24.04 LTS | ubuntu | apt | `roles/cis_ubuntu2404/` |
-| `rhel8` | RHEL 8 | root | dnf | `roles/cis_rhel8/` |
-| `rhel9` | RHEL 9 | root | dnf | `roles/cis_rhel9/` |
-| `rhel10` | RHEL 10 | root | dnf | `roles/cis_rhel10/` |
-| `tencentos3` | TencentOS Server 3 | root | dnf | `roles/cis_tencentos3/` |
-| `tencentos4` | TencentOS Server 4 | root | dnf | `roles/cis_tencentos4/` |
+| `ubuntu2004` | Ubuntu 20.04 LTS | ubuntu | apt | `roles/ohbs-ubuntu2004/` |
+| `ubuntu2204` | Ubuntu 22.04 LTS | ubuntu | apt | `roles/ohbs-ubuntu2204/` |
+| `ubuntu2404` | Ubuntu 24.04 LTS | ubuntu | apt | `roles/ohbs-ubuntu2404/` |
+| `rhel8` | RHEL 8 | root | dnf | `roles/ohbs-rhel8/` |
+| `rhel9` | RHEL 9 | root | dnf | `roles/ohbs-rhel9/` |
+| `rhel10` | RHEL 10 | root | dnf | `roles/ohbs-rhel10/` |
+| `tencentos3` | TencentOS Server 3 | root | dnf | `roles/ohbs-tencentos3/` |
+| `tencentos4` | TencentOS Server 4 | root | dnf | `roles/ohbs-tencentos4/` |
 
 ### Windows（WinRM × 控制器侧 ansible）
 
 | Profile | 操作系统 | 用户 | 角色 |
 |---|---|---|---|
-| `win2016` | Windows Server 2016 | Administrator | `roles/cis_win2016/` |
-| `win2019` | Windows Server 2019 | Administrator | `roles/cis_win2019/` |
-| `win2022` | Windows Server 2022 | Administrator | `roles/cis_win2022/` |
-| `win2025` | Windows Server 2025 | Administrator | `roles/cis_win2025/` |
+| `win2016` | Windows Server 2016 | Administrator | `roles/ohbs-win2016/` |
+| `win2019` | Windows Server 2019 | Administrator | `roles/ohbs-win2019/` |
+| `win2022` | Windows Server 2022 | Administrator | `roles/ohbs-win2022/` |
+| `win2025` | Windows Server 2025 | Administrator | `roles/ohbs-win2025/` |
 
-切换画像仅需改 `cis-image.toml` 中的 `[build].profile` 和 `source_image_id`。
+切换画像仅需改 `ohbs-image.toml` 中的 `[build].profile` 和 `source_image_id`。
 
 ## 测试矩阵
 
@@ -413,7 +413,7 @@ export TENCENTCLOUD_SECRET_KEY=xxx
 # Windows 构建：
 # export WINRM_PASSWORD=xxx
 
-cis-image build --log-file build.log
+ohbs-image build --log-file build.log
 ```
 
 下游 CVM / 伸缩组 / Terraform 引用产出的 `image_id`。构建机固定专用 VPC + SG。
@@ -423,7 +423,7 @@ cis-image build --log-file build.log
 | 症状 | 可能原因 | 解决 |
 |---|---|---|
 | `preflight` 报凭据错误 | 未 export `TENCENTCLOUD_SECRET_ID` / `_KEY` | 在 shell 中 `export TENCENTCLOUD_SECRET_ID=...` |
-| `validate` 报插件下载错误 | `packer init` 失败（如构建机无网络） | 联网重新执行 `cis-image validate`，Packer 首次下载后会缓存插件 |
+| `validate` 报插件下载错误 | `packer init` 失败（如构建机无网络） | 联网重新执行 `ohbs-image validate`，Packer 首次下载后会缓存插件 |
 | Packer 等待 SSH 超时 | 安全组未对构建机放行 22 端口 | 添加入站规则：TCP/22，来源为构建机出口 IP —— `preflight` 现在会在能解析安全组规则和本机公网 IP 时主动提前预警此问题 |
 | `ansible-playbook` 报 "python3 not found" | 构建实例 OS 未预装 Python | 确保源镜像包含 Python >= 3.6 |
 | Windows 构建 WinRM 连接失败 | 未设 `WINRM_PASSWORD` 或网络不通 | export 密码 + 确保 TCP/5986 对构建 IP 放行 |
@@ -433,28 +433,28 @@ cis-image build --log-file build.log
 
 - [x] CI 流水线（GitHub Actions + OIDC，零长时 AK/SK）
 - [x] 镜像治理闭环：smoke test / 血缘 / 通知 / SLSA 签名
-- [x] `cis-image list` — 枚举可用画像及元数据
-- [x] 自定义规则选择（`cis-image.toml` 中的 `rules_include` / `rules_exclude`）
-- [x] PyPI 发布（`pip install cis-image`）
+- [x] `ohbs-image list` — 枚举可用画像及元数据
+- [x] 自定义规则选择（`ohbs-image.toml` 中的 `rules_include` / `rules_exclude`）
+- [x] PyPI 发布（`pip install ohbs-image`）
 - [x] 自动镜像清理（按血缘年龄退役）
-- [x] 独立审计工具（`cis-image audit` — oscap / inspec / kitty）
+- [x] 独立审计工具（`ohbs-image audit` — oscap / inspec / kitty）
 - [x] 基准锚定的规则 ID（引擎输出 + SARIF，可与 CIS-CAT 交叉核对）
-- [x] 干净启动验收（`cis-image verify-image` / `[meta].verify_boot`）
+- [x] 干净启动验收（`ohbs-image verify-image` / `[meta].verify_boot`）
 - [x] 单条规则参数覆写（`[cis].overrides`）
 - [x] CVE 扫描闸门 + SBOM 输出（`[meta].cve_scan` / `[meta].sbom`）
-- [x] 变更检测（`cis-image pending` / `build --skip-if-unchanged`）
+- [x] 变更检测（`ohbs-image pending` / `build --skip-if-unchanged`）
 - [x] XCCDF 1.2 报告导出（`scan --xccdf`、audit `--xccdf`）
 - [x] 跨账号镜像共享（`[image].share_accounts`）
 - [x] provenance + 血缘锚定 SBOM（SLSA L2 风格证据）
 - [x] Windows 经 HardeningKitty CSV 交叉验证（`audit --tool kitty`）
-- [x] 实例配置漂移检测（`cis-image drift`，对比镜像基线）
+- [x] 实例配置漂移检测（`ohbs-image drift`，对比镜像基线）
 - [x] 用户自定义测试组件（`[meta].test_components`）
 - [x] 构建成功触发下游（`[notify].deploy_webhook`）
 - [x] 竞价实例构建机（`[build].spot`，最高省 ~90%）
 - [x] 安全清理（`cleanup-images --unused-since`，共享中的镜像保留）
 - [x] 组织级共享（`[image].share_org_units`）
-- [x] 规则集版本化（`cis-image list --versions`）
-- [x] 源镜像刷新检测（`cis-image check-source`）
+- [x] 规则集版本化（`ohbs-image list --versions`）
+- [x] 源镜像刷新检测（`ohbs-image check-source`）
 - [ ] SLSA L2：完全可复现构建（锁定构建环境）
 - [ ] STIG 基准 profile（同一引擎，DISA 内容 — 路线图）
 
@@ -470,7 +470,7 @@ MIT — 详见 [LICENSE](LICENSE)。
 
 本工具应用的加固规则源自 CIS Benchmark 建议。CIS Benchmarks 由
 [Center for Internet Security](https://www.cisecurity.org/)（CIS）制定和维护。
-本仓库捆绑的 cis-os 引擎角色派生自 [susunola/cis-os](https://github.com/susunola/cis-os)
+本仓库捆绑的 ohbs-os 引擎角色派生自 [susunola/ohbs-os](https://github.com/susunola/ohbs-os)
 项目，按其各自许可提供。
 
 **重要提示：** 以 `apply` 模式运行 CIS 加固会修改系统配置，可能影响应用兼容性。

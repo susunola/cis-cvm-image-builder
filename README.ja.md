@@ -7,16 +7,16 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT">
   <img src="https://img.shields.io/badge/profiles-12-orange" alt="12 profiles">
   <img src="https://img.shields.io/badge/platform-Tencent%20Cloud-0052D9" alt="Tencent Cloud">
-  <a href="https://github.com/susunola/cis-image/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-image/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/susunola/ohbs-image/actions/workflows/ci.yml"><img src="https://github.com/susunola/ohbs-image/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
-# cis-image — CIS ハードニング済みゴールデンイメージビルダー
+# ohbs-image — CIS ハードニング済みゴールデンイメージビルダー
 
 > 5 つのコマンドで Tencent Cloud 上に CIS ハードニング済みゴールデンイメージを
 > 構築。Galaxy 不要、ビルド時ネットワーク依存ゼロ、テンプレート手編集も不要 —
-> すべて `cis-image.toml` で駆動。
+> すべて `ohbs-image.toml` で駆動。
 
-**機能：** 一時的な CVM を起動し、同梱の [cis-os](https://github.com/susunola/cis-os)
+**機能：** 一時的な CVM を起動し、同梱の [ohbs-os](https://github.com/susunola/ohbs-os)
 エンジンを適用して CIS ハードニングを行い、ロール内ゲートを実行し、カスタムイメー
 ジとしてキャプチャします。修復後も検出項目が残っていれば、イメージが作成される前に
 ビルドが失敗します。
@@ -58,16 +58,16 @@
 **ツールの入手**
 
 ```bash
-git clone https://github.com/susunola/cis-image.git
-cd cis-image
+git clone https://github.com/susunola/ohbs-image.git
+cd ohbs-image
 
-# 推奨: リポジトリからインストール（`cis-image` コマンドを提供）
+# 推奨: リポジトリからインストール（`ohbs-image` コマンドを提供）
 pip install .
 
-cis-image --version
+ohbs-image --version
 
 # またはインストールせず実行（リポジトリのルートで）
-python3 -m cis-image --version
+python3 -m ohbs-image --version
 
 # オプション：パッケージとしてインストール
 pip install -e ".[dev]"
@@ -87,36 +87,36 @@ export WINRM_PASSWORD=xxxx
 
 ```bash
 # 1. 設定ファイルを初期化
-cis-image init
+ohbs-image init
 
-# 2. cis-image.toml を編集し、VPC / サブネット / SG / ソースイメージ ID を設定
+# 2. ohbs-image.toml を編集し、VPC / サブネット / SG / ソースイメージ ID を設定
 
 # 3. ビルド前チェック（設定・資格情報・前提条件を検証）
-cis-image preflight
+ohbs-image preflight
 
 # 4. ドライラン：レンダリング + packer validate
-cis-image validate
+ohbs-image validate
 
 # 5. ハードニング済みイメージのビルド
-cis-image build
+ohbs-image build
 
 # オプション：レンダリング成果物のクリーンアップ
-cis-image clean
+ohbs-image clean
 ```
 
 **ビルド出力例（`build`）**
 
 ```
 ════════════════════════════════════════════════════════
-  cis-image 0.5.0 — tencentos3 (L1) → ap-guangzhou-4
+  ohbs-image 0.5.0 — tencentos3 (L1) → ap-guangzhou-4
 ════════════════════════════════════════════════════════
 [packer]  tencentcloud-cvm: output will be in this color
 [packer]  ==> tencentcloud-cvm: Creating temporary keypair...
 [packer]  ==> tencentcloud-cvm: Launching instance (S5.MEDIUM2)...
 [packer]  ==> tencentcloud-cvm: Provisioning with ansible-local...
-[packer]      tencentcloud-cvm: TASK [cis_tencentos3 : apply CIS Level 1] ***
+[packer]      tencentcloud-cvm: TASK [ohbs-tencentos3 : apply CIS Level 1] ***
 [packer]      tencentcloud-cvm: ok: 142  changed: 38  failed: 0
-[packer]      tencentcloud-cvm: TASK [cis_tencentos3 : gate] **************
+[packer]      tencentcloud-cvm: TASK [ohbs-tencentos3 : gate] **************
 [packer]      tencentcloud-cvm: PASS — 0 remaining findings
 [packer]  ==> tencentcloud-cvm: Creating custom image...
 [packer]  ==> tencentcloud-cvm: Image created: img-abc123def456
@@ -129,22 +129,22 @@ cis-image clean
 
 | コマンド | 説明 |
 |---|---|
-| `cis-image init` | カレントディレクトリに `cis-image.toml` を生成 |
-| `cis-image preflight` | 設定・資格情報・前提条件を検証 |
-| `cis-image validate` | テンプレートをレンダリングし `packer validate` を実行 |
-| `cis-image build` | レンダリング + `packer build`（イメージを生成） |
-| `cis-image clean` | `.cis-image-build/` 作業ディレクトリを削除 |
+| `ohbs-image init` | カレントディレクトリに `ohbs-image.toml` を生成 |
+| `ohbs-image preflight` | 設定・資格情報・前提条件を検証 |
+| `ohbs-image validate` | テンプレートをレンダリングし `packer validate` を実行 |
+| `ohbs-image build` | レンダリング + `packer build`（イメージを生成） |
+| `ohbs-image clean` | `.ohbs-image-build/` 作業ディレクトリを削除 |
 
 | フラグ | デフォルト | 説明 |
 |---|---|---|
-| `--config <path>` | `./cis-image.toml` | 設定ファイル |
-| `--workdir <dir>` | `./.cis-image-build` | レンダリング出力ディレクトリ |
+| `--config <path>` | `./ohbs-image.toml` | 設定ファイル |
+| `--workdir <dir>` | `./.ohbs-image-build` | レンダリング出力ディレクトリ |
 | `--quiet` | — | ツール出力を抑制（validate / build） |
 | `-y` / `--yes` | — | ビルド確認のプロンプトをスキップ |
 
 ## 設定
 
-`cis-image.toml` が唯一の信頼できる情報源です — Packer テンプレートの手編集は不要。
+`ohbs-image.toml` が唯一の信頼できる情報源です — Packer テンプレートの手編集は不要。
 
 ```toml
 [build]
@@ -211,12 +211,12 @@ benchmark = "CIS-v1.0.0"
 ```
 ビルドマシン                                Tencent Cloud
 ┌─────────────┐                           ┌──────────────────┐
-│ cis-image/     │── packer build ──────────▶│ 一時 CVM          │
+│ ohbs-image/     │── packer build ──────────▶│ 一時 CVM          │
 │             │                           │   (SSH 22 番)    │
-│ cis-image.toml │                           │ 1. ansible 導入   │
+│ ohbs-image.toml │                           │ 1. ansible 導入   │
 │             │                           │    (dnf/apt/zypp) │
 │ roles/      │── CVM へアップロード ────▶│ 2. CIS 適用       │
-│   cis_*     │      (同梱ロール)          │    (cis_engine.py)│
+│   cis_*     │      (同梱ロール)          │    (ohbs_engine.py)│
 │             │                           │ 3. ゲート：       │
 │             │                           │    fail_on_findings│
 │             │◀── image-id ──────────────│ 4. CreateImage    │
@@ -226,7 +226,7 @@ benchmark = "CIS-v1.0.0"
 Packer は一時 CVM 上で `ansible-local` により 3 フェーズを実行します：
 
 1. **インストール** — OS パッケージマネージャ + pip で ansible-core を導入。
-2. **ハードニング** — 同梱の cis-os エンジン（`cis_engine.py` + `rules.json`）を実行。
+2. **ハードニング** — 同梱の ohbs-os エンジン（`ohbs_engine.py` + `rules.json`）を実行。
    変数：`cis_mode: apply`、`cis_profile: L1/L2`、`cis_platform: server`。
 3. **ゲート** — ロール内：`cis_fail_on_findings: true` + `cis_min_score: 0`。
    修復後も検出が残っていれば `ansible-playbook` が非ゼロで終了し、Packer はビルドを失敗させます。
@@ -236,11 +236,11 @@ Packer は一時 CVM 上で `ansible-local` により 3 フェーズを実行し
 ```
 ビルドマシン                                Tencent Cloud
 ┌─────────────┐                           ┌──────────────────┐
-│ cis-image/     │── packer build ──────────▶│ 一時 CVM          │
+│ ohbs-image/     │── packer build ──────────▶│ 一時 CVM          │
 │             │                           │  (WinRM 5986)    │
 │             │                           │                  │
 │ roles/      │── ansible プロビジョナー ─▶│ CIS 適用          │
-│   cis_win*  │   (コントローラ側、       │ (cis_engine.ps1)  │
+│   cis_win*  │   (コントローラ側、       │ (ohbs_engine.ps1)  │
 │             │    winrm 接続)            │                  │
 │             │                           │ ロール内ゲート    │
 │             │◀── image-id ──────────────│ CreateImage       │
@@ -248,13 +248,13 @@ Packer は一時 CVM 上で `ansible-local` により 3 フェーズを実行し
 ```
 
 Windows ビルドは Packer の `ansible` プロビジョナー（コントローラ側）を WinRM 経由
-で使用します。同梱ロールには `cis_engine.ps1`（PowerShell）が含まれます。インスタ
+で使用します。同梱ロールには `ohbs_engine.ps1`（PowerShell）が含まれます。インスタ
 ンス側には何もインストール不要 — コントローラ側に `ansible-core` が必要です。
 
 ### 設計上の判断
 
 **ロールは同梱、Galaxy なし。**
-12 種すべての cis-os エンジンロールをパッケージ内の `cis_image/roles/` に同梱。ビルド
+12 種すべての ohbs-os エンジンロールをパッケージ内の `ohbs_image/roles/` に同梱。ビルド
 時にツールが選択されたロールを作業ディレクトリへコピー。ネットワーク依存なし、
 バージョン漂流なし。
 
@@ -280,25 +280,25 @@ AK/SK は環境変数のみ（HCL の `sensitive = true`）。一時インスタ
 
 | プロファイル | OS | SSH ユーザー | パッケージマネージャ | ロール |
 |---|---|---|---|---|
-| `ubuntu2004` | Ubuntu 20.04 LTS | ubuntu | apt | `roles/cis_ubuntu2004/` |
-| `ubuntu2204` | Ubuntu 22.04 LTS | ubuntu | apt | `roles/cis_ubuntu2204/` |
-| `ubuntu2404` | Ubuntu 24.04 LTS | ubuntu | apt | `roles/cis_ubuntu2404/` |
-| `rhel8` | RHEL 8 | root | dnf | `roles/cis_rhel8/` |
-| `rhel9` | RHEL 9 | root | dnf | `roles/cis_rhel9/` |
-| `rhel10` | RHEL 10 | root | dnf | `roles/cis_rhel10/` |
-| `tencentos3` | TencentOS Server 3 | root | dnf | `roles/cis_tencentos3/` |
-| `tencentos4` | TencentOS Server 4 | root | dnf | `roles/cis_tencentos4/` |
+| `ubuntu2004` | Ubuntu 20.04 LTS | ubuntu | apt | `roles/ohbs-ubuntu2004/` |
+| `ubuntu2204` | Ubuntu 22.04 LTS | ubuntu | apt | `roles/ohbs-ubuntu2204/` |
+| `ubuntu2404` | Ubuntu 24.04 LTS | ubuntu | apt | `roles/ohbs-ubuntu2404/` |
+| `rhel8` | RHEL 8 | root | dnf | `roles/ohbs-rhel8/` |
+| `rhel9` | RHEL 9 | root | dnf | `roles/ohbs-rhel9/` |
+| `rhel10` | RHEL 10 | root | dnf | `roles/ohbs-rhel10/` |
+| `tencentos3` | TencentOS Server 3 | root | dnf | `roles/ohbs-tencentos3/` |
+| `tencentos4` | TencentOS Server 4 | root | dnf | `roles/ohbs-tencentos4/` |
 
 ### Windows（WinRM × コントローラ側 ansible）
 
 | プロファイル | OS | ユーザー | ロール |
 |---|---|---|---|
-| `win2016` | Windows Server 2016 | Administrator | `roles/cis_win2016/` |
-| `win2019` | Windows Server 2019 | Administrator | `roles/cis_win2019/` |
-| `win2022` | Windows Server 2022 | Administrator | `roles/cis_win2022/` |
-| `win2025` | Windows Server 2025 | Administrator | `roles/cis_win2025/` |
+| `win2016` | Windows Server 2016 | Administrator | `roles/ohbs-win2016/` |
+| `win2019` | Windows Server 2019 | Administrator | `roles/ohbs-win2019/` |
+| `win2022` | Windows Server 2022 | Administrator | `roles/ohbs-win2022/` |
+| `win2025` | Windows Server 2025 | Administrator | `roles/ohbs-win2025/` |
 
-プロファイルを切り替えるには、`cis-image.toml` の `[build].profile` と `source_image_id`
+プロファイルを切り替えるには、`ohbs-image.toml` の `[build].profile` と `source_image_id`
 を変更してください。
 
 ## テストマトリクス
@@ -342,7 +342,7 @@ export TENCENTCLOUD_SECRET_KEY=xxx
 # Windows ビルド：
 # export WINRM_PASSWORD=xxx
 
-cis-image build
+ohbs-image build
 ```
 
 下流の CVM / Auto Scaling / Terraform は出力された `image_id` を参照してください。
@@ -353,7 +353,7 @@ cis-image build
 | 症状 | 原因 | 解決策 |
 |---|---|---|
 | `preflight` で資格情報エラー | `TENCENTCLOUD_SECRET_ID` / `_KEY` 未設定 | シェルで `export TENCENTCLOUD_SECRET_ID=...` を実行 |
-| `validate` でプラグインダウンロードエラー | `packer init` 失敗（オフラインビルドマシンなど） | インターネット接続ありで `cis-image validate` を再実行 — Packer は初回ダウンロード後にプラグインをキャッシュします |
+| `validate` でプラグインダウンロードエラー | `packer init` 失敗（オフラインビルドマシンなど） | インターネット接続ありで `ohbs-image validate` を再実行 — Packer は初回ダウンロード後にプラグインをキャッシュします |
 | Packer が SSH 待機中にタイムアウト | セキュリティグループがポート 22 を許可していない | インバウンドルールを追加：TCP/22、送信元はビルドマシンの Egress IP |
 | `ansible-playbook` で "python3 not found" | ビルドインスタンスの OS に Python 未導入 | ソースイメージに Python >= 3.6 が含まれていることを確認 |
 | Windows ビルドで WinRM 接続エラー | `WINRM_PASSWORD` 未設定またはネットワーク不通 | パスワードを export + TCP/5986 がビルド IP から接続可能か確認 |
@@ -362,10 +362,10 @@ cis-image build
 ## ロードマップ
 
 - [ ] CI パイプライン（GitHub Actions）による自動イメージビルド
-- [ ] PyPI パッケージ（`pip install cis-image`）
-- [ ] `cis-image list` — 利用可能なプロファイルとメタデータの一覧表示
-- [ ] `cis-image report` — 完了したビルドの監査レポートを取得・表示
-- [ ] カスタムルール選択（`cis-image.toml` の `rules_include` / `rules_exclude`）
+- [ ] PyPI パッケージ（`pip install ohbs-image`）
+- [ ] `ohbs-image list` — 利用可能なプロファイルとメタデータの一覧表示
+- [ ] `ohbs-image report` — 完了したビルドの監査レポートを取得・表示
+- [ ] カスタムルール選択（`ohbs-image.toml` の `rules_include` / `rules_exclude`）
 
 ## コントリビューション
 
@@ -379,8 +379,8 @@ MIT — [LICENSE](LICENSE) を参照。
 
 本ツールは CIS Benchmark 推奨事項に基づくハードニングルールを適用します。
 CIS Benchmarks は [Center for Internet Security](https://www.cisecurity.org/)（CIS）
-によって策定・保守されています。本リポジトリに同梱されている cis-os エンジンロール
-は [susunola/cis-os](https://github.com/susunola/cis-os) プロジェクトから派生した
+によって策定・保守されています。本リポジトリに同梱されている ohbs-os エンジンロール
+は [susunola/ohbs-os](https://github.com/susunola/ohbs-os) プロジェクトから派生した
 ものであり、それぞれのライセンスに基づいて提供されています。
 
 **重要：** `apply` モードでの CIS ハードニングはシステム設定を変更し、アプリケー

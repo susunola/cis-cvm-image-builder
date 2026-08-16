@@ -1,0 +1,81 @@
+---
+- name: Validate cis_mode
+  ansible.builtin.assert:
+    that: cis_mode in ['scan', 'apply']
+    fail_msg: >-
+      cis_mode must be 'scan' or 'apply' (got '{{ cis_mode }}').
+      Example: ansible-playbook site.yml -e cis_mode=apply
+    quiet: true
+
+- name: Validate cis_profile
+  ansible.builtin.assert:
+    that: cis_profile in ['L1', 'L2']
+    fail_msg: >-
+      cis_profile must be 'L1' or 'L2' (got '{{ cis_profile }}').
+      L2 is a superset of L1.
+    quiet: true
+
+- name: Validate cis_platform
+  ansible.builtin.assert:
+    that: cis_platform in ['server', 'workstation', 'all']
+    fail_msg: "cis_platform must be server, workstation or all (got '{{ cis_platform }}')"
+    quiet: true
+
+- name: Validate cis_min_score range
+  ansible.builtin.assert:
+    that: cis_min_score | int >= 0 and cis_min_score | int <= 100
+    fail_msg: "cis_min_score must be between 0 and 100 (got '{{ cis_min_score }}')"
+    quiet: true
+
+- name: Validate ohbs_engine_timeout
+  ansible.builtin.assert:
+    that: ohbs_engine_timeout | int > 0
+    fail_msg: "ohbs_engine_timeout must be a positive number of seconds (got '{{ ohbs_engine_timeout }}')"
+    quiet: true
+
+- name: Confirm target is Windows
+  ansible.builtin.assert:
+    that: ansible_facts.os_family == 'Windows'
+    fail_msg: >-
+      This role targets Windows Server only
+      (detected {{ ansible_facts.os_family | default('unknown') }}).
+    quiet: true
+
+- name: Verify PowerShell version (5.1+)
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Result = ($PSVersionTable.PSVersion.Major -ge 5)
+  register: ps_version_ok
+  changed_when: false
+
+- name: Require PowerShell 5.1+
+  ansible.builtin.assert:
+    that: ps_version_ok.result | default(false) | bool
+    fail_msg: >-
+      PowerShell 5.1 or newer is required on {{ inventory_hostname }}.
+    quiet: true
+
+- name: Verify current user has Administrator rights
+  ansible.windows.win_powershell:
+    script: |
+      $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+      $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+      $Ansible.Result = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  register: _cis_admin_check
+  changed_when: false
+  when: cis_mode == 'apply'
+
+- name: Confirm privilege escalation is available for apply mode
+  ansible.builtin.assert:
+    that: _cis_admin_check.result | default(false) | bool
+    fail_msg: >-
+      cis_mode=apply must run as Administrator on {{ inventory_hostname }}.
+      Run the playbook as a member of the Administrators group or with SYSTEM privileges.
+    quiet: true
+  when: cis_mode == 'apply'
+
+- name: Announce the run
+  ansible.builtin.debug:
+    msg: >-
+      {{ cis_benchmark_name }} {{ cis_benchmark_version }} |
+      mode={{ cis_mode }} profile={{ cis_profile }} platform={{ cis_platform }}

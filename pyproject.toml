@@ -3,13 +3,13 @@ requires = ["setuptools>=59", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cis-image"
-# Single source of truth: cis_image/_logging.py VERSION (read via AST, no import).
+name = "ohbs-image"
+# Single source of truth: ohbs_image/_logging.py VERSION (read via AST, no import).
 dynamic = ["version"]
-description = "CIS-hardened golden image builder for Tencent Cloud — config-driven CLI, 12 OS profiles, bundled cis-os engine"
+description = "CIS-hardened golden image builder for Tencent Cloud — config-driven CLI, 12 OS profiles, bundled ohbs-os engine"
 license = {text = "MIT"}
 readme = "README.md"
-authors = [{name = "cis-image contributors"}]
+authors = [{name = "ohbs-image contributors"}]
 requires-python = ">=3.11"
 keywords = ["cis", "hardening", "tencent-cloud", "packer", "ansible", "golden-image", "devops", "security"]
 classifiers = [
@@ -29,12 +29,12 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/susunola/cis-image"
-Repository = "https://github.com/susunola/cis-image.git"
-Issues = "https://github.com/susunola/cis-image/issues"
+Homepage = "https://github.com/susunola/ohbs-image"
+Repository = "https://github.com/susunola/ohbs-image.git"
+Issues = "https://github.com/susunola/ohbs-image/issues"
 
 [project.scripts]
-cis-image = "cis_image:main"
+ohbs-image = "ohbs_image:main"
 
 [project.optional-dependencies]
 dev = [
@@ -47,14 +47,14 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["cis_image"]
+packages = ["ohbs_image"]
 include-package-data = true
 
 [tool.setuptools.dynamic]
-version = {attr = "cis_image._logging.VERSION"}
+version = {attr = "ohbs_image._logging.VERSION"}
 
 [tool.setuptools.package-data]
-cis_image = ["py.typed", "roles/**/*"]
+ohbs_image = ["py.typed", "roles/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -64,14 +64,14 @@ pythonpath = ["."]
 strict = true
 python_version = "3.11"
 ignore_missing_imports = true
-# tests/ and the vendored cis-os engine (roles/) are not part of the CLI type surface.
-exclude = ["tests/", "cis_image/roles/"]
+# tests/ and the vendored ohbs-os engine (roles/) are not part of the CLI type surface.
+exclude = ["tests/", "ohbs_image/roles/"]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 110
-# The bundled cis-os engine under cis_image/roles/ is vendored verbatim — do not lint it.
-extend-exclude = ["cis_image/roles"]
+# The bundled ohbs-os engine under ohbs_image/roles/ is vendored verbatim — do not lint it.
+extend-exclude = ["ohbs_image/roles"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "C4"]

@@ -31,17 +31,17 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Run ruff (lint)
-        run: ruff check cis_image
+        run: ruff check ohbs_image
 
       - name: Run mypy (type-check)
-        run: mypy cis_image --ignore-missing-imports
+        run: mypy ohbs_image --ignore-missing-imports
 
-      # Version single-source guard: cis_image/_logging.py VERSION must equal
+      # Version single-source guard: ohbs_image/_logging.py VERSION must equal
       # what the installed CLI reports (rebuild.sh relies on the same check).
       - name: Verify version single-source
         run: |
-          CODE_VERSION=$(grep -m1 '^VERSION = ' cis_image/_logging.py | sed 's/^VERSION = "//;s/"$//')
-          BIN_VERSION=$(cis-image --version | awk '{print $2}')
+          CODE_VERSION=$(grep -m1 '^VERSION = ' ohbs_image/_logging.py | sed 's/^VERSION = "//;s/"$//')
+          BIN_VERSION=$(ohbs-image --version | awk '{print $2}')
           echo "code version: $CODE_VERSION | binary version: $BIN_VERSION"
           test "$CODE_VERSION" = "$BIN_VERSION"
 

@@ -7,16 +7,16 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT">
   <img src="https://img.shields.io/badge/profiles-12-orange" alt="12 profiles">
   <img src="https://img.shields.io/badge/platform-Tencent%20Cloud-0052D9" alt="Tencent Cloud">
-  <a href="https://github.com/susunola/cis-image/actions/workflows/ci.yml"><img src="https://github.com/susunola/cis-image/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/susunola/ohbs-image/actions/workflows/ci.yml"><img src="https://github.com/susunola/ohbs-image/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
-# cis-image — เครื่องมือสร้าง Golden Image ที่ผ่านการ Hardened ตามมาตรฐาน CIS
+# ohbs-image — เครื่องมือสร้าง Golden Image ที่ผ่านการ Hardened ตามมาตรฐาน CIS
 
 > สร้าง Golden Image ที่ผ่านการ Hardened ตามมาตรฐาน CIS บน Tencent Cloud
 > ด้วย 5 คำสั่ง ไม่ต้องใช้ Galaxy, ไม่มี dependency ด้าน network ตอน build,
-> ไม่ต้องแก้ไข template เอง — ทุกอย่างขับเคลื่อนด้วย `cis-image.toml`
+> ไม่ต้องแก้ไข template เอง — ทุกอย่างขับเคลื่อนด้วย `ohbs-image.toml`
 
-**ฟีเจอร์:** ปั่น CVM ชั่วคราวขึ้นมา, ใช้ [cis-os](https://github.com/susunola/cis-os)
+**ฟีเจอร์:** ปั่น CVM ชั่วคราวขึ้นมา, ใช้ [ohbs-os](https://github.com/susunola/ohbs-os)
 engine ที่ให้มาด้วยทำการ CIS hardened, รัน gate ภายใน role, แล้วแคปเป็น custom image
 ถ้าหลัง hardened แล้วยังมี finding ค้างอยู่ build จะ fail ก่อนที่ image จะถูกสร้าง
 
@@ -57,16 +57,16 @@ engine ที่ให้มาด้วยทำการ CIS hardened, รั�
 **ดาวน์โหลดเครื่องมือ**
 
 ```bash
-git clone https://github.com/susunola/cis-image.git
-cd cis-image
+git clone https://github.com/susunola/ohbs-image.git
+cd ohbs-image
 
-# แนะนำ: ติดตั้งจาก repository (ได้คำสั่ง `cis-image`)
+# แนะนำ: ติดตั้งจาก repository (ได้คำสั่ง `ohbs-image`)
 pip install .
 
-cis-image --version
+ohbs-image --version
 
 # หรือรันโดยไม่ติดตั้ง (ที่ root ของ repo)
-python3 -m cis-image --version
+python3 -m ohbs-image --version
 
 # หรือติดตั้งเป็น package
 pip install -e ".[dev]"
@@ -86,36 +86,36 @@ export WINRM_PASSWORD=xxxx
 
 ```bash
 # 1. สร้างไฟล์ตั้งค่า
-cis-image init
+ohbs-image init
 
-# 2. แก้ cis-image.toml ใส่ค่า VPC, subnet, security group และ source image ID
+# 2. แก้ ohbs-image.toml ใส่ค่า VPC, subnet, security group และ source image ID
 
 # 3. ตรวจก่อน build (ตรวจ config, credential และข้อกำหนดเบื้องต้น)
-cis-image preflight
+ohbs-image preflight
 
 # 4. Dry-run (render template + packer validate)
-cis-image validate
+ohbs-image validate
 
 # 5. Build image ที่ hardened แล้ว
-cis-image build
+ohbs-image build
 
 # ไม่บังคับ: ล้างไฟล์ที่ render ออก
-cis-image clean
+ohbs-image clean
 ```
 
 **ตัวอย่างผลลัพธ์ (`build`)**
 
 ```
 ════════════════════════════════════════════════════════
-  cis-image 0.5.0 — tencentos3 (L1) → ap-guangzhou-4
+  ohbs-image 0.5.0 — tencentos3 (L1) → ap-guangzhou-4
 ════════════════════════════════════════════════════════
 [packer]  tencentcloud-cvm: output will be in this color
 [packer]  ==> tencentcloud-cvm: Creating temporary keypair...
 [packer]  ==> tencentcloud-cvm: Launching instance (S5.MEDIUM2)...
 [packer]  ==> tencentcloud-cvm: Provisioning with ansible-local...
-[packer]      tencentcloud-cvm: TASK [cis_tencentos3 : apply CIS Level 1] ***
+[packer]      tencentcloud-cvm: TASK [ohbs-tencentos3 : apply CIS Level 1] ***
 [packer]      tencentcloud-cvm: ok: 142  changed: 38  failed: 0
-[packer]      tencentcloud-cvm: TASK [cis_tencentos3 : gate] **************
+[packer]      tencentcloud-cvm: TASK [ohbs-tencentos3 : gate] **************
 [packer]      tencentcloud-cvm: PASS — 0 remaining findings
 [packer]  ==> tencentcloud-cvm: Creating custom image...
 [packer]  ==> tencentcloud-cvm: Image created: img-abc123def456
@@ -128,22 +128,22 @@ cis-image clean
 
 | คำสั่ง | คำอธิบาย |
 |---|---|
-| `cis-image init` | สร้าง `cis-image.toml` ในไดเรกทอรีปัจจุบัน |
-| `cis-image preflight` | ตรวจ config, credential และข้อกำหนดเบื้องต้น |
-| `cis-image validate` | Render template และรัน `packer validate` |
-| `cis-image build` | Render + `packer build` (สร้าง image) |
-| `cis-image clean` | ลบไดเรกทอรี `.cis-image-build/` |
+| `ohbs-image init` | สร้าง `ohbs-image.toml` ในไดเรกทอรีปัจจุบัน |
+| `ohbs-image preflight` | ตรวจ config, credential และข้อกำหนดเบื้องต้น |
+| `ohbs-image validate` | Render template และรัน `packer validate` |
+| `ohbs-image build` | Render + `packer build` (สร้าง image) |
+| `ohbs-image clean` | ลบไดเรกทอรี `.ohbs-image-build/` |
 
 | Flag | ค่าเริ่มต้น | คำอธิบาย |
 |---|---|---|
-| `--config <path>` | `./cis-image.toml` | ไฟล์ตั้งค่า |
-| `--workdir <dir>` | `./.cis-image-build` | ไดเรกทอรีสำหรับ render ผลลัพธ์ |
+| `--config <path>` | `./ohbs-image.toml` | ไฟล์ตั้งค่า |
+| `--workdir <dir>` | `./.ohbs-image-build` | ไดเรกทอรีสำหรับ render ผลลัพธ์ |
 | `--quiet` | — | ลด output ของเครื่องมือ (validate / build) |
 | `-y` / `--yes` | — | ข้ามข้อความยืนยันก่อน build |
 
 ## การตั้งค่า
 
-`cis-image.toml` เป็น single source of truth — ไม่ต้องแก้ไข Packer template เอง
+`ohbs-image.toml` เป็น single source of truth — ไม่ต้องแก้ไข Packer template เอง
 
 ```toml
 [build]
@@ -210,12 +210,12 @@ benchmark = "CIS-v1.0.0"
 ```
 เครื่อง Build                              Tencent Cloud
 ┌─────────────┐                           ┌──────────────────┐
-│ cis-image/     │── packer build ──────────▶│ CVM ชั่วคราว       │
+│ ohbs-image/     │── packer build ──────────▶│ CVM ชั่วคราว       │
 │             │                           │   (SSH port 22)  │
-│ cis-image.toml │                           │ 1. ติดตั้ง ansible│
+│ ohbs-image.toml │                           │ 1. ติดตั้ง ansible│
 │             │                           │    (dnf/apt/zypp)│
 │ roles/      │── อัปโหลดไป CVM ─────────▶│ 2. ใช้ CIS        │
-│   cis_*     │      (role ที่ให้มาด้วย)      │    (cis_engine.py)│
+│   cis_*     │      (role ที่ให้มาด้วย)      │    (ohbs_engine.py)│
 │             │                           │ 3. Gate:         │
 │             │                           │    fail_on_findings│
 │             │◀── image-id ──────────────│ 4. CreateImage    │
@@ -225,7 +225,7 @@ benchmark = "CIS-v1.0.0"
 Packer รัน 3 เฟสบน CVM ชั่วคราวผ่าน `ansible-local`:
 
 1. **Install** — ใช้ package manager ของ OS + pip ติดตั้ง ansible-core
-2. **Harden** — รัน cis-os engine ที่ให้มาด้วย (`cis_engine.py` + `rules.json`)
+2. **Harden** — รัน ohbs-os engine ที่ให้มาด้วย (`ohbs_engine.py` + `rules.json`)
    ตัวแปร: `cis_mode: apply`, `cis_profile: L1/L2`, `cis_platform: server`
 3. **Gate** — ภายใน role: `cis_fail_on_findings: true` + `cis_min_score: 0`
    ถ้าหลังจาก remediate แล้วยังมี finding เหลืออยู่ `ansible-playbook` จะ exit
@@ -236,11 +236,11 @@ Packer รัน 3 เฟสบน CVM ชั่วคราวผ่าน `ans
 ```
 เครื่อง Build                              Tencent Cloud
 ┌─────────────┐                           ┌──────────────────┐
-│ cis-image/     │── packer build ──────────▶│ CVM ชั่วคราว       │
+│ ohbs-image/     │── packer build ──────────▶│ CVM ชั่วคราว       │
 │             │                           │  (WinRM 5986)    │
 │             │                           │                  │
 │ roles/      │── ansible provisioner ───▶│ ใช้ CIS            │
-│   cis_win*  │   (ฝั่ง controller,       │ (cis_engine.ps1)  │
+│   cis_win*  │   (ฝั่ง controller,       │ (ohbs_engine.ps1)  │
 │             │    ต่อผ่าน winrm)         │                  │
 │             │                           │ Gate ภายใน role  │
 │             │◀── image-id ──────────────│ CreateImage      │
@@ -248,13 +248,13 @@ Packer รัน 3 เฟสบน CVM ชั่วคราวผ่าน `ans
 ```
 
 Windows build ใช้ Packer `ansible` provisioner (ฝั่ง controller) ต่อผ่าน WinRM
-Role ที่ให้มาด้วยมี `cis_engine.ps1` (PowerShell) อยู่ในนั้น ไม่ต้องติดตั้งซอฟต์แวร์อะไร
+Role ที่ให้มาด้วยมี `ohbs_engine.ps1` (PowerShell) อยู่ในนั้น ไม่ต้องติดตั้งซอฟต์แวร์อะไร
 ใน instance เลย — ที่ controller ต้องมี `ansible-core` ติดตั้งอยู่
 
 ### การตัดสินใจด้านดีไซน์
 
 **role ที่ให้มาด้วย, ไม่ใช้ Galaxy**
-cis-os engine role ทั้ง 12 ตัวถูกรวมไว้ในแพ็กเกจที่ `cis_image/roles/` ตอน build
+ohbs-os engine role ทั้ง 12 ตัวถูกรวมไว้ในแพ็กเกจที่ `ohbs_image/roles/` ตอน build
 เครื่องมือจะคัดลอก role ที่เลือกไปยัง workspace ไม่มี dependency ด้าน network
 ไม่มี version drift
 
@@ -281,25 +281,25 @@ AK/SK ผ่าน environment variable เท่านั้น (HCL `sensitive
 
 | Profile | OS | SSH User | Package Manager | Role |
 |---|---|---|---|---|
-| `ubuntu2004` | Ubuntu 20.04 LTS | ubuntu | apt | `roles/cis_ubuntu2004/` |
-| `ubuntu2204` | Ubuntu 22.04 LTS | ubuntu | apt | `roles/cis_ubuntu2204/` |
-| `ubuntu2404` | Ubuntu 24.04 LTS | ubuntu | apt | `roles/cis_ubuntu2404/` |
-| `rhel8` | RHEL 8 | root | dnf | `roles/cis_rhel8/` |
-| `rhel9` | RHEL 9 | root | dnf | `roles/cis_rhel9/` |
-| `rhel10` | RHEL 10 | root | dnf | `roles/cis_rhel10/` |
-| `tencentos3` | TencentOS Server 3 | root | dnf | `roles/cis_tencentos3/` |
-| `tencentos4` | TencentOS Server 4 | root | dnf | `roles/cis_tencentos4/` |
+| `ubuntu2004` | Ubuntu 20.04 LTS | ubuntu | apt | `roles/ohbs-ubuntu2004/` |
+| `ubuntu2204` | Ubuntu 22.04 LTS | ubuntu | apt | `roles/ohbs-ubuntu2204/` |
+| `ubuntu2404` | Ubuntu 24.04 LTS | ubuntu | apt | `roles/ohbs-ubuntu2404/` |
+| `rhel8` | RHEL 8 | root | dnf | `roles/ohbs-rhel8/` |
+| `rhel9` | RHEL 9 | root | dnf | `roles/ohbs-rhel9/` |
+| `rhel10` | RHEL 10 | root | dnf | `roles/ohbs-rhel10/` |
+| `tencentos3` | TencentOS Server 3 | root | dnf | `roles/ohbs-tencentos3/` |
+| `tencentos4` | TencentOS Server 4 | root | dnf | `roles/ohbs-tencentos4/` |
 
 ### Windows (WinRM × controller-side ansible)
 
 | Profile | OS | User | Role |
 |---|---|---|---|
-| `win2016` | Windows Server 2016 | Administrator | `roles/cis_win2016/` |
-| `win2019` | Windows Server 2019 | Administrator | `roles/cis_win2019/` |
-| `win2022` | Windows Server 2022 | Administrator | `roles/cis_win2022/` |
-| `win2025` | Windows Server 2025 | Administrator | `roles/cis_win2025/` |
+| `win2016` | Windows Server 2016 | Administrator | `roles/ohbs-win2016/` |
+| `win2019` | Windows Server 2019 | Administrator | `roles/ohbs-win2019/` |
+| `win2022` | Windows Server 2022 | Administrator | `roles/ohbs-win2022/` |
+| `win2025` | Windows Server 2025 | Administrator | `roles/ohbs-win2025/` |
 
-การสลับ profile ทำได้โดยแก้ `[build].profile` และ `source_image_id` ใน `cis-image.toml`
+การสลับ profile ทำได้โดยแก้ `[build].profile` และ `source_image_id` ใน `ohbs-image.toml`
 
 ## ตารางผลการทดสอบ
 
@@ -342,7 +342,7 @@ export TENCENTCLOUD_SECRET_KEY=xxx
 # Windows build:
 # export WINRM_PASSWORD=xxx
 
-cis-image build
+ohbs-image build
 ```
 
 ให้ CVM / Auto Scaling / Terraform ฝั่ง downstream ชี้ไปที่ `image_id` ที่ออกมา
@@ -353,7 +353,7 @@ cis-image build
 | อาการ | สาเหตุที่เป็นไปได้ | วิธีแก้ไข |
 |---|---|---|
 | `preflight` แจ้ง credential error | ยังไม่ได้ export `TENCENTCLOUD_SECRET_ID` / `_KEY` | `export TENCENTCLOUD_SECRET_ID=...` ใน shell |
-| `validate` แจ้ง plugin download error | `packer init` ล้มเหลว (เช่นเครื่อง build offline) | รัน `cis-image validate` อีกครั้งเมื่อมีอินเทอร์เน็ต — Packer cache plugin หลังจากดาวน์โหลดครั้งแรก |
+| `validate` แจ้ง plugin download error | `packer init` ล้มเหลว (เช่นเครื่อง build offline) | รัน `ohbs-image validate` อีกครั้งเมื่อมีอินเทอร์เน็ต — Packer cache plugin หลังจากดาวน์โหลดครั้งแรก |
 | Packer timeout ตอนรอ SSH | security group ไม่อนุญาต port 22 จากเครื่อง build | เพิ่ม inbound rule: TCP/22 จาก egress IP ของเครื่อง build |
 | `ansible-playbook` fail แจ้ง "python3 not found" | OS ของ build instance ไม่มี Python ติดตั้ง | ตรวจสอบว่า source image มี Python >= 3.6 |
 | Windows build fail ด้วย WinRM connection error | ยังไม่ได้ตั้ง `WINRM_PASSWORD` หรือ network ไม่ผ่าน | export password + ตรวจสอบว่า TCP/5986 เปิดจาก build IP |
@@ -362,10 +362,10 @@ cis-image build
 ## Roadmap
 
 - [ ] CI pipeline (GitHub Actions) สำหรับ automated image build
-- [ ] PyPI package (`pip install cis-image`)
-- [ ] `cis-image list` — แสดงรายการ profile พร้อม metadata
-- [ ] `cis-image report` — ดึงและแสดง audit report จาก build ที่เสร็จแล้ว
-- [ ] Custom rule selection (`rules_include` / `rules_exclude` ใน `cis-image.toml`)
+- [ ] PyPI package (`pip install ohbs-image`)
+- [ ] `ohbs-image list` — แสดงรายการ profile พร้อม metadata
+- [ ] `ohbs-image report` — ดึงและแสดง audit report จาก build ที่เสร็จแล้ว
+- [ ] Custom rule selection (`rules_include` / `rules_exclude` ใน `ohbs-image.toml`)
 
 ## การมีส่วนร่วม
 
@@ -379,8 +379,8 @@ MIT — ดู [LICENSE](LICENSE)
 
 เครื่องมือนี้ใช้ hardening rules ที่อ้างอิงจากคำแนะนำของ CIS Benchmark
 CIS Benchmarks พัฒนาและดูแลโดย [Center for Internet Security](https://www.cisecurity.org/)
-(CIS) cis-os engine roles ที่ให้มาด้วยใน repository นี้พัฒนาต่อยอดมาจากโปรเจกต์
-[susunola/cis-os](https://github.com/susunola/cis-os) และให้บริการภายใต้ลิขสิทธิ์ของแต่ละ role
+(CIS) ohbs-os engine roles ที่ให้มาด้วยใน repository นี้พัฒนาต่อยอดมาจากโปรเจกต์
+[susunola/ohbs-os](https://github.com/susunola/ohbs-os) และให้บริการภายใต้ลิขสิทธิ์ของแต่ละ role
 
 **สำคัญ:** การรัน CIS hardening ในโหมด `apply` จะแก้ไขการตั้งค่าระบบและอาจส่งผล
 ต่อความเข้ากันได้ของแอปพลิเคชัน ควรทดสอบ hardened image ใน staging environment

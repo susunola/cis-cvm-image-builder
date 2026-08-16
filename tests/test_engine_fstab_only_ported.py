@@ -19,7 +19,7 @@ from tests.engine_fixtures import (
     mock_systemd,
 )
 
-ENG = load_engine("cis_rhel9")
+ENG = load_engine("ohbs-rhel9")
 
 
 def test_rhel9_has_pr5_symbols():
