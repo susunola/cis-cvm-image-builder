@@ -893,13 +893,27 @@ def build_one(combo):
         last = result
         if result["exit_code"] == 0:
             return result
-        # Only a stockout (ResourceInsufficient.SpecifiedInstanceType) is
-        # worth retrying with a different instance type; any other failure is
-        # a real problem and should surface immediately.
-        if "ResourceInsufficient.SpecifiedInstanceType" not in result["log_tail"]:
+        # Retry with the next in-stock type when the failure is a launch-time
+        # (inventory/placement) problem rather than a hardening failure:
+        #   * ResourceInsufficient.SpecifiedInstanceType  — type understocked
+        #   * "not exist" after "Waiting for instance ready" — instance was
+        #     reclaimed immediately (transient zone/subnet inventory mismatch)
+        #   * "CVM not support the required disk"          — wrong disk type
+        #     (shouldn't happen given _disk_type_for, but retry defensively)
+        # Any OTHER failure (e.g. ansible hardening error, low score) is a real
+        # problem and surfaces immediately instead of burning the rest of the
+        # candidate list on the same broken profile.
+        tail = result["log_tail"] or ""
+        launch_failure = (
+            "ResourceInsufficient.SpecifiedInstanceType" in tail
+            or "not exist" in tail
+            or "not support the required disk" in tail
+        )
+        if not launch_failure:
             return result
         print(f"[matrix] {profile} L{level}: instance type {instance_type} "
-              f"understocked — trying next ({len(types)-idx-1} left)", flush=True)
+              f"launch failed ({tail.splitlines()[-1][:80]!r}) — trying next "
+              f"({len(types)-idx-1} left)", flush=True)
     return last
 
 
