@@ -3,20 +3,20 @@
 #
 # Why: contributors can validate that README.md stays in sync with the CLI
 # (subcommands + OS profiles) without relying on their local Python state.
-# The image installs cis-image from a freshly built wheel, so the check runs
+# The image installs ohbs-image from a freshly built wheel, so the check runs
 # against the real package surface.
 #
 # Usage:
-#   docker build -t cis-image:check-readme .
+#   docker build -t ohbs-image:check-readme .
 #   # build succeeds only if README.md documents every subcommand + profile
 #   # re-run against a modified checkout:
-#   docker run --rm -v "$(pwd):/app" cis-image:check-readme
+#   docker run --rm -v "$(pwd):/app" ohbs-image:check-readme
 
 # --- stage 1: build the wheel -----------------------------------------------
 FROM python:3.11-slim AS build
 WORKDIR /src
 COPY pyproject.toml MANIFEST.in README.md ./
-COPY cis_image ./cis_image
+COPY ohbs_image ./ohbs_image
 RUN pip install --no-cache-dir build \
  && python -m build --wheel
 

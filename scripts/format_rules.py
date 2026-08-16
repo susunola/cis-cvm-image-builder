@@ -2,7 +2,7 @@
 """Format every role's rules.json with a single canonical layout.
 
 The repo keeps one rules.json per OS role under
-``cis_image/roles/<role>/files/rules.json``.  Historically these were edited
+``ohbs_image/roles/<role>/files/rules.json``.  Historically these were edited
 by hand and drifted into two incompatible indentation styles (2-space and
 4-space, plus a non-standard array-element indent).  That made every bulk edit
 produce a thousand-line diff and invited the next one to clobber the format
@@ -36,7 +36,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-RULES_GLOB = "cis_image/roles/*/files/rules.json"
+RULES_GLOB = "ohbs_image/roles/*/files/rules.json"
 
 
 def canonical(text: str) -> str:

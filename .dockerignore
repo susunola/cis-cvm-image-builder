@@ -16,7 +16,7 @@ build
 *.egg-info
 
 # Local config / secrets — never bake into the image
-cis-image.toml
+ohbs-image.toml
 *.pkrvars.hcl
 logs
 run.log
