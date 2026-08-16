@@ -1,0 +1,5 @@
+---
+ohbs_engine_file: ohbs_engine.ps1
+cis_rules_file: rules.json
+cis_sections_file: sections.json
+cis_guidance_file: guidance.json

@@ -7,7 +7,7 @@
 
 | 版本 | 症状 | 根因 | 修复 |
 |---|---|---|---|
-| v0.14.4 | apply 报 `No start of json char found`，模块 payload 丢失 | ansible-core ≥2.16 的模块 payload 缓存落在 `/tmp`，TOS4 的 /tmp 不可靠 | venv wrapper 导出 `TMPDIR=/opt/cis-image-ansible/tmp` |
+| v0.14.4 | apply 报 `No start of json char found`，模块 payload 丢失 | ansible-core ≥2.16 的模块 payload 缓存落在 `/tmp`，TOS4 的 /tmp 不可靠 | venv wrapper 导出 `TMPDIR=/opt/ohbs-image-ansible/tmp` |
 | v0.14.8 | reboot 后 SSH `i/o timeout` | guard 只在 apply 前跑；apply 重载 firewalld 后新 zone 无 SSH 放行 | reboot 前重跑 guard + 防火墙规则持久化（nft/iptables save） |
 | v0.14.9 | reapply 报 `ssh-guard.sh: No such file` | Packer shell provisioner 默认删除上传的 inline 脚本 | `skip_clean = true` |
 | v0.14.10 | 6 条「修了重审又失败」 | 5 类 bug：run_rule 不带 params / iptables→iptables-nft 别名 / rsyslog `$` 前缀 / sysctl 持久化取错优先级 / useradd_inactive 误解析 | 逐类修复 + 重审用同一 params |
@@ -27,9 +27,9 @@
 
 ## 二、修复的共享性
 
-cis-image 的架构决定了大部分修复**自动覆盖全部 Linux profile**：
+ohbs-image 的架构决定了大部分修复**自动覆盖全部 Linux profile**：
 
-- **Engine**：`cis_engine.py` 在 10 个 Linux role 中 md5 完全一致（`3e07e0ca`）→ f_selinux
+- **Engine**：`ohbs_engine.py` 在 10 个 Linux role 中 md5 完全一致（`3e07e0ca`）→ f_selinux
   permissive 逻辑、crypto drop-in（v0.13.6 `umac-128@openssh.com` + `sshd -t` 回滚）、nft
   遍历等全部共享。
 - **HCL 模板**：`HCL_LINUX_TEMPLATE` + `SMOKE_LINUX_BLOCK` 单一模板服务所有 Linux profile

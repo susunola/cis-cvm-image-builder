@@ -1,6 +1,6 @@
 """Tests for scripts/real_e2e_test.py.
 
-This script is *not* covered by the cis_image package's own test suite —
+This script is *not* covered by the ohbs_image package's own test suite —
 it drives real, billed Tencent Cloud CVM calls to stand up/tear down a
 jump box for end-to-end verification (see CONTRIBUTING.md "Running the
 real end-to-end test").
@@ -33,7 +33,7 @@ real_e2e_test = importlib.util.module_from_spec(_spec)
 sys.modules["real_e2e_test"] = real_e2e_test
 _spec.loader.exec_module(real_e2e_test)
 
-from cis_image import ConfigError  # noqa: E402
+from ohbs_image import ConfigError  # noqa: E402
 
 
 class TestImportKeypair:
@@ -776,7 +776,7 @@ class TestRunMatrixToml:
         rendered = (real_e2e_test.RUN_MATRIX_PY
             .replace("REPO_DIR_PLACEHOLDER", "/root/repo")
             .replace("MATRIX_WORKDIR_PLACEHOLDER", "/root/wd")
-            .replace("CIS_IMAGE_BIN_PLACEHOLDER", "/root/repo/.venv/bin/cis-image")
+            .replace("CIS_IMAGE_BIN_PLACEHOLDER", "/root/repo/.venv/bin/ohbs-image")
             .replace("BUILD_INSTANCE_TYPE_PLACEHOLDER", "S5.MEDIUM2")
             .replace("REGION_PLACEHOLDER", "ap-guangzhou")
             .replace("ZONE_PLACEHOLDER", "ap-guangzhou-7")
@@ -815,13 +815,13 @@ class TestRunMatrixToml:
         assert "[-12000:]" in real_e2e_test.RUN_MATRIX_PY
 
     def test_build_one_parses_combined_stream(self):
-        # `cis-image build` writes its readable output (packer + ok()/info()
+        # `ohbs-image build` writes its readable output (packer + ok()/info()
         # summary, including image ID and score) to STDERR, so build_one must
         # parse stdout+stderr together, not stdout alone.
         rendered = (real_e2e_test.RUN_MATRIX_PY
             .replace("REPO_DIR_PLACEHOLDER", "/root/repo")
             .replace("MATRIX_WORKDIR_PLACEHOLDER", "/root/wd")
-            .replace("CIS_IMAGE_BIN_PLACEHOLDER", "/root/repo/.venv/bin/cis-image")
+            .replace("CIS_IMAGE_BIN_PLACEHOLDER", "/root/repo/.venv/bin/ohbs-image")
             .replace("BUILD_INSTANCE_TYPE_PLACEHOLDER", "S5.MEDIUM2")
             .replace("REGION_PLACEHOLDER", "ap-guangzhou")
             .replace("ZONE_PLACEHOLDER", "ap-guangzhou-7")
@@ -833,7 +833,7 @@ class TestRunMatrixToml:
         # Score is parsed from "Re-audit score: NN%" (not _extract_score).
         assert "re-audit score:" in rendered.lower()
         # _extract_score is no longer imported for score parsing.
-        assert "from cis_image import _extract_image_ids" in rendered
+        assert "from ohbs_image import _extract_image_ids" in rendered
         assert "import _extract_image_ids, _extract_score" not in rendered
 
     def test_retry_on_stockout(self):
@@ -866,7 +866,7 @@ class TestRunMatrixToml:
         rendered = (real_e2e_test.RUN_MATRIX_PY
             .replace("REPO_DIR_PLACEHOLDER", "/root/repo")
             .replace("MATRIX_WORKDIR_PLACEHOLDER", "/root/wd")
-            .replace("CIS_IMAGE_BIN_PLACEHOLDER", "/root/repo/.venv/bin/cis-image")
+            .replace("CIS_IMAGE_BIN_PLACEHOLDER", "/root/repo/.venv/bin/ohbs-image")
             .replace("BUILD_INSTANCE_TYPE_PLACEHOLDER", "SA5.MEDIUM2")
             .replace("REGION_PLACEHOLDER", "ap-guangzhou")
             .replace("ZONE_PLACEHOLDER", "ap-guangzhou-7")

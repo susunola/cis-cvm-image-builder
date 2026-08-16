@@ -29,7 +29,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install cis-image
+      - name: Install ohbs-image
         run: pip install .
 
       - name: Authenticate to Tencent Cloud via OIDC
@@ -40,4 +40,4 @@ jobs:
           region: ap-guangzhou
 
       - name: Build golden image
-        run: cis-image build --config cis-image.toml -y
+        run: ohbs-image build --config ohbs-image.toml -y

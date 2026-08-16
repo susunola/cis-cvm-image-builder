@@ -1,0 +1,27 @@
+---
+cis_mode: scan
+cis_profile: L1
+cis_platform: server
+cis_allow_disruptive: false
+cis_include: []
+cis_exclude: []
+cis_sections: []
+cis_families: []
+cis_report_dir: "{{ playbook_dir }}/reports"
+cis_report_html: false
+cis_report_json: false
+cis_report_csv: false
+cis_report_index: true
+cis_report_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+cis_report_open_sections: 2
+cis_report_embed_remediation: true
+cis_python: /usr/bin/python3
+cis_remote_tmp: /tmp
+cis_keep_remote_artifacts: false
+ohbs_engine_timeout: 1800
+cis_backup_dir: /var/backups/cis-ubuntu2404
+cis_fail_on_findings: false
+cis_min_score: 0
+cis_benchmark_name: "CIS Ubuntu Linux 24.04 LTS Benchmark"
+cis_benchmark_version: "v2.0.0"
+cis_org_name: ""

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to **cis-image** are documented here, grouped by release.
+All notable changes to **ohbs-image** are documented here, grouped by release.
 The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
@@ -15,7 +15,7 @@ can be traced across rebuilds.
 - **`[build.packer]` passthrough** — arbitrary `tencentcloud-cvm` Packer
   builder args can now be injected verbatim into the generated HCL source
   block (e.g. `disk_type`, `disk_size`, `data_disks`,
-  `internet_max_bandwidth_out`), so cis-image inherits the full Packer
+  `internet_max_bandwidth_out`), so ohbs-image inherits the full Packer
   capability set without hardcoding each argument. Values are rendered via
   the existing `_format_hcl_value` (now dict-aware) and spliced in through
   a new `__EXTRA_ARGS_BLOCK__` marker.
@@ -27,7 +27,7 @@ can be traced across rebuilds.
   retried. Credential reads are de-duplicated via a shared `_creds`
   helper.
 - **Real E2E runner overhaul** (`scripts/real_e2e_test.py`) — supports
-  `--target-mode single|all-linux|all` to trigger real `cis-image build`
+  `--target-mode single|all-linux|all` to trigger real `ohbs-image build`
   against profile+level combinations; the E2E build CVM can be tagged via
   `[build].instance_name`. New `scripts/e2e.env.example` documents the
   required Tencent Cloud / network variables; the live `scripts/e2e.env`
@@ -38,7 +38,7 @@ can be traced across rebuilds.
 - `_audit_results_xccdf` now emits a timezone-aware, UTC-normalized
   timestamp instead of a naive `datetime.utcnow().isoformat()`.
 
-### Runtime-robustness (ported from the pre-refactor ciscvm lineage)
+### Runtime-robustness (ported from the pre-refactor ohbs lineage)
 - **Guaranteed temp-dir cleanup in the roles** — all 12 OS `run.yml`
   (8 Linux + 4 Windows) now wrap the engine execution in an Ansible
   `block` whose `always:` clause removes the remote working directory even
@@ -61,24 +61,24 @@ can be traced across rebuilds.
 ### Added
 - **Audit reports archived on the build machine** — every successful
   `build` / `scan` now saves the per-rule audit JSON to
-  `~/.cis-image/reports/<image-name>.json`, next to the lineage and
+  `~/.ohbs-image/reports/<image-name>.json`, next to the lineage and
   provenance records.  Linux emits the file as a gzipped+base64 marker
-  line in the packer log (extracted by cis-image); Windows copies the
+  line in the packer log (extracted by ohbs-image); Windows copies the
   role-fetched `result.json`.  The in-image copy
-  (`/opt/cis-image-AUDIT-RESULT.json` /
-  `C:\ProgramData\cis-image\AUDIT-RESULT.json`) still ships — drift and
+  (`/opt/ohbs-image-AUDIT-RESULT.json` /
+  `C:\ProgramData\ohbs-image\AUDIT-RESULT.json`) still ships — drift and
   verify-image use it as the baseline.
 
 ## [0.16.24] — 2026-08-14
 
 ### Added
 - **Windows images now ship the build-time audit result** at
-  `C:\ProgramData\cis-image\AUDIT-RESULT.json` — the counterpart of Linux
-  `/opt/cis-image-AUDIT-RESULT.json`.  Previously the Windows engine's
+  `C:\ProgramData\ohbs-image\AUDIT-RESULT.json` — the counterpart of Linux
+  `/opt/ohbs-image-AUDIT-RESULT.json`.  Previously the Windows engine's
   `result.json` was fetched to the controller and then deleted with the
   working directory, so nothing inside the image documented what was
   assessed.  Implemented as a `cis_ship_result_path` role variable
-  (empty = off), enabled by the cis-image Windows site template.
+  (empty = off), enabled by the ohbs-image Windows site template.
 
 ## [0.16.23] — 2026-08-14
 
@@ -237,7 +237,7 @@ a guest that never finished powering off).
   blocks on a dead socket and the stop job never completes — reproducer:
   `StopInstances --StopType SOFT` hangs >5 min on a hardened guest vs ~110 s
   unhardened.  The cleanup provisioner now installs
-  `/etc/systemd/system/rc-local.service.d/10-cis-image-stop-timeout.conf`
+  `/etc/systemd/system/rc-local.service.d/10-ohbs-image-stop-timeout.conf`
   (`TimeoutStopSec=15s`) so systemd SIGKILLs the agent and the shutdown
   completes.  RHEL 8 was unaffected (agent runs under a regular unit there).
 - Regression: `test_rc_local_stop_timeout_capped` asserts the drop-in is
@@ -264,7 +264,7 @@ Py3.8 compatibility hardening (ubuntu2004 matrix follow-up to v0.16.6).
 
 ## [0.16.2] — 2026-08-09
 
-Round-2 review — the engine (`cis_engine.py`), HCL templates, packer
+Round-2 review — the engine (`ohbs_engine.py`), HCL templates, packer
 subprocess handling and the build/clean guards were audited; no new P0/P1
 bugs found (those code paths had been hardened across earlier releases).
 Two polish fixes landed:
@@ -324,7 +324,7 @@ Red Hat Insights Drift, EC2 Image Builder test components / EventBridge /
 spot instances / lifecycle policies, and AWS RAM-style org sharing.
 
 ### Added
-- **#12 — Drift detection** (`cis-image drift`): re-scan a LIVE instance over
+- **#12 — Drift detection** (`ohbs-image drift`): re-scan a LIVE instance over
   SSH and diff against the baseline (the audit result shipped inside the
   image, a saved baseline, or `--baseline <file>`).  Reports new failing
   rules / recovered rules / score delta; exit 1 = drift.
@@ -343,9 +343,9 @@ spot instances / lifecycle policies, and AWS RAM-style org sharing.
   fails open (keeps) on API errors so an in-use image is never retired.
 - **#17 — Org-level sharing** (`[image].share_org_units`): merged with
   `share_accounts` into one `ModifyImageSharePermission` call.
-- **#19 — Rule-set versioning** (`cis-image list --versions`): per-profile
+- **#19 — Rule-set versioning** (`ohbs-image list --versions`): per-profile
   rules.json sha256 + engine version for audit pinning.
-- **#20 — Vendor refresh detection** (`cis-image check-source`): compares the
+- **#20 — Vendor refresh detection** (`ohbs-image check-source`): compares the
   source image's CreatedTime against the last build's lineage record;
   exit 0 = unchanged, 1 = refreshed.  Lineage now records
   `source_image_created`.
@@ -367,7 +367,7 @@ dev-sec hardening, RHEL Image Builder (osbuild+OpenSCAP), AWS EC2 Image
 Builder, CIS-CAT/LBK and HardeningKitty.
 
 ### Added
-- **P0#1 — Independent audit tool** (`cis-image audit`): run a THIRD-PARTY
+- **P0#1 — Independent audit tool** (`ohbs-image audit`): run a THIRD-PARTY
   auditor instead of relying on the self-reported engine score.
   - `--tool oscap` — OpenSCAP over SSH, parses ARF XML, gates on score
     (RHEL-family: scap-security-guide datastream).
@@ -379,23 +379,23 @@ Builder, CIS-CAT/LBK and HardeningKitty.
   `benchmark` + `rule_id` (`"<benchmark> <id>"`) on every result, and
   SARIF carries the benchmark reference — findings cross-reference
   CIS-CAT / SCAP numbering exactly.
-- **P0#3 — Clean-boot verification** (`cis-image verify-image --image …`):
+- **P0#3 — Clean-boot verification** (`ohbs-image verify-image --image …`):
   boots a probe instance from the PRODUCED image, re-audits on fresh boot
   (SELinux relabel, first-boot services, cloud-init), gates on score and
   always terminates the probe. `[meta].verify_boot = true` chains it
   automatically after successful builds (Linux only).
 - **P1#4 — Benchmark pinning + changelog**: benchmark recorded in lineage
   and provenance (`rules_sha256` + `fingerprint`); preflight warns on
-  `[meta].benchmark` divergence from the profile default; `cis-image list`
+  `[meta].benchmark` divergence from the profile default; `ohbs-image list`
   shows the benchmark column.
 - **P1#5 — Per-control overrides** (`[cis].overrides`): deep-merge rule
   parameters into the workspace copy of rules.json at render time
   (bundled catalog never mutated; unknown rule IDs fail fast).
 - **P1#6 — CVE scan + SBOM** (`[meta].cve_scan` / `[meta].sbom`):
   trivy CRITICAL-severity gate before the snapshot; zero-dependency SBOM
-  (`/opt/cis-image-SBOM.jsonl`) emitted into the image and echoed to the
+  (`/opt/ohbs-image-SBOM.jsonl`) emitted into the image and echoed to the
   build log for hashing.
-- **P1#7 — Change detection** (`cis-image pending`, `build
+- **P1#7 — Change detection** (`ohbs-image pending`, `build
   --skip-if-unchanged`): deterministic input fingerprint (source image,
   rule catalog hash, benchmark, level, filters, version); skips rebuilds
   when nothing changed and the previous image still exists.
@@ -410,13 +410,13 @@ Builder, CIS-CAT/LBK and HardeningKitty.
 - **P2#11 — HardeningKitty CSV parser** for Windows cross-validation.
 
 ### Changed
-- `cis-image list` prints a `benchmark` column.
+- `ohbs-image list` prints a `benchmark` column.
 - SARIF reports now carry the benchmark reference (P0#2).
 - Version bumped 0.14.33 → 0.15.0 (feature release).
 
 ### Fixed
-- Pre-existing lint/type debt cleaned so `ruff check cis_image` and
-  `mypy cis_image --ignore-missing-imports` are green (CI gate).
+- Pre-existing lint/type debt cleaned so `ruff check ohbs_image` and
+  `mypy ohbs_image --ignore-missing-imports` are green (CI gate).
 
 ### CIS benchmark editions (profile → benchmark tag)
 - Ubuntu 20.04 / 22.04 / 24.04 — CIS Ubuntu Linux LTS Benchmark v1.0.0

@@ -1,0 +1,33 @@
+# ohbs-image.toml — single source of truth for all build parameters
+# Replace region/zone and image/network IDs with values for your account.
+[build]
+profile             = "tencentos3"
+#   Linux: ubuntu2004 | ubuntu2204 | ubuntu2404 |
+#          rhel8 | rhel9 | rhel10 |
+#          tencentos3 | tencentos4
+#   Windows: win2016 | win2019 | win2022 | win2025
+region              = "ap-guangzhou"
+zone                = "ap-guangzhou-3"
+instance_type       = "S5.MEDIUM2"
+source_image_id     = "img-xxxxxxxx"       # replace with real public image ID
+vpc_id              = "vpc-xxxxxxxx"
+subnet_id           = "subnet-xxxxxxxx"
+security_group_id   = "sg-xxxxxxxx"
+associate_public_ip = false               # set to true only if a public IP is required
+
+[image]
+name_prefix  = "tencentos3-cis"
+copy_regions = []                         # add regions (e.g. ["ap-shanghai"]) to copy the image
+
+[cis]
+level = 1                                 # 1 or 2
+
+[cloud]
+secret_id_env  = "TENCENTCLOUD_SECRET_ID"
+secret_key_env = "TENCENTCLOUD_SECRET_KEY"
+# Windows builds also require:
+# winrm_password_env = "WINRM_PASSWORD"
+
+[meta]
+os_tag    = "tencentos-3"
+benchmark = "CIS-v1.0.0"
