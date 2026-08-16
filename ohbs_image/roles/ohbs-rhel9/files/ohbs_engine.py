@@ -5046,7 +5046,7 @@ def main():
             "svc_enabled", "svc_disabled", "svc_masked",
         ])
         pre_rules = [r for r in ordered if r.get("family", "") in _PKG_FAMILIES]
-        sys.stderr.write("cis-engine: phase 0 pre-scan (%d rules, %d workers)\n"
+        sys.stderr.write("ohbs-engine: phase 0 pre-scan (%d rules, %d workers)\n"
                          % (len(pre_rules), workers))
         from argparse import Namespace as _NS
         scan_opts = _NS(**{k: v for k, v in vars(opts).items()})
@@ -5084,12 +5084,12 @@ def main():
                 # The single batch dnf call cannot be interrupted safely —
                 # skip it when the budget is nearly spent and let the
                 # per-rule fixes (which have their own timeouts) try instead.
-                sys.stderr.write("cis-engine: phase 1 skipped — only %.0fs "
+                sys.stderr.write("ohbs-engine: phase 1 skipped — only %.0fs "
                                  "left of the --deadline budget\n" % remaining)
                 ctx.add_note("phase 1 batch install skipped: "
                              "deadline budget nearly exhausted")
             else:
-                sys.stderr.write("cis-engine: phase 1 installing %d packages: %s\n"
+                sys.stderr.write("ohbs-engine: phase 1 installing %d packages: %s\n"
                                  % (len(pkg_list), " ".join(pkg_list)))
                 ok, err = _install_pkgs(ctx, pkg_list, 900)
                 if not ok:
@@ -5099,7 +5099,7 @@ def main():
         # Rules that touch the package manager are serialised via ctx._pkg_lock;
         # all others (config writes, file perms, kernel params, etc.) run in
         # parallel.  Service restarts are deferred to Phase 3.
-        sys.stderr.write("cis-engine: phase 2 parallel apply (%d rules, %d workers)\n"
+        sys.stderr.write("ohbs-engine: phase 2 parallel apply (%d rules, %d workers)\n"
                          % (len(ordered), workers))
 
         def _apply_one(ctx, rule):
@@ -5149,7 +5149,7 @@ def main():
             results = _in_pool(lambda r: _apply_one(ctx, r), ordered)
 
         # ── Phase 3: Batch restart queued services ──
-        sys.stderr.write("cis-engine: phase 3 flushing %d service restart(s)\n"
+        sys.stderr.write("ohbs-engine: phase 3 flushing %d service restart(s)\n"
                          % len(ctx._svc_queue))
         ctx.flush_restarts()
 
@@ -5162,7 +5162,7 @@ def main():
         to_recheck = [r for r in results
                       if r.get("apply_status") in ("applied", "applied_pending")]
         if to_recheck:
-            sys.stderr.write("cis-engine: phase 4 re-checking %d rule(s)\n"
+            sys.stderr.write("ohbs-engine: phase 4 re-checking %d rule(s)\n"
                              % len(to_recheck))
             # Invalidate caches that may be stale after service restarts.
             ctx.invalidate("modprobe_showconfig", "lsmod")
@@ -5225,7 +5225,7 @@ if __name__ == "__main__":
         main()
     except Exception as _exc:
         import traceback as _tb, json as _json, sys as _sys
-        _sys.stderr.write("cis-engine: FATAL — %s: %s\n"
+        _sys.stderr.write("ohbs-engine: FATAL — %s: %s\n"
                          % (type(_exc).__name__, _exc))
         _tb.print_exc(file=_sys.stderr)
         # The roles access cis_result.summary.all.* unconditionally
