@@ -4891,9 +4891,13 @@ def summarize(results, skipped_count):
             if a in b and a != "failed":
                 b[a] += 1
     for b in s.values():
-        scored = b["pass"] + b["fail"]
-        b["score"] = round(100.0 * b["pass"] / scored, 1) if scored else 0.0
-        b["assessed"] = scored
+        # Errors are NOT compliance — count them against the score so a
+        # catalog that cannot evaluate a rule can never fake a passing grade
+        # (they'd otherwise drop out of the denominator and inflate the
+        # score).  Matches the Windows engine's assessed = pass+fail+error.
+        assessed = b["pass"] + b["fail"] + b["error"]
+        b["score"] = round(100.0 * b["pass"] / assessed, 1) if assessed else 0.0
+        b["assessed"] = assessed
     s["all"]["skipped_by_selection"] = skipped_count
     return s
 
@@ -5116,6 +5120,7 @@ def main():
         # scan/audit mode: already parallel
         results = _in_pool(lambda r: run_rule(ctx, r), ordered)
     elapsed = time.time() - started
+    _summary = summarize(results, len(skipped))
 
     doc = {
         "schema": 1,
@@ -5128,7 +5133,10 @@ def main():
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(started)),
         "duration_seconds": round(elapsed, 2),
         "host": host_facts(),
-        "summary": summarize(results, len(skipped)),
+        "summary": _summary,
+        # mirror of summary.all.score — the Windows engine emits the same
+        # top-level field; keep both so consumers can read either.
+        "score": _summary["all"]["score"],
         "results": results,
         "excluded": [{"id": r["id"], "title": r["title"], "reason": why}
                      for r, why in skipped],
@@ -5156,16 +5164,29 @@ if __name__ == "__main__":
         _sys.stderr.write("cis-engine: FATAL — %s: %s\n"
                          % (type(_exc).__name__, _exc))
         _tb.print_exc(file=_sys.stderr)
+        # The roles access cis_result.summary.all.* unconditionally
+        # (17 sites), so the crash document MUST carry a full zeroed
+        # summary — score 0.0 also makes the compliance gate fail as it
+        # should instead of AttributeError'ing mid-play.
+        _summary = {
+            "total": 1, "pass": 0, "fail": 0, "manual": 0, "error": 1,
+            "notapplicable": 0, "applied": 0, "applied_pending": 0,
+            "apply_failed": 0, "skipped_disruptive": 0, "unsupported": 0,
+            "skipped_manual": 0, "already": 0, "score": 0.0,
+        }
         _payload = _json.dumps({
             "schema": 1, "engine_version": "1.0.0",
             "mode": "error", "error": str(_exc),
+            "score": 0.0,
+            "summary": {"all": _summary},
             "results": [{"id": "_fatal_", "title": "engine crash",
                          "status": "error", "detail": str(_exc),
                          "level": 1, "levels": [1], "family": "none",
                          "section": "", "risk": "none",
                          "apply_status": "failed",
                          "apply_detail": "engine crashed before completion",
-                         "duration_ms": 0}]
+                         "duration_ms": 0}],
+            "changed_files": [],
         }, indent=1)
         _sys.stdout.write(_payload)
         # Also drop the same document at --out so the Ansible slurp of
