@@ -80,6 +80,18 @@ def _validate_value_present(label: str, value: Any) -> str | None:
         return f"{label}: still placeholder '{value}'"
     return None
 
+
+def _read_bool(data: dict[str, Any], section: str, key: str, default: bool) -> bool:
+    """Read a TOML boolean without silently coercing strings or integers."""
+    value = data.get(section, {}).get(key, default)
+    if not isinstance(value, bool):
+        raise ConfigError(
+            f"[{section}].{key} must be a boolean, got "
+            f"{type(value).__name__}. Use true/false without quotes."
+        )
+    return value
+
+
 def load_config(path: Path) -> dict[str, Any]:
     """Load and validate ohbs-image.toml.  Raises ConfigError on invalid input."""
     if not path.exists():
@@ -269,7 +281,7 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
             f"[cloud].assume_role_duration must be 0-43200, got {assume_role_duration}")
 
     # [meta].smoke_test — instance-level checks before the snapshot (default on).
-    smoke_test = bool(data.get("meta", {}).get("smoke_test", True))
+    smoke_test = _read_bool(data, "meta", "smoke_test", True)
 
     # [notify] — WeCom group-robot webhook; empty webhook disables notifications.
     notify_webhook = str(data.get("notify", {}).get("webhook", "")).strip()
@@ -312,8 +324,8 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         rules_overrides[rid] = {str(k): v for k, v in params.items()}
 
     # [meta].cve_scan / [meta].sbom — optional supply-chain gates.
-    cve_scan = bool(data.get("meta", {}).get("cve_scan", False))
-    sbom = bool(data.get("meta", {}).get("sbom", False))
+    cve_scan = _read_bool(data, "meta", "cve_scan", False)
+    sbom = _read_bool(data, "meta", "sbom", False)
 
     # [image].share_accounts — cross-account image sharing (empty = off).
     share_accounts = [str(x).strip() for x in data.get("image", {}).get("share_accounts", []) if str(x).strip()]
@@ -332,13 +344,13 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
                 "Tencent Cloud account ID (expected \"uin/1234567890\").")
 
     # [build].spot — spot instance for the build VM (up to ~90% cheaper).
-    spot = bool(data.get("build", {}).get("spot", False))
+    spot = _read_bool(data, "build", "spot", False)
 
     # [meta].test_components — user-defined test scripts run before snapshot.
     test_components = [str(x).strip() for x in data.get("meta", {}).get("test_components", []) if str(x).strip()]
 
     # [meta].verify_boot — clean-boot verification after the snapshot.
-    verify_boot = bool(data.get("meta", {}).get("verify_boot", False))
+    verify_boot = _read_bool(data, "meta", "verify_boot", False)
 
     # [cis].min_score — post-reboot audit gate (0 disables; default 85).
     min_score = int(data.get("cis", {}).get("min_score", 85))
