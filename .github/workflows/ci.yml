@@ -47,10 +47,11 @@ jobs:
 
       # README freshness guard: scripts/check_readme.py verifies every
       # subcommand the CLI registers and every OS profile is documented in
-      # README.md. Adding/removing either without updating the docs fails CI,
-      # so the README can't silently drift out of date.
+      # README.md, and that tests/test_check_readme.py's ALL_CMDS matches the
+      # live CLI. Adding/removing any of these without updating the docs/tests
+      # fails CI, so they can't silently drift out of date.
       - name: Verify README documents every subcommand and profile
-        run: python3 scripts/check_readme.py
+        run: python3 scripts/check_readme.py --check-tests
 
       - name: Run tests
         run: pytest -v --tb=short
