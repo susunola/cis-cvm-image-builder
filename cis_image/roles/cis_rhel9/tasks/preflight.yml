@@ -14,6 +14,16 @@
     msg: "cis_platform must be 'server', 'workstation', or 'all', got: {{ cis_platform }}"
   when: cis_platform not in ['server', 'workstation', 'all']
 
+- name: Validate cis_min_score range
+  ansible.builtin.fail:
+    msg: "cis_min_score must be between 0 and 100, got: {{ cis_min_score }}"
+  when: cis_min_score | int < 0 or cis_min_score | int > 100
+
+- name: Validate cis_engine_timeout
+  ansible.builtin.fail:
+    msg: "cis_engine_timeout must be a positive number of seconds, got: {{ cis_engine_timeout }}"
+  when: cis_engine_timeout | int <= 0
+
 - name: Locate Python 3 interpreter
   ansible.builtin.shell: |
     for py in /opt/cis-image-ansible/bin/python /opt/cis-image-ansible/bin/python3 /usr/bin/python3 /usr/libexec/platform-python /usr/bin/python3.6 /usr/bin/python3.8 /usr/bin/python3.9 /usr/bin/python3.10 /usr/bin/python3.11 /usr/bin/python3.12 /usr/bin/python3.13 /usr/bin/python3.14; do

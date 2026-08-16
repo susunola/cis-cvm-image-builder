@@ -5217,3 +5217,55 @@ class TestLinuxRunYmlSurvivesEngineCrash:
         for p in win:
             content = open(p, encoding="utf-8").read()
             assert "failed_when" not in content, p
+
+    def test_linux_run_yml_fails_fast_on_crash(self):
+        """P0 regression — failed_when: false alone bypasses failure
+        propagation during apply (the gate is disabled there: main.yml:12
+        only imports gate.yml when cis_min_score > 0 or
+        cis_fail_on_findings, and SITE_YML_TEMPLATE sets both off).  The
+        crash document must be slurped AND then an explicit fail task must
+        abort the play on mode == 'error'."""
+        import glob as _g
+        linux = [p for p in _g.glob("cis_image/roles/cis_*/tasks/run.yml")
+                 if "cis_win" not in p]
+        for p in linux:
+            content = open(p, encoding="utf-8").read()
+            assert "Fail fast when the engine crashed" in content, p
+            assert "when: cis_result.mode == 'error'" in content, p
+            # the fail task must sit AFTER the slurp/set_fact (so the
+            # diagnosis is readable) and INSIDE the block (before always).
+            slurp_i = content.index("Read the engine result document")
+            fail_i = content.index("Fail fast when the engine crashed")
+            always_i = content.index("\n  always:")  # not the comment at L16
+            assert slurp_i < fail_i < always_i, p
+
+
+class TestPreflightRangeValidation:
+    """P1 — roles are independently usable via ansible-playbook -e (the CLI
+    range checks in _config.py don't apply), so preflight must validate
+    cis_min_score (0-100) and cis_engine_timeout (>0) itself.  Without this
+    a typo like min_score=500 only fails after a 20-minute build."""
+
+    def test_linux_preflight_has_both_checks(self):
+        import glob as _g
+        linux = [p for p in _g.glob("cis_image/roles/cis_*/tasks/preflight.yml")
+                 if "cis_win" not in p]
+        assert len(linux) == 8
+        for p in linux:
+            content = open(p, encoding="utf-8").read()
+            assert "Validate cis_min_score range" in content, p
+            assert "cis_min_score | int < 0 or cis_min_score | int > 100" in content, p
+            assert "Validate cis_engine_timeout" in content, p
+            assert "cis_engine_timeout | int <= 0" in content, p
+
+    def test_windows_preflight_has_both_checks(self):
+        import glob as _g
+        win = [p for p in _g.glob("cis_image/roles/cis_*/tasks/preflight.yml")
+               if "cis_win" in p]
+        assert len(win) == 4
+        for p in win:
+            content = open(p, encoding="utf-8").read()
+            assert "Validate cis_min_score range" in content, p
+            assert "cis_min_score | int >= 0 and cis_min_score | int <= 100" in content, p
+            assert "Validate cis_engine_timeout" in content, p
+            assert "cis_engine_timeout | int > 0" in content, p
