@@ -68,6 +68,12 @@
       register: cis_engine_run
       changed_when: cis_mode_effective == 'apply'
       check_mode: false
+      # The engine writes a crash document (mode=error, score 0.0, full
+      # summary) to result.json BEFORE exiting 1, so the slurp below can
+      # surface the diagnosis and the gate fails on score 0.  Without
+      # failed_when: false Ansible aborts the play here and that document
+      # is never read.
+      failed_when: false
       timeout: "{{ cis_engine_timeout | int }}"
       environment:
         LC_ALL: C

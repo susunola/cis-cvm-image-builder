@@ -1062,7 +1062,11 @@ function Get-Summary($levelFilter) {
     $applyFailed = @($filtered | Where-Object { $_.apply_status -match "^failed" }).Count
     $skippedRisk = @($filtered | Where-Object { $_.apply_status -eq "skipped_disruptive" }).Count
     $already = @($filtered | Where-Object { $_.apply_status -eq "already" }).Count
-    $appliedPending = 0  # Windows changes take effect immediately (no reboot needed for most)
+    # Known simplification: rules.json carries no reboot-required marker, so
+    # applied_pending is hardcoded 0 even though registry/audit-policy/some
+    # security-option changes need a reboot or gpupdate to take effect.  There
+    # is no data to tally (unlike Linux); revisit if rules gain a reboot flag.
+    $appliedPending = 0
 
     return @{
         total = $total; pass = $pass; fail = $fail; manual = $manual; error = $error
