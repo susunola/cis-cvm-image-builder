@@ -88,6 +88,14 @@
     - name: Register the result as a fact
       ansible.builtin.set_fact:
         cis_result: "{{ cis_result_raw.content | b64decode | from_json }}"
+
+    - name: Fail fast when the engine crashed
+      ansible.builtin.fail:
+        msg: >-
+          {{ inventory_hostname }}: CIS engine CRASHED during the
+          {{ cis_mode_effective }} run: {{ cis_result.error | default('(no diagnostic)') }}.
+          Nothing was remediated; see the result document for the traceback.
+      when: cis_result.mode == 'error'
   always:
     - name: Remove the temporary working directory
       ansible.builtin.file:

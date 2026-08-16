@@ -21,6 +21,18 @@
     fail_msg: "cis_platform must be server, workstation or all (got '{{ cis_platform }}')"
     quiet: true
 
+- name: Validate cis_min_score range
+  ansible.builtin.assert:
+    that: cis_min_score | int >= 0 and cis_min_score | int <= 100
+    fail_msg: "cis_min_score must be between 0 and 100 (got '{{ cis_min_score }}')"
+    quiet: true
+
+- name: Validate cis_engine_timeout
+  ansible.builtin.assert:
+    that: cis_engine_timeout | int > 0
+    fail_msg: "cis_engine_timeout must be a positive number of seconds (got '{{ cis_engine_timeout }}')"
+    quiet: true
+
 - name: Confirm target is Windows
   ansible.builtin.assert:
     that: ansible_facts.os_family == 'Windows'
