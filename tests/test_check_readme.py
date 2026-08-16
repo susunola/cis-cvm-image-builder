@@ -114,3 +114,43 @@ class TestMainExitCodes:
         with monkeypatch_open(readme):
             rc = check_readme.main(["--readme", "/tmp/fake_readme.md"])
         assert rc == 0
+
+
+class TestCheckTestConsistency:
+    """Tests for check_readme.check_test_consistency()."""
+
+    def test_current_state_is_consistent(self):
+        """The committed tests/test_check_readme.py matches the live CLI."""
+        import cis_image
+        registered = set(cis_image.build_parser()._subparsers._group_actions[0].choices)
+        profiles = set(cis_image.PROFILES.keys())
+        assert check_readme.check_test_consistency(registered, profiles) == []
+
+    def test_reports_missing_command_in_all_cmds(self, tmp_path, monkeypatch):
+        """If ALL_CMDS drops a command the CLI registers, it's reported."""
+        src = (check_readme.REPO_ROOT / "tests" / "test_check_readme.py").read_text()
+        # simulate ALL_CMDS missing 'audit' by stripping one entry
+        src = src.replace('"audit", ', '')
+        (tmp_path / "tests").mkdir()
+        f = tmp_path / "tests" / "test_check_readme.py"
+        f.write_text(src)
+        monkeypatch.setattr(check_readme, "REPO_ROOT", tmp_path)
+        errs = check_readme.check_test_consistency({"audit", "build"}, set())
+        assert any("audit" in e and "ALL_CMDS" in e for e in errs)
+
+    def test_reports_unknown_command_in_all_cmds(self, tmp_path, monkeypatch):
+        """If ALL_CMDS lists a command the CLI doesn't register, it's reported."""
+        src = (check_readme.REPO_ROOT / "tests" / "test_check_readme.py").read_text()
+        src = src.replace("}",
+            '"phantom-cmd"}', 1)
+        (tmp_path / "tests").mkdir()
+        f = tmp_path / "tests" / "test_check_readme.py"
+        f.write_text(src)
+        monkeypatch.setattr(check_readme, "REPO_ROOT", tmp_path)
+        errs = check_readme.check_test_consistency({"audit"}, set())
+        assert any("phantom-cmd" in e and "unknown" in e for e in errs)
+
+    def test_reports_missing_test_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(check_readme, "REPO_ROOT", tmp_path)
+        errs = check_readme.check_test_consistency({"audit"}, set())
+        assert any("test file not found" in e for e in errs)
