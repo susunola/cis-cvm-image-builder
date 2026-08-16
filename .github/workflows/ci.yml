@@ -53,5 +53,12 @@ jobs:
       - name: Verify README documents every subcommand and profile
         run: python3 scripts/check_readme.py --check-tests
 
+      # rules.json canonical-format guard: every role's rules.json must use the
+      # single canonical layout produced by scripts/format_rules.py. This keeps
+      # bulk edits minimal and stops hand-edits from silently re-diverging into
+      # the 2-space/4-space split we had before.
+      - name: Verify rules.json canonical format
+        run: python3 scripts/format_rules.py --check
+
       - name: Run tests
         run: pytest -v --tb=short
