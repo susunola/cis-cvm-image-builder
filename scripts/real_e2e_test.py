@@ -29,11 +29,19 @@ from the jump box over the private network):
     # To restrict which CIS Level(s) run, pass --levels 1 / --levels 2 /
     # --levels both, or set E2E_LEVELS / E2E_MAX_PARALLEL_BUILDS in scripts/e2e.env.
 
-The instance and temporary SSH key pair are ALWAYS torn down on exit
-(success, failure, or Ctrl-C) unless --keep-on-failure is passed and the
-remote run actually failed. Any images produced by --target-mode
-single/all-linux/all are ALWAYS deleted at the end of the run — this script
-never leaves a billed golden image behind.
+The instance and temporary SSH key pair are torn down on exit (success,
+failure, or Ctrl-C) unless --keep-on-failure is passed and the remote run
+actually failed. To run a MULTI-BATCH test plan against ONE persistent jump
+box (e.g. Linux batch, then Windows batch), pass --keep on the first batch,
+--reuse-last on each later batch, and --terminate-last once the whole plan
+is done:
+    python3 scripts/real_e2e_test.py --target-mode all-linux --keep ...      # batch 1, box kept
+    python3 scripts/real_e2e_test.py --target-mode all --reuse-last ...      # batch 2, reuses box
+    python3 scripts/real_e2e_test.py --terminate-last ...                     # done, tear down
+Alternatively, run the ENTIRE plan in one invocation (--target-mode all) and
+the jump box naturally lives for the whole matrix and is torn down once.
+Any images produced by --target-mode single/all-linux/all are ALWAYS deleted
+at the end of the run — this script never leaves a billed golden image behind.
 
 Hard requirements (see CONTRIBUTING.md "Running the real end-to-end test"):
   - ohbs-image must already be installed in editable mode on THIS machine
@@ -89,6 +97,12 @@ DEFAULT_IMAGE_ID = "img-31d8ynuj"
 DEFAULT_INSTANCE_TYPE = "SA5.MEDIUM2"
 REPO_URL = "https://github.com/susunola/ohbs-image.git"
 LAST_INSTANCE_FILE = REPO_ROOT / "logs" / "e2e_last_instance.json"
+# Private key persisted when --keep is used, so a later --reuse-last run can
+# SSH back into the same jump box across separate invocations of this script
+# (instead of each run launching + destroying its own box).
+JUMP_KEY_FILE = REPO_ROOT / "logs" / "e2e_key"
+# Our well-known instance/tag markers, used to find a kept jump box on reuse.
+_JUMPBOX_TAG = "cis-e2e-jumpbox"
 BOOT_TIMEOUT_SECONDS = 900
 # The jump box is a freshly-launched AlmaLinux CVM; boot + cloud-init + SSH
 # startup can occasionally exceed 3 minutes. 360s avoids spurious "SSH not
@@ -165,6 +179,21 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--keep-on-failure", action="store_true",
                     help="Do not terminate the instance if the remote test run fails "
                          "(useful for logging in to debug)")
+    p.add_argument("--keep", action="store_true",
+                    help="Keep the jump box alive after this run (persist its private "
+                         "key and state to logs/) so later batches of the same test plan "
+                         "can --reuse-last it. Terminate it later with --terminate-last. "
+                         "Use this to run a multi-batch plan against ONE persistent "
+                         "jump box instead of launching+destroying one per batch. "
+                         "Overrides --keep-on-failure.")
+    p.add_argument("--reuse-last", action="store_true",
+                    help="Attach to the jump box persisted by a previous --keep run "
+                         "(reads logs/e2e_last_instance.json + logs/e2e_key) instead of "
+                         "launching a new one. Fails if no kept jump box exists.")
+    p.add_argument("--terminate-last", action="store_true",
+                    help="Terminate the persisted jump box, delete its keypair, and "
+                         "clear logs/e2e_last_instance.json. No builds are run; "
+                         "use after the whole test plan is done.")
     p.add_argument("--timeout", type=int, default=BOOT_TIMEOUT_SECONDS,
                    metavar="SECONDS",
                    help=f"Boot/poll timeout for a public IP (default {BOOT_TIMEOUT_SECONDS}s)")
@@ -528,8 +557,19 @@ def save_last_instance(instance_id: str, key_id: str, region: str) -> None:
         {"instance_id": instance_id, "key_id": key_id, "region": region}, indent=2))
 
 
+def load_last_instance() -> dict | None:
+    """Read the persisted jump-box state (instance_id, key_id, region)."""
+    if not LAST_INSTANCE_FILE.exists():
+        return None
+    try:
+        return json.loads(LAST_INSTANCE_FILE.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def clear_last_instance() -> None:
     LAST_INSTANCE_FILE.unlink(missing_ok=True)
+    JUMP_KEY_FILE.unlink(missing_ok=True)
 
 
 def wait_for_public_ip(region: str, sid: str, skey: str, tok: str | None,
@@ -1616,6 +1656,30 @@ def main() -> int:
     args = parse_args()
     sid, skey, tok = creds()
 
+    # --terminate-last: tear down the kept jump box and exit. Do this before
+    # any combo resolution / cost prompt, since no build is being run.
+    if args.terminate_last:
+        kept = load_last_instance()
+        if not kept:
+            warn("--terminate-last: no kept jump box state found — nothing to do.")
+            return 0
+        t_id, t_key = kept.get("instance_id"), kept.get("key_id")
+        t_region = kept.get("region") or args.region
+        if t_id:
+            try:
+                terminate_instance(t_region, sid, skey, tok, t_id)
+                verify_instance_terminated(t_region, sid, skey, tok, t_id)
+            except Exception as exc:
+                warn(f"--terminate-last: failed to terminate {t_id}: {exc}")
+        if t_key:
+            try:
+                delete_keypair(t_region, sid, skey, tok, t_key)
+            except Exception as exc:
+                warn(f"--terminate-last: failed to delete keypair {t_key}: {exc}")
+        clear_last_instance()
+        ok("--terminate-last: kept jump box + keypair cleaned up, state cleared.")
+        return 0
+
     combos: list[ProfileCombo] = []
     skipped: list[ProfileCombo] = []
     if args.target_mode != "toolchain":
@@ -1633,30 +1697,60 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         tmpdir = Path(tmp)
         try:
-            banner("Generating temporary SSH key pair")
-            priv_key, pub_key = generate_keypair(tmpdir)
+            # --reuse-last: attach to a previously-kept jump box instead of
+            # launching a fresh one. Loads the persisted state + private key.
+            if args.reuse_last:
+                kept = load_last_instance()
+                if not kept:
+                    raise ConfigError(
+                        "--reuse-last requested but no kept jump box found in "
+                        f"{LAST_INSTANCE_FILE}. Run once with --keep first, or clear "
+                        "stale state with --terminate-last.")
+                if not JUMP_KEY_FILE.exists():
+                    raise ConfigError(
+                        f"--reuse-last: persisted private key missing "
+                        f"({JUMP_KEY_FILE}). The kept jump box cannot be SSH'd into; "
+                        "terminate it with --terminate-last.")
+                instance_id = kept["instance_id"]
+                key_id = kept.get("key_id")
+                if kept.get("region") != args.region:
+                    warn(f"Persisted jump box is in {kept.get('region')} but "
+                         f"--region is {args.region} — continuing; the box may "
+                         "not be reachable.")
+                priv_key = JUMP_KEY_FILE
+                banner(f"Reusing kept jump box {instance_id} (region={kept.get('region')})")
+            else:
+                banner("Generating temporary SSH key pair")
+                if args.keep:
+                    JUMP_KEY_FILE.parent.mkdir(exist_ok=True)
+                    # generate_keypair names its files e2e_key / e2e_key.pub, so
+                    # pointing it at the JUMP_KEY_FILE parent persists the key at
+                    # logs/e2e_key — exactly what --reuse-last reads back.
+                    priv_key, pub_key = generate_keypair(JUMP_KEY_FILE.parent)
+                else:
+                    priv_key, pub_key = generate_keypair(tmpdir)
 
-            banner("Registering key pair with Tencent Cloud")
-            key_id = import_keypair(args.region, sid, skey, tok, pub_key)
-            ok(f"KeyId: {key_id}")
+                banner("Registering key pair with Tencent Cloud")
+                key_id = import_keypair(args.region, sid, skey, tok, pub_key)
+                ok(f"KeyId: {key_id}")
 
-            banner(f"Launching instance from {args.image_id}")
-            instance_id = run_instance(args, sid, skey, tok, key_id)
-            save_last_instance(instance_id, key_id, args.region)
-            ok(f"InstanceId: {instance_id}")
+                banner(f"Launching instance from {args.image_id}")
+                instance_id = run_instance(args, sid, skey, tok, key_id)
+                save_last_instance(instance_id, key_id, args.region)
+                ok(f"InstanceId: {instance_id}")
 
-            banner("Waiting for instance to reach RUNNING with a public IP")
-            public_ip = wait_for_public_ip(args.region, sid, skey, tok, instance_id,
-                                           timeout=args.timeout)
-            if not public_ip:
-                raise ConfigError(
-                    f"Instance {instance_id} did not get a public IP within "
-                    f"{args.timeout}s")
-            ok(f"Public IP: {public_ip}")
+                banner("Waiting for instance to reach RUNNING with a public IP")
+                public_ip = wait_for_public_ip(args.region, sid, skey, tok, instance_id,
+                                               timeout=args.timeout)
+                if not public_ip:
+                    raise ConfigError(
+                        f"Instance {instance_id} did not get a public IP within "
+                        f"{args.timeout}s")
+                ok(f"Public IP: {public_ip}")
 
-            banner("Waiting for SSH to become reachable")
-            wait_for_ssh(public_ip, args.ssh_user, priv_key, timeout=args.ssh_timeout)
-            ok("SSH is up")
+                banner("Waiting for SSH to become reachable")
+                wait_for_ssh(public_ip, args.ssh_user, priv_key, timeout=args.ssh_timeout)
+                ok("SSH is up")
 
             needs_windows = any(c.family == "windows" for c in combos)
             steps_spec = build_steps(args.target_mode, needs_windows)
@@ -1742,20 +1836,38 @@ def main() -> int:
         finally:
             if batch_image_ids:
                 delete_batch_images(args.region, sid, skey, tok, batch_image_ids)
-            keep = args.keep_on_failure and not overall_passed
-            if instance_id and not keep:
-                terminate_instance(args.region, sid, skey, tok, instance_id)
-                if not verify_instance_terminated(args.region, sid, skey, tok, instance_id):
-                    warn(f"Jump box {instance_id} still reported running after terminate — "
-                         f"it may continue to incur cost. Check the Tencent Cloud console.")
-            elif instance_id and keep:
-                warn(f"--keep-on-failure set: instance NOT destroyed. "
-                     f"InstanceId={instance_id} region={args.region} — "
-                     f"remember to terminate it manually.")
-            if key_id and not keep:
-                delete_keypair(args.region, sid, skey, tok, key_id)
-            if not keep:
-                clear_last_instance()
+            # Decide whether the jump box survives this run:
+            #   * --keep          -> always keep (persist key+state for reuse).
+            #   * --keep-on-failure -> keep only if the run failed.
+            #   * --reuse-last    -> never tear down (belongs to an earlier --keep).
+            #   * otherwise       -> tear down.
+            if args.keep:
+                if instance_id:
+                    save_last_instance(instance_id, key_id, args.region)
+                    warn(f"--keep: jump box {instance_id} KEPT for the next batch. "
+                         f"Run with --reuse-last to attach to it, and "
+                         f"--terminate-last when the whole plan is done.")
+                else:
+                    # keep + reuse-last: box already persisted; just leave it.
+                    warn("--keep with --reuse-last: jump box left in place.")
+            elif args.reuse_last:
+                warn("--reuse-last: jump box left in place; use --terminate-last "
+                     "when the whole plan is done.")
+            else:
+                keep = args.keep_on_failure and not overall_passed
+                if instance_id and not keep:
+                    terminate_instance(args.region, sid, skey, tok, instance_id)
+                    if not verify_instance_terminated(args.region, sid, skey, tok, instance_id):
+                        warn(f"Jump box {instance_id} still reported running after terminate — "
+                             f"it may continue to incur cost. Check the Tencent Cloud console.")
+                elif instance_id and keep:
+                    warn(f"--keep-on-failure set: instance NOT destroyed. "
+                         f"InstanceId={instance_id} region={args.region} — "
+                         f"remember to terminate it manually.")
+                if key_id and not keep:
+                    delete_keypair(args.region, sid, skey, tok, key_id)
+                if not keep:
+                    clear_last_instance()
 
     return 0 if overall_passed else 1
 
