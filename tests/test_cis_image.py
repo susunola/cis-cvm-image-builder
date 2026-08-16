@@ -5044,3 +5044,77 @@ class TestCredsExportedOnFacade:
         import cis_image as _ci
         assert callable(_ci._creds)
         assert "_creds" in _ci.__all__
+
+
+class TestEngineSummarizeCounts:
+    """P1 - the engine's summarize() must count every apply_status value it
+    writes.  The bucket key is apply_failed but the engine writes 'failed';
+    before the fix apply_failed was silently always 0 (REPORT.md "Apply
+    failed" row and the Ansible summary both under-reported)."""
+
+    @staticmethod
+    def _load_engine():
+        import importlib.util as _ilu
+        import glob as _g
+        path = sorted(_g.glob("cis_image/roles/cis_*/files/cis_engine.py"))[0]
+        spec = _ilu.spec_from_file_location("cis_engine_under_test", path)
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    @staticmethod
+    def _sample():
+        return [
+            {"level": 1, "status": "fail", "apply_status": "failed"},
+            {"level": 1, "status": "pass", "apply_status": "applied"},
+            {"level": 1, "status": "fail", "apply_status": "failed"},
+            {"level": 1, "status": "manual", "apply_status": "skipped_manual"},
+            {"level": 1, "status": "pass", "apply_status": "applied_pending"},
+            {"level": 1, "status": "pass", "apply_status": "already"},
+            {"level": 2, "status": "pass", "apply_status": "n/a"},
+        ]
+
+    def test_apply_failed_counted(self):
+        s = self._load_engine().summarize(self._sample(), 0)["all"]
+        assert s["apply_failed"] == 2
+        assert s["applied"] == 1
+        assert s["applied_pending"] == 1
+        assert s["already"] == 1
+        assert s["skipped_manual"] == 1
+
+    def test_score_uses_pass_and_fail_only(self):
+        s = self._load_engine().summarize(self._sample(), 0)["all"]
+        # 4 pass / (4 pass + 2 fail) - manual and n/a don't count.
+        assert s["score"] == round(100.0 * 4 / 6, 1) == 66.7
+
+    def test_bucket_covers_every_written_apply_status(self):
+        """Guard: the blank bucket must have a key for every apply_status
+        value the engine can write, so a future new status can never be
+        silently dropped again.  (n/a is the scan-mode default placeholder
+        and is deliberately not tallied; 'failed' maps onto the
+        apply_failed bucket key, matching the Windows engine.)"""
+        import re as _re
+        eng = self._load_engine()
+        src = open(eng.__file__, encoding="utf-8").read()
+        written = set(_re.findall(r'res\["apply_status"\] = "([a-z_]+)"', src))
+        written |= set(_re.findall(r'apply_status = "([a-z_]+)"', src))
+        written.discard("n/a")
+        blank_src = _re.search(
+            r"def blank\(\):\s*return (\{.*?\})", src, _re.S).group(1)
+        bucket_keys = set(_re.findall(r'"([a-z_]+)":\s*0', blank_src))
+        missing = (written - bucket_keys) - {"failed"}
+        assert not missing, \
+            f"apply_status values written but not in blank bucket: {missing}"
+
+
+class TestOutputYmlListsSkippedManual:
+    """P2 - the failed-rules list in output.yml must surface skipped_manual
+    rules (a rule skipped because applying it would break the live build)."""
+
+    def test_all_output_ymls_include_skipped_manual(self):
+        import glob as _g
+        outputs = sorted(_g.glob("cis_image/roles/cis_*/tasks/output.yml"))
+        assert len(outputs) == 12
+        for p in outputs:
+            content = open(p, encoding="utf-8").read()
+            assert "skipped_manual" in content, p
