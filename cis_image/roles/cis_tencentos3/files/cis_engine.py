@@ -806,6 +806,38 @@ def c_sysctl(ctx, p):
     return "pass", "; ".join(good) or "ok"
 
 
+def ensure_cis_sysctl_service(ctx):
+    """Re-assert the CIS sysctl drop-in late in boot.
+
+    The drop-in (/etc/sysctl.d/60-cis-hardening.conf) already wins normal
+    drop-in ordering, but a late runtime actor (systemd-coredump / abrtd on
+    TencentOS) can reset values such as fs.suid_dumpable back to its default
+    after systemd-sysctl has applied them.  A one-shot service ordered After
+    those actors re-applies the CIS settings as the final word.
+    """
+    unit = "/etc/systemd/system/cis-sysctl-apply.service"
+    if exists(unit) or not systemd_present():
+        return
+    content = (
+        "[Unit]\n"
+        "Description=Re-apply CIS sysctl hardening after late boot actors\n"
+        "After=systemd-sysctl.service systemd-coredump.service abrtd.service\n"
+        "ConditionPathExists=/etc/sysctl.d/60-cis-hardening.conf\n"
+        "\n"
+        "[Service]\n"
+        "Type=oneshot\n"
+        "RemainAfterExit=yes\n"
+        "ExecStart=/sbin/sysctl -p /etc/sysctl.d/60-cis-hardening.conf\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=multi-user.target\n"
+    )
+    write_file(ctx, unit, content, 0o644)
+    ctx.add_changed_file(unit)
+    sh(["systemctl", "daemon-reload"], 30)
+    sh(["systemctl", "enable", "cis-sysctl-apply.service"], 30)
+
+
 @fix("sysctl")
 def f_sysctl(ctx, p):
     path = "/etc/sysctl.d/60-cis-hardening.conf"
@@ -824,6 +856,7 @@ def f_sysctl(ctx, p):
         sh(["sysctl", "-w", "net.ipv6.route.flush=1"])
     if not done:
         return False, "none of the parameters exist on this kernel"
+    ensure_cis_sysctl_service(ctx)
     return True, "set + persisted: %s" % ", ".join(done)
 
 
