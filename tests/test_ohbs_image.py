@@ -2914,9 +2914,9 @@ class TestFingerprintAndChangeDetection:
         assert fp1 != fp2
 
     def test_image_lookup_error_requires_rebuild(self, valid_toml, monkeypatch):
-        from cis_image import _image_ids_still_exist
+        from ohbs_image import _image_ids_still_exist
         r = resolve(valid_toml)
-        monkeypatch.setattr("cis_image._images_exist",
+        monkeypatch.setattr("ohbs_image._images_exist",
                             lambda *args: (_ for _ in ()).throw(ConfigError("API unavailable")))
         assert _image_ids_still_exist(r, ["img-old"]) is False
 
@@ -2931,8 +2931,8 @@ class TestFingerprintAndChangeDetection:
         def api(*args):
             seen["secret_id"], seen["secret_key"], seen["token"] = args[5:8]
             return {"Response": {"ImageSet": [{"ImageId": "img-old"}]}}
-        monkeypatch.setattr("cis_image._tc3_api", api)
-        assert cis_image._image_ids_still_exist(r, ["img-old"]) is True
+        monkeypatch.setattr("ohbs_image._tc3_api", api)
+        assert ohbs_image._image_ids_still_exist(r, ["img-old"]) is True
         assert seen == {"secret_id": "custom-id", "secret_key": "custom-key", "token": None}
 
     def test_pending_skips_when_unchanged(self, valid_toml, tmp_path, monkeypatch):
