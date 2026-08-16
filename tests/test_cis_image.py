@@ -144,6 +144,18 @@ class TestLoadConfig:
         with pytest.raises(ConfigError, match="instance_type"):
             load_config(cfg)
 
+    @pytest.mark.parametrize("section,key", [
+        ("build", "spot"),
+        ("meta", "smoke_test"),
+        ("meta", "cve_scan"),
+        ("meta", "sbom"),
+        ("meta", "verify_boot"),
+    ])
+    def test_optional_booleans_reject_strings(self, valid_toml, section, key):
+        valid_toml.setdefault(section, {})[key] = "false"
+        with pytest.raises(ConfigError, match=rf"\[{section}\].{key} must be a boolean"):
+            resolve(valid_toml)
+
 
 # ---------------------------------------------------------------------------
 # Helper functions
@@ -2901,6 +2913,28 @@ class TestFingerprintAndChangeDetection:
         fp2 = _build_fingerprint(r)
         assert fp1 != fp2
 
+    def test_image_lookup_error_requires_rebuild(self, valid_toml, monkeypatch):
+        from cis_image import _image_ids_still_exist
+        r = resolve(valid_toml)
+        monkeypatch.setattr("cis_image._images_exist",
+                            lambda *args: (_ for _ in ()).throw(ConfigError("API unavailable")))
+        assert _image_ids_still_exist(r, ["img-old"]) is False
+
+    def test_image_lookup_honors_configured_credential_names(self, valid_toml, monkeypatch):
+        r = resolve(valid_toml)
+        r.secret_id_env = "CUSTOM_ID"
+        r.secret_key_env = "CUSTOM_KEY"
+        r.security_token_env = "CUSTOM_TOKEN"
+        monkeypatch.setenv("CUSTOM_ID", "custom-id")
+        monkeypatch.setenv("CUSTOM_KEY", "custom-key")
+        seen = {}
+        def api(*args):
+            seen["secret_id"], seen["secret_key"], seen["token"] = args[5:8]
+            return {"Response": {"ImageSet": [{"ImageId": "img-old"}]}}
+        monkeypatch.setattr("cis_image._tc3_api", api)
+        assert cis_image._image_ids_still_exist(r, ["img-old"]) is True
+        assert seen == {"secret_id": "custom-id", "secret_key": "custom-key", "token": None}
+
     def test_pending_skips_when_unchanged(self, valid_toml, tmp_path, monkeypatch):
         from cis_image import _build_fingerprint, cmd_pending, resolve
         r = resolve(valid_toml)
@@ -2956,6 +2990,9 @@ class TestCveScanAndSbom:
         assert "cis-image-cve-scan.sh" in hcl
         assert "trivy fs" in hcl
         assert "CVE GATE FAIL" in hcl
+        assert "Trivy unavailable — failing closed" in hcl
+        assert "sha256sum -c -" in hcl
+        assert "trivy_0.74.0_Linux-" in hcl
 
     def test_sbom_block_rendered(self, valid_toml, tmp_path):
         from cis_image import render_all

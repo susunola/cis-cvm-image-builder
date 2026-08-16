@@ -148,7 +148,7 @@ def cmd_build(args: argparse.Namespace) -> int:
     if args.skip_if_unchanged:
         prev_fp, prev_images = cis_image._last_successful_fingerprint(r)
         if prev_fp is not None and prev_fp == cis_image._build_fingerprint(r):
-            if cis_image._image_ids_still_exist(r.region, prev_images):
+            if cis_image._image_ids_still_exist(r, prev_images):
                 ok(f"inputs unchanged since last build — skipping rebuild "
                    f"(images {', '.join(prev_images) or 'n/a'} still exist)")
                 return 0
