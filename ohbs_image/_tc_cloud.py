@@ -418,11 +418,18 @@ def _probe_scan(r: ResolvedConfig, ip: str, ssh_port: int, ssh_user: str,
     fresh-boot scan needs no uploads.  Returns the parsed engine result doc.
     """
     profile = f"L{level}"
+    # Prefer the benchmark-specific catalog when it exists in the image
+    # (non-CIS benchmarks ship rules_<slug>.json); fall back to rules.json
+    # (CIS / legacy).  The build promotes the active catalog to rules.json too,
+    # so rules.json is always safe, but this makes the probe explicit.
+    cat = r.catalog_basename or "rules.json"
     remote = (
         "ENG=$(ls -d /opt/ohbs-image-ansible/roles/cis_*/files 2>/dev/null | head -1); "
         "if [ -n \"$ENG\" ] && [ -f \"$ENG/ohbs_engine.py\" ]; then "
+        "CAT=\"$ENG/rules.json\"; "
+        f"[ -f \"$ENG/{cat}\" ] && CAT=\"$ENG/{cat}\"; "
         "sudo /opt/ohbs-image-ansible/bin/python \"$ENG/ohbs_engine.py\" "
-        f"--catalog \"$ENG/rules.json\" --mode scan --profile {profile} "
+        f"--catalog \"$CAT\" --mode scan --profile {profile} "
         "--out /tmp/ohbs-image-verify.json >/dev/null 2>&1 && "
         "cat /tmp/ohbs-image-verify.json; fi"
     )

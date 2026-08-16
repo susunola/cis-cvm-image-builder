@@ -58,6 +58,7 @@ variable "image_copy_regions" {
 variable "cis_level"                   { type = string }
 variable "image_os_tag"                { type = string }
 variable "image_benchmark"             { type = string }
+variable "image_catalog"               { type = string }  # rules.json basename for this build's benchmark
 # Optional explicit name for the temporary build CVM; empty = plugin auto.
 variable "instance_name"               { type = string }
 # Reserved for user passthrough of arbitrary packer builder args via
@@ -100,6 +101,7 @@ __EXTRA_ARGS_BLOCK__
     cis_level  = local.level_short
     os         = var.image_os_tag
     benchmark  = var.image_benchmark
+    catalog    = var.image_catalog
     built_with = "ohbs-image"
   }
   run_tags = {
@@ -500,7 +502,8 @@ build {
       "# /opt/ohbs-image-ansible/roles/ by the cleanup step.",
       "ENG=$(ls -d /opt/ohbs-image-ansible/roles/cis_*/files 2>/dev/null | head -1)",
       "if [ -n \"$ENG\" ] && [ -f \"$ENG/ohbs_engine.py\" ]; then",
-      "  sudo /opt/ohbs-image-ansible/bin/python \"$ENG/ohbs_engine.py\" --catalog \"$ENG/rules.json\" --mode scan --profile '__CIS_PROFILE_SHORT__' --out /tmp/cis-final-scan.json >/dev/null 2>&1 && sudo install -m 0600 -o root -g root /tmp/cis-final-scan.json /opt/ohbs-image-AUDIT-RESULT.json && sudo rm -f /tmp/cis-final-scan.json && echo '[ohbs-image] final-state audit refreshed' || echo '[ohbs-image] WARNING: final-state re-scan failed; keeping pre-finalize audit'",
+      "  CAT=\"$ENG/rules.json\"; [ -f \"$ENG/__IMAGE_CATALOG__\" ] && CAT=\"$ENG/__IMAGE_CATALOG__\";",
+      "  sudo /opt/ohbs-image-ansible/bin/python \"$ENG/ohbs_engine.py\" --catalog \"$CAT\" --mode scan --profile '__CIS_PROFILE_SHORT__' --out /tmp/cis-final-scan.json >/dev/null 2>&1 && sudo install -m 0600 -o root -g root /tmp/cis-final-scan.json /opt/ohbs-image-AUDIT-RESULT.json && sudo rm -f /tmp/cis-final-scan.json && echo '[ohbs-image] final-state audit refreshed' || echo '[ohbs-image] WARNING: final-state re-scan failed; keeping pre-finalize audit'",
       "fi",
       "# Archive the audit JSON on the BUILD MACHINE too: emit it as one",
       "# gzipped+base64 line that ohbs-image extracts from the packer log and",
@@ -726,6 +729,7 @@ variable "image_copy_regions" {
 variable "cis_level"                   { type = string }
 variable "image_os_tag"                { type = string }
 variable "image_benchmark"             { type = string }
+variable "image_catalog"               { type = string }  # rules.json basename for this build's benchmark
 # Optional explicit name for the temporary build CVM; empty = plugin auto.
 variable "instance_name"               { type = string }
 # Reserved for user passthrough of arbitrary packer builder args via
@@ -791,6 +795,7 @@ __EXTRA_ARGS_BLOCK__
     cis_level  = local.level_short
     os         = var.image_os_tag
     benchmark  = var.image_benchmark
+    catalog    = var.image_catalog
     built_with = "ohbs-image"
   }
   run_tags = {
