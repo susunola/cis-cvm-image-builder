@@ -822,22 +822,30 @@ def _stock_aware_types():
         sell = set()
         for it in qset:
             name = it.get("InstanceType") or ""
+            # "any 2c4g machine is fine" — include every in-stock 2-core /
+            # 4 GiB type regardless of its marketing size name.
             if it.get("Cpu") == 2 and it.get("Memory") == 4 \
-               and name.endswith("MEDIUM4") \
                and it.get("Status") == "SELL":
                 sell.add(name)
+        # Always keep the operator-specified / known-good types in the list so a
+        # previously-verified type (e.g. S6.MEDIUM2) is never dropped just
+        # because the API ranks a different family first. Deduped below.
+        guaranteed = [BUILD_INSTANCE_TYPE] + DEFAULT_FALLBACK_INSTANCE_TYPES
         if not sell:
-            return [BUILD_INSTANCE_TYPE] + DEFAULT_FALLBACK_INSTANCE_TYPES
+            return guaranteed
         # Rank: S-series first (CLOUD_PREMIUM), then SA-series (CLOUD_SSD),
-        # then the rest, each subgroup sorted by name for determinism.
+        # then the rest, each subgroup sorted by name for determinism. Known-good
+        # types are pulled to the very front so the run prefers a verified type.
         def _rank(t):
+            if t in guaranteed:
+                return (-1, t)
             fam = re.match(r"([A-Za-z]+)", t).group(1).upper()
             if fam.startswith("S") and not fam.startswith("SA"):
                 return (0, t)
             if fam.startswith("SA"):
                 return (1, t)
             return (2, t)
-        return sorted(sell, key=_rank)
+        return sorted(sell | set(guaranteed), key=_rank)
     except Exception:
         # Inventory lookup is best-effort; never let it block a run.
         return [BUILD_INSTANCE_TYPE] + DEFAULT_FALLBACK_INSTANCE_TYPES
@@ -905,9 +913,14 @@ def build_one(combo):
         # candidate list on the same broken profile.
         tail = result["log_tail"] or ""
         launch_failure = (
-            "ResourceInsufficient.SpecifiedInstanceType" in tail
-            or "not exist" in tail
-            or "not support the required disk" in tail
+            "ResourceInsufficient.SpecifiedInstanceType" in tail  # type understocked
+            or "not exist" in tail                                # reclaimed after launch
+            or "not support the required disk" in tail            # wrong disk type
+            # The source image is gated to certain instance families; this
+            # 2c4g type can't boot it ("No image found under current
+            # instance_type(...) restriction"). Not a config error — try the
+            # next in-stock type, which may be from a compatible family.
+            or "No image found under current instance_type" in tail
         )
         if not launch_failure:
             return result
