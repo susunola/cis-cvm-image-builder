@@ -25,18 +25,19 @@ def _creds(sid_env: str, skey_env: str, tok_env: str) -> tuple[str, str, str | N
     return os.environ.get(sid_env, ""), os.environ.get(skey_env, ""), tok
 
 
-def _image_ids_still_exist(region: str, image_ids: list[str]) -> bool:
+def _image_ids_still_exist(r: ResolvedConfig, image_ids: list[str]) -> bool:
     """Best-effort: True when *any* of *image_ids* still exists in *region*.
 
-    Fails open (returns True) on missing credentials/API errors so change
-    detection never *blocks* a rebuild due to a transient API problem.
+    Returns False on missing credentials/API errors so change detection
+    rebuilds rather than incorrectly trusting a stale image record.
     """
     if not image_ids:
         return False
     try:
-        return bool(cis_image._images_exist(region, image_ids[:5]))
-    except Exception:
-        return True  # fail open — let the rebuild proceed
+        return bool(cis_image._images_exist(r.region, image_ids[:5], r))
+    except Exception as exc:
+        warn(f"Could not verify prior image existence: {exc} — rebuilding")
+        return False
 
 def _tc3_api(service: str, action: str, version: str, region: str,
              params: dict[str, Any], secret_id: str, secret_key: str,
@@ -232,16 +233,18 @@ def _check_security_group_ingress(r: ResolvedConfig) -> None:
              f"will likely time out connecting to the build instance. Add an "
              f"inbound rule for {my_ip}/32 : TCP {port} before running 'build'.")
 
-def _images_exist(region: str, image_ids: list[str]) -> list[str]:
+def _images_exist(region: str, image_ids: list[str],
+                  r: ResolvedConfig | None = None) -> list[str]:
     """Return which of *image_ids* still exist in *region* (via DescribeImages)."""
     if not image_ids:
         return []
-    sid, skey, tok = _creds("TENCENTCLOUD_SECRET_ID",
-                         "TENCENTCLOUD_SECRET_KEY",
-                         "TENCENTCLOUD_SECURITY_TOKEN")
+    sid_env = r.secret_id_env if r else "TENCENTCLOUD_SECRET_ID"
+    skey_env = r.secret_key_env if r else "TENCENTCLOUD_SECRET_KEY"
+    tok_env = r.security_token_env if r else "TENCENTCLOUD_SECURITY_TOKEN"
+    sid, skey, tok = _creds(sid_env, skey_env, tok_env)
     if not sid or not skey:
-        raise ConfigError("TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY not set — "
-                          "cannot query images for cleanup")
+        raise ConfigError(f"{sid_env} / {skey_env} not set — "
+                          "cannot query images")
     try:
         resp = cis_image._tc3_api("cvm", "DescribeImages", "2017-03-12", region,
                         {"ImageIds": image_ids}, sid, skey, tok or None)
