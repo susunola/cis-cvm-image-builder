@@ -934,12 +934,23 @@ def _clean_is_safe(workdir: Path) -> str | None:
     """Return an error message if *workdir* is unsafe to delete, else None."""
     wd = workdir.resolve()
 
-    # 1. Require at least one cis-image marker file (guard against accidental path)
+    # 1. Require at least one cis-image marker file (guard against accidental path).
+    #    Access to the marker path can raise (e.g. a permission-denied parent
+    #    directory such as another user's home). Treat any such failure as "no
+    #    marker" → unsafe to delete: we must never delete a path we can't verify.
     markers = [
         wd / "packer" / "main.pkr.hcl",
         wd / "ansible" / "site.yml",
     ]
-    if not any(m.exists() for m in markers):
+    marker_found = False
+    for m in markers:
+        try:
+            marker_found = m.exists()
+        except OSError:
+            marker_found = False
+        if marker_found:
+            break
+    if not marker_found:
         return f"Not a cis-image working directory (no packer/main.pkr.hcl or ansible/site.yml): {wd}"
 
     # 2. Reject known system / home root directories
