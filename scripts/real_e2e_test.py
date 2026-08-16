@@ -788,28 +788,79 @@ def _disk_block(instance_type):
     return "\\n[build.packer]\\ndisk_type = \\"CLOUD_SSD\\""
 
 
-def _stock_aware_types():
+def _compatible_types(image_id, candidates):
+    """Filter candidate instance types to those the source image can actually
+    boot, using a cheap RunInstances DryRun probe (no instance is created).
+
+    Public source images are frequently gated to specific instance families
+    (e.g. RHEL9 `img-02j8jprl` boots on S6 but NOT on S5/S8 — Tencent rejects
+    it with InvalidParameterValue.InvalidImageForGivenInstanceType). Without
+    this filter, the harness would otherwise burn a full packer attempt on
+    every incompatible type. The dry-run is fast and free (pre-validate only),
+    and a dry-run that errors for an unrelated reason is treated as "compatible"
+    (best-effort) so we never drop a type on a transient API hiccup."""
+    if not image_id or not candidates:
+        return candidates
+    sid = os.environ.get("TENCENTCLOUD_SECRET_ID", "")
+    skey = os.environ.get("TENCENTCLOUD_SECRET_KEY", "")
+    tok = os.environ.get("TENCENTCLOUD_SECURITY_TOKEN") or None
+    ok = []
+    for itype in candidates:
+        try:
+            _tc3_api("cvm", "RunInstances", "2017-03-12", TARGET_REGION, {
+                "InstanceType": itype,
+                "ImageId": image_id,
+                "InstanceChargeType": "POSTPAID_BY_HOUR",
+                "Placement": {"Zone": TARGET_ZONE},
+                "VirtualPrivateCloud": {
+                    "VpcId": TARGET_VPC_ID, "SubnetId": TARGET_SUBNET_ID,
+                    "AsVpcGateway": False},
+                "SecurityGroupIds": [TARGET_SG_ID],
+                "InstanceName": "cis-e2e-compat-probe",
+                "InternetAccessible": {"PublicIpAssigned": True,
+                                       "InternetMaxBandwidthOut": 10},
+                "SystemDisk": {"DiskType": "CLOUD_PREMIUM", "DiskSize": 50},
+                "DryRun": True,
+            }, sid, skey, tok, max_retries=1)
+            ok.append(itype)
+        except Exception as exc:
+            msg = str(exc)
+            # Image/type incompatibility or architecture mismatch — skip it.
+            if "InvalidImageForGivenInstanceType" in msg or \
+               "InvalidParameterValue.InvalidImageForGivenInstanceType" in msg or \
+               "not support the required disk" in msg:
+                print(f"[matrix] {itype}: image {image_id} not launchable — "
+                      f"skipped ({msg[:80]})", flush=True)
+                continue
+            # Anything else (quota, transient) — keep it, build_one will retry.
+            ok.append(itype)
+    return ok or candidates
+
+
+def _stock_aware_types(image_id=None):
     """Pick target build instance types by ACTUAL zone inventory, not a
     hard-coded list.
 
     Queries Tencent Cloud DescribeZoneInstanceConfigInfos for the target zone,
-    keeps 2c4g (Cpu=2, Memory=4 -> 'MEDIUM4') types whose Status is SELL,
-    deduplicates, and ranks them: S-series (CLOUD_PREMIUM, cheapest/first)
-    before SA-series (need CLOUD_SSD), then by name for determinism. This
-    means we launch a type that is known to be in stock instead of blindly
-    trying types that may be SOLD_OUT (which packer surfaces as
-    ResourceInsufficient.SpecifiedInstanceType).
+    keeps 2c4g (Cpu=2, Memory=4) types whose Status is SELL, deduplicates, and
+    ranks them: S-series (CLOUD_PREMIUM, cheapest/first) before SA-series (need
+    CLOUD_SSD), then by name for determinism. This means we launch a type that
+    is known to be in stock instead of blindly trying types that may be
+    SOLD_OUT (which packer surfaces as ResourceInsufficient.SpecifiedInstanceType).
+
+    When image_id is given, the ranked list is additionally filtered to only the
+    types that source image can actually boot (see _compatible_types), so we do
+    not waste builds on image-gated families.
 
     Overrides:
       * E2E_BUILD_INSTANCE_TYPES (comma-separated) wins if set — explicit
-        operator choice.
+        operator choice (still compatibility-filtered when image_id is given).
       * On any API/parse failure, or if no 2c4g type is SELL, we fall back to
         [BUILD_INSTANCE_TYPE] + DEFAULT_FALLBACK_INSTANCE_TYPES so the run
         still proceeds.
     """
-    env_types = os.environ.get("E2E_BUILD_INSTANCE_TYPES", "").strip()
-    if env_types:
-        return [t.strip() for t in env_types.split(",") if t.strip()]
+    env_types = [t.strip() for t in
+                 os.environ.get("E2E_BUILD_INSTANCE_TYPES", "").split(",") if t.strip()]
     try:
         sid = os.environ.get("TENCENTCLOUD_SECRET_ID", "")
         skey = os.environ.get("TENCENTCLOUD_SECRET_KEY", "")
@@ -832,23 +883,31 @@ def _stock_aware_types():
         # because the API ranks a different family first. Deduped below.
         guaranteed = [BUILD_INSTANCE_TYPE] + DEFAULT_FALLBACK_INSTANCE_TYPES
         if not sell:
-            return guaranteed
-        # Rank: S-series first (CLOUD_PREMIUM), then SA-series (CLOUD_SSD),
-        # then the rest, each subgroup sorted by name for determinism. Known-good
-        # types are pulled to the very front so the run prefers a verified type.
-        def _rank(t):
-            if t in guaranteed:
-                return (-1, t)
-            fam = re.match(r"([A-Za-z]+)", t).group(1).upper()
-            if fam.startswith("S") and not fam.startswith("SA"):
-                return (0, t)
-            if fam.startswith("SA"):
-                return (1, t)
-            return (2, t)
-        return sorted(sell | set(guaranteed), key=_rank)
+            base = guaranteed
+        else:
+            # Rank: S-series first (CLOUD_PREMIUM), then SA-series (CLOUD_SSD),
+            # then the rest, each subgroup sorted by name for determinism.
+            # Known-good types are pulled to the very front so the run prefers a
+            # verified type.
+            def _rank(t):
+                if t in guaranteed:
+                    return (-1, t)
+                fam = re.match(r"([A-Za-z]+)", t).group(1).upper()
+                if fam.startswith("S") and not fam.startswith("SA"):
+                    return (0, t)
+                if fam.startswith("SA"):
+                    return (1, t)
+                return (2, t)
+            base = sorted(sell | set(guaranteed), key=_rank)
+        # Explicit env override takes priority over the ranked list.
+        if env_types:
+            base = env_types
+        if image_id:
+            base = _compatible_types(image_id, base)
+        return base
     except Exception:
         # Inventory lookup is best-effort; never let it block a run.
-        return [BUILD_INSTANCE_TYPE] + DEFAULT_FALLBACK_INSTANCE_TYPES
+        return env_types or ([BUILD_INSTANCE_TYPE] + DEFAULT_FALLBACK_INSTANCE_TYPES)
 
 
 def _attempt_build(combo, instance_type, attempt_dir):
@@ -893,7 +952,7 @@ def _attempt_build(combo, instance_type, attempt_dir):
 
 def build_one(combo):
     profile, level = combo["profile"], combo["level"]
-    types = _stock_aware_types()
+    types = _stock_aware_types(image_id=combo.get("image_id"))
     last = None
     for idx, instance_type in enumerate(types):
         attempt_dir = WORKDIR / f"{profile}-l{level}" if idx == 0 else WORKDIR / f"{profile}-l{level}-{idx}"
