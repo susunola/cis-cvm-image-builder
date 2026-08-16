@@ -722,9 +722,10 @@ class TestRenderAll:
         py_path.write_text(py)
 
         # Build a representative audit JSON.  MUST mirror the real engine
-        # doc shape (cis_engine.py:5116): no top-level `score` (it lives in
-        # summary.all.score), and applied_pending on `apply_status` — the
-        # `status` field only carries pass/fail/manual/error/notapplicable.
+        # doc shape (cis_engine.py:5116): the report reads the score from
+        # summary.all.score (the engine also mirrors it at top level), and
+        # applied_pending lives on `apply_status` — the `status` field only
+        # carries pass/fail/manual/error/notapplicable.
         audit = {
             "mode": "scan",
             "summary": {"all": {
@@ -5118,3 +5119,101 @@ class TestOutputYmlListsSkippedManual:
         for p in outputs:
             content = open(p, encoding="utf-8").read()
             assert "skipped_manual" in content, p
+
+
+class TestEngineScoreFormula:
+    """P1 — Linux engine must count `error` in the score denominator, matching
+    the Windows engine's assessed = pass+fail+error.  Before the fix an
+    unevaluable rule dropped out of the denominator and inflated the score
+    (80 pass / 10 fail / 10 error -> 88.9% vs the honest 80.0%)."""
+
+    @staticmethod
+    def _engine():
+        import importlib.util as _ilu
+        import glob as _g
+        path = sorted(_g.glob("cis_image/roles/cis_*/files/cis_engine.py"))[0]
+        spec = _ilu.spec_from_file_location("cis_engine_score_test", path)
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_error_counts_against_score(self):
+        s = self._engine().summarize([
+            {"level": 1, "status": "pass", "apply_status": "n/a"},
+            {"level": 1, "status": "fail", "apply_status": "failed"},
+            {"level": 1, "status": "error", "apply_status": "n/a"},
+        ], 0)["all"]
+        # assessed = pass+fail+error = 3 -> 33.3, NOT 50.0 (pass/(pass+fail))
+        assert s["score"] == round(100.0 / 3, 1) == 33.3
+        assert s["assessed"] == 3
+
+    def test_no_error_unchanged(self):
+        s = self._engine().summarize([
+            {"level": 1, "status": "pass", "apply_status": "n/a"},
+            {"level": 1, "status": "fail", "apply_status": "failed"},
+        ], 0)["all"]
+        assert s["score"] == 50.0
+        assert s["assessed"] == 2
+
+
+class TestEngineDocStructure:
+    """P1/P2 — the output document shape must be consistent with the Windows
+    engine: a top-level `score` mirror (structural root of the old REPORT.md
+    ?% bug) and a crash document that carries a FULL summary so the 17 role
+    sites reading cis_result.summary.all.* never AttributeError and the gate
+    fails on score 0 instead of aborting mid-play."""
+
+    @staticmethod
+    def _src():
+        import glob as _g
+        path = sorted(_g.glob("cis_image/roles/cis_*/files/cis_engine.py"))[0]
+        return open(path, encoding="utf-8").read()
+
+    def test_doc_has_top_level_score_mirror(self):
+        src = self._src()
+        assert '"summary": _summary' in src
+        assert '"score": _summary["all"]["score"]' in src
+
+    def test_crash_doc_has_full_summary(self):
+        import re as _re, textwrap as _tw, json as _json
+        src = self._src()
+        start = src.index("        # The roles access")
+        end = src.index("        _sys.exit(1)")
+        ns = {"_exc": ValueError("boom"), "_sys": __import__("sys")}
+        exec("import json as _json\n" + _tw.dedent(src[start:end])
+             + "\n_result = _payload", ns)
+        doc = _json.loads(ns["_result"])
+        assert doc["mode"] == "error"
+        assert doc["score"] == 0.0
+        summ = doc["summary"]["all"]
+        for key in ("total", "pass", "fail", "error", "applied",
+                    "applied_pending", "apply_failed", "skipped_disruptive",
+                    "skipped_manual", "already", "score"):
+            assert key in summ, f"crash summary missing {key}"
+        assert summ["score"] == 0.0
+        assert doc["changed_files"] == []
+
+
+class TestLinuxRunYmlSurvivesEngineCrash:
+    """P1 — the Linux 'Run the benchmark' task must not abort the play when
+    the engine exits 1, or the crash document written to result.json is
+    never slurped (dead code).  The Windows engine has no crash document
+    mechanism, so its run.yml must stay fail-fast."""
+
+    def test_linux_run_yml_has_failed_when_false(self):
+        import glob as _g
+        linux = [p for p in _g.glob("cis_image/roles/cis_*/tasks/run.yml")
+                 if "cis_win" not in p]
+        assert len(linux) == 8
+        for p in linux:
+            content = open(p, encoding="utf-8").read()
+            assert "failed_when: false" in content, p
+
+    def test_windows_run_yml_untouched(self):
+        import glob as _g
+        win = [p for p in _g.glob("cis_image/roles/cis_*/tasks/run.yml")
+               if "cis_win" in p]
+        assert len(win) == 4
+        for p in win:
+            content = open(p, encoding="utf-8").read()
+            assert "failed_when" not in content, p
