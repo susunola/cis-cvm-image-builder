@@ -2907,9 +2907,9 @@ class TestFingerprintAndChangeDetection:
     def test_fingerprint_changes_with_rules_hash(self, valid_toml, monkeypatch):
         from ohbs_image import _build_fingerprint
         r = resolve(valid_toml)
-        monkeypatch.setattr("ohbs_image._bundled_rules_hash", lambda rd: "0" * 64)
+        monkeypatch.setattr("ohbs_image._bundled_rules_hash", lambda rd, catalog="rules.json": "0" * 64)
         fp1 = _build_fingerprint(r)
-        monkeypatch.setattr("ohbs_image._bundled_rules_hash", lambda rd: "1" * 64)
+        monkeypatch.setattr("ohbs_image._bundled_rules_hash", lambda rd, catalog="rules.json": "1" * 64)
         fp2 = _build_fingerprint(r)
         assert fp1 != fp2
 
@@ -3807,7 +3807,7 @@ class TestProvenanceSbom:
         home = tmp_path / "home"
         monkeypatch.setattr("ohbs_image._lineage_path",
                             lambda: home / ".ohbs-image" / "lineage.jsonl")
-        monkeypatch.setattr("ohbs_image._bundled_rules_hash", lambda rd: "r" * 64)
+        monkeypatch.setattr("ohbs_image._bundled_rules_hash", lambda rd, catalog="rules.json": "r" * 64)
         monkeypatch.setattr("ohbs_image._build_fingerprint", lambda r_: "f" * 64)
         prov = _write_provenance(r, ["img-abc"], "img-name", 96.5,
                                  sbom_sha="s" * 64, sbom_count=137)
@@ -3827,7 +3827,7 @@ class TestProvenanceSbom:
         home = tmp_path / "home"
         monkeypatch.setattr("ohbs_image._lineage_path",
                             lambda: home / ".ohbs-image" / "lineage.jsonl")
-        monkeypatch.setattr("ohbs_image._bundled_rules_hash", lambda rd: "r" * 64)
+        monkeypatch.setattr("ohbs_image._bundled_rules_hash", lambda rd, catalog="rules.json": "r" * 64)
         monkeypatch.setattr("ohbs_image._build_fingerprint", lambda r_: "f" * 64)
         prov = _write_provenance(r, ["img-abc"], "img-name", None)
         doc = json.loads(prov.read_text(encoding="utf-8"))

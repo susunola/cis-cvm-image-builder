@@ -67,6 +67,28 @@ def _check_bundled_role(role_dir: str) -> bool:
         return False
     return src.is_dir()
 
+
+def _select_workspace_catalog(workdir: Path, role_dir: str, catalog_basename: str) -> None:
+    """Promote a benchmark-specific catalog to the workspace rules.json.
+
+    The engine always runs against the workspace ``rules.json``.  For CIS and
+    the legacy empty benchmark *catalog_basename* is already ``rules.json`` so
+    this is a no-op.  For any other benchmark the active catalog is a
+    ``rules_<slug>.json`` file copied by ``_bundle_role``; we copy it over
+    ``rules.json`` (overwriting the CIS default) so the engine, overrides and
+    the finalize re-scan all resolve the correct benchmark transparently.
+    """
+    if catalog_basename in ("", "rules.json"):
+        return
+    files_dir = workdir / "ansible" / "roles" / role_dir / "files"
+    src = files_dir / catalog_basename
+    if not src.is_file():
+        # Catalog not bundled yet — caller (resolve) still validated
+        # benchmark; build will surface a missing-catalog error at engine time.
+        return
+    shutil.copyfile(src, files_dir / "rules.json")
+
+
 def _check_ansible_windows_collection() -> bool:
     """Return True when the ansible.windows collection is visible to ansible.
 
@@ -227,6 +249,7 @@ def render_pkrvars(r: ResolvedConfig, image_name: str | None = None) -> str:
         "cis_level": r.cis_level_tag,
         "image_os_tag": r.image_os_tag,
         "image_benchmark": r.image_benchmark,
+        "image_catalog": r.catalog_basename,
     }
 
     if r.family == "windows":
@@ -354,6 +377,13 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
 
     # 1. Copy bundled role into workspace
     _bundle_role(workdir, r.role_dir)
+
+    # Benchmark-aware catalog selection: for a non-CIS benchmark the active
+    # catalog is rules_<slug>.json (copied alongside rules.json by _bundle_role).
+    # Promote it to the workspace rules.json so the engine's fixed
+    # `--catalog rules.json` path and [cis].overrides both keep working. Pure
+    # no-op for CIS (where rules.json already IS the active catalog).
+    _select_workspace_catalog(workdir, r.role_dir, r.catalog_basename)
 
     # P1#5 — [cis].overrides: deep-merge per-rule parameter overrides into
     # the WORKSPACE copy of rules.json (the bundled catalog is never
@@ -492,6 +522,7 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
                .replace("__IMAGE_OS__", r.image_os_tag)
                .replace("__CIS_LEVEL__", r.cis_level_tag)
                .replace("__IMAGE_BENCHMARK__", r.image_benchmark)
+               .replace("__IMAGE_CATALOG__", r.catalog_basename)
                .replace("__CIS_IMAGE_VERSION__", VERSION)
                .replace("__CIS_PROFILE_SHORT__", f"L{r.level}")
                .replace("__HOSTS_FIX_HCL__", HOSTS_FIX_SNIPPET.replace('"', '\\"'))

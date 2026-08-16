@@ -39,7 +39,8 @@ __all__ = [
     'SITE_YML_WIN_TEMPLATE', 'SMOKE_LINUX_BLOCK', 'SMOKE_WIN_BLOCK', 'TEST_COMPONENTS_LINUX_BLOCK', 'TEST_COMPONENTS_WIN_BLOCK', 'VERSION',
     '_BANNER_ART', '_CIS_REGION_DASHES', '_FORBIDDEN_CLEAN_PREFIXES', '_RULE_FAIL_RE', '_apply_rule_overrides', '_assert_no_markers',
     '_audit_inspec', '_audit_oscap', '_audit_render', '_audit_results_sarif', '_audit_results_xccdf', '_audit_ssh_args',
-    '_build_fingerprint', '_build_sarif', '_build_xccdf', '_bundle_role', '_bundled_rules_hash', '_check_ansible_windows_collection',
+    '_build_fingerprint', '_build_sarif', '_build_xccdf', '_bundle_role', '_bundled_rules_hash', '_catalog_basename',
+    '_catalog_path', '_check_ansible_windows_collection',
     '_check_bundled_role', '_check_pywinrm', '_check_security_group_ingress', '_clean_is_safe', '_color', '_creds', '_delete_images',
     '_drift_diff', '_extract_image_ids', '_extract_rule_statuses', '_extract_sbom_count', '_extract_sbom_sha', '_extract_score',
     '_fetch_baseline', '_find_provenance', '_format_hcl_value', '_image_ids_still_exist', '_image_is_shared', '_image_name',
@@ -106,6 +107,7 @@ from ._audit import (
     _write_xccdf,
     cmd_audit,
 )
+from ._catalog import _catalog_basename, _catalog_path
 from ._cli import build_parser, main
 from ._commands import (
     _FORBIDDEN_CLEAN_PREFIXES,
