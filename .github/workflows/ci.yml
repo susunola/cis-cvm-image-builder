@@ -30,6 +30,15 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
+      # packer is needed by the real-HCL validate tests (TestRealPackerValidate*).
+      # They render every profile and run `packer validate` against the actual
+      # HCL, catching template syntax regressions (e.g. `map(any)` variables or a
+      # leftover substitution token inside a comment) that unit tests cannot see.
+      - name: Install packer
+        uses: hashicorp/setup-packer@main
+        with:
+          version: "1.16.0"
+
       - name: Run ruff (lint)
         run: ruff check ohbs_image
 

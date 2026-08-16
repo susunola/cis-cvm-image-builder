@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -1676,6 +1677,99 @@ class TestCmdValidateOutput:
         assert rc == 1
         mock_render.assert_not_called()
         mock_run.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Real packer validate over rendered HCL (all profiles)
+# ---------------------------------------------------------------------------
+# These tests render the real packer HCL for EVERY profile and run the actual
+# `packer validate` binary against it. They are the guard that catches template
+# syntax regressions the unit tests cannot see (e.g. `variable type = map(any)`
+# which is invalid HCL, or a leftover substitution token inside a comment that
+# breaks parsing once the extra-args block is non-empty). They are skipped when
+# the `packer` binary is not on PATH (CI installs it; locally you can
+# `packer plugins install` / apt install packer to opt in).
+_PACKER_AVAILABLE = shutil.which("packer") is not None
+
+pytestmark_packer = pytest.mark.skipif(
+    not _PACKER_AVAILABLE,
+    reason="packer binary not installed; run 'packer plugins install github.com/hashicorp/tencentcloud' "
+           "or install packer to enable real HCL validation",
+)
+
+
+def _profile_toml(profile_name: str) -> dict:
+    """A valid, minimal config dict for any Linux or Windows profile, using
+    well-formed-but-dummy network/image IDs (enough for packer validate, which
+    checks format only and does not hit the cloud). The preflight placeholder
+    guard rejects 8+ consecutive x's, and the tencentcloud plugin rejects
+    malformed image IDs — so we use realistic-looking ids here."""
+    family = PROFILES[profile_name].get("family")
+    base = {
+        "build": {
+            "profile": profile_name,
+            "region": "ap-guangzhou",
+            "zone": "ap-guangzhou-4",
+            "instance_type": "S5.MEDIUM2",
+            "source_image_id": "img-abc12345",
+            "vpc_id": "vpc-abc12345",
+            "subnet_id": "subnet-abc12345",
+            "security_group_id": "sg-abc12345",
+            "associate_public_ip": True,
+        },
+        "image": {"name_prefix": f"validate-{profile_name}", "copy_regions": []},
+        "cis": {"level": 1},
+        "cloud": {"secret_id_env": "TENCENTCLOUD_SECRET_ID",
+                  "secret_key_env": "TENCENTCLOUD_SECRET_KEY"},
+        "meta": {"os_tag": profile_name, "benchmark": "CIS-v1.0.0"},
+    }
+    if family == "windows":
+        base["cloud"]["winrm_password_env"] = "WINRM_PASSWORD"
+    return base
+
+
+@pytestmark_packer
+class TestRealPackerValidateAllProfiles:
+    def test_every_linux_profile_validates(self, tmp_path, monkeypatch):
+        from ohbs_image import cmd_validate
+        for profile in LINUX_PROFILES:
+            monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "test-id")
+            monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "test-key")
+            data = _profile_toml(profile)
+            cfg = _write_config(tmp_path, data)
+            wd = tmp_path / f"build-{profile}"
+            rc = cmd_validate(
+                mock.MagicMock(config=str(cfg), workdir=str(wd), quiet=True)
+            )
+            assert rc == 0, f"packer validate failed for Linux profile {profile}"
+
+    def test_every_windows_profile_validates(self, tmp_path, monkeypatch):
+        from ohbs_image import cmd_validate
+        for profile in WIN_PROFILES:
+            monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "test-id")
+            monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "test-key")
+            monkeypatch.setenv("WINRM_PASSWORD", "test-pass")
+            data = _profile_toml(profile)
+            cfg = _write_config(tmp_path, data)
+            wd = tmp_path / f"build-{profile}"
+            rc = cmd_validate(
+                mock.MagicMock(config=str(cfg), workdir=str(wd), quiet=True)
+            )
+            assert rc == 0, f"packer validate failed for Windows profile {profile}"
+
+    def test_validates_with_packer_extra_block(self, tmp_path, monkeypatch):
+        """The [build.packer] passthrough (e.g. SA-family needs CLOUD_SSD) must
+        not break HCL parsing — this exercised the token-in-comment regression."""
+        from ohbs_image import cmd_validate
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "test-id")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "test-key")
+        data = _profile_toml("tencentos3")
+        data["build"]["instance_type"] = "SA5.MEDIUM2"
+        data["build"]["packer"] = {"disk_type": "CLOUD_SSD", "disk_size": 100}
+        cfg = _write_config(tmp_path, data)
+        wd = tmp_path / "build-extra"
+        rc = cmd_validate(mock.MagicMock(config=str(cfg), workdir=str(wd), quiet=True))
+        assert rc == 0, "packer validate failed with a non-empty [build.packer] extra block"
 
 
 # ---------------------------------------------------------------------------
