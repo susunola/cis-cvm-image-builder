@@ -63,7 +63,7 @@ variable "image_catalog"               { type = string }  # rules.json basename 
 variable "instance_name"               { type = string }
 # Reserved for user passthrough of arbitrary packer builder args via
 # [build.packer]; the actual args are injected as HCL literals by the
-# __EXTRA_ARGS_BLOCK__ placeholder (replaced with nothing unless set).
+# extra-args block substitution (replaced with nothing unless set).
 variable "extra_builder_args" {
   type    = map(string)
   default = {}
@@ -734,7 +734,7 @@ variable "image_catalog"               { type = string }  # rules.json basename 
 variable "instance_name"               { type = string }
 # Reserved for user passthrough of arbitrary packer builder args via
 # [build.packer]; the actual args are injected as HCL literals by the
-# __EXTRA_ARGS_BLOCK__ placeholder (replaced with nothing unless set).
+# extra-args block substitution (replaced with nothing unless set).
 variable "extra_builder_args" {
   type    = map(string)
   default = {}
