@@ -257,6 +257,23 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
             raise ConfigError(
                 f"[build].instance_name contains invalid characters: {instance_name!r}. "
                 "Use letters, digits, dot, dash, underscore only.")
+        # Tencent's CVM builder derives the instance HOSTNAME from this name:
+        # it lowercases it, converts '_' -> '-', and truncates to 15 chars. A
+        # name cut at a '_'/'-' leaves a trailing '-' which Tencent rejects
+        # (InvalidParameterValue.IllegalHostName). E.g. "CIS_E2E_rhel10_L1"
+        # -> "cis-e2e-rhel10-" (illegal). Only rewrite when there is an actual
+        # risk; short names that survive unchanged are left alone.
+        host = instance_name.lower().replace("_", "-")
+        host = re.sub(r"[^a-z0-9-]+", "-", host)
+        host = host.strip("-.")
+        truncated = host[:15]
+        if truncated.endswith("-") or truncated.endswith("."):
+            if len(host) > 14:
+                host = host[:14]
+            host = host.rstrip("-.")
+            warn(f"[build].instance_name '{instance_name}' sanitized to '{host}' "
+                 f"for a valid CVM hostname")
+            instance_name = host
 
     # [build.packer] — passthrough of arbitrary packer tencentcloud-cvm builder
     # args (e.g. disk_type, disk_size, data_disks, internet_max_bandwidth_out).
