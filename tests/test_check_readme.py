@@ -15,31 +15,31 @@ ALL_CMDS = {"audit", "build", "check-source", "clean", "cleanup-images", "drift"
 
 class TestReadmeDocumentedSubcommands:
     def test_all_present(self):
-        readme = "\n".join(f"cis-image {c}" for c in ALL_CMDS)
+        readme = "\n".join(f"ohbs-image {c}" for c in ALL_CMDS)
         found = check_readme.readme_documented_subcommands(readme, ALL_CMDS)
         assert found == ALL_CMDS
 
     def test_verify_image_not_swallowed_by_verify(self):
         """`verify-image` must not be reported present just because `verify`
         appears; and `verify` must not be over-matched by `verify-image`."""
-        readme = "cis-image verify\ncis-image verify-image\n"
+        readme = "ohbs-image verify\nohbs-image verify-image\n"
         found = check_readme.readme_documented_subcommands(readme, ALL_CMDS)
         assert "verify" in found
         assert "verify-image" in found
 
     def test_missing_command_reported(self):
-        readme = "cis-image build\ncis-image init\n"
+        readme = "ohbs-image build\nohbs-image init\n"
         found = check_readme.readme_documented_subcommands(readme, ALL_CMDS)
         assert "build" in found and "init" in found
         missing = ALL_CMDS - found
         assert "audit" in missing and "verify-image" in missing
 
     def test_inline_flag_does_not_fake_presence(self):
-        """A bare word like `build` inside prose (not `cis-image build`) must
+        """A bare word like `build` inside prose (not `ohbs-image build`) must
         not count as documenting the command."""
-        readme = "the build step runs packer\ncis-image init\n"
+        readme = "the build step runs packer\nohbs-image init\n"
         found = check_readme.readme_documented_subcommands(readme, ALL_CMDS)
-        assert "build" not in found  # only `cis-image init` is authoritative
+        assert "build" not in found  # only `ohbs-image init` is authoritative
         assert "init" in found
 
 
@@ -57,20 +57,20 @@ class TestReadmeDocumentedProfiles:
 
 class TestCheckReadme:
     def test_returns_empty_when_current(self):
-        readme = "\n".join(f"cis-image {c}" for c in ALL_CMDS) + "\n" + \
+        readme = "\n".join(f"ohbs-image {c}" for c in ALL_CMDS) + "\n" + \
                  " ".join(check_readme._PROFILE_NAMES)
         assert check_readme.check_readme(readme, ALL_CMDS,
                                          set(check_readme._PROFILE_NAMES)) == []
 
     def test_reports_missing_command(self):
-        readme = "cis-image init"
+        readme = "ohbs-image init"
         errors = check_readme.check_readme(readme, ALL_CMDS,
                                            set(check_readme._PROFILE_NAMES))
         assert any("subcommand" in e for e in errors)
         assert "build" in errors[0]
 
     def test_reports_missing_profile(self):
-        readme = "cis-image init\nubuntu2004 rhel9"
+        readme = "ohbs-image init\nubuntu2004 rhel9"
         errors = check_readme.check_readme(
             readme, {"init"}, {"ubuntu2004", "rhel9", "tencentos4"})
         assert any("profile" in e for e in errors)
@@ -97,7 +97,7 @@ class TestMainExitCodes:
     def test_main_returns_1_when_out_of_date(self, monkeypatch, capsys):
         """main() exits 1 (not 0) and prints the missing items when the
         README is missing a command."""
-        readme = "cis-image init"
+        readme = "ohbs-image init"
         monkeypatch.setattr(check_readme, "registered_subcommands",
                             lambda: set(ALL_CMDS))
         with monkeypatch_open(readme):
@@ -107,7 +107,7 @@ class TestMainExitCodes:
         assert "build" in err
 
     def test_main_returns_0_when_current(self, monkeypatch):
-        readme = "\n".join(f"cis-image {c}" for c in ALL_CMDS) + "\n" + \
+        readme = "\n".join(f"ohbs-image {c}" for c in ALL_CMDS) + "\n" + \
                  " ".join(check_readme._PROFILE_NAMES)
         monkeypatch.setattr(check_readme, "registered_subcommands",
                             lambda: set(ALL_CMDS))
@@ -121,9 +121,9 @@ class TestCheckTestConsistency:
 
     def test_current_state_is_consistent(self):
         """The committed tests/test_check_readme.py matches the live CLI."""
-        import cis_image
-        registered = set(cis_image.build_parser()._subparsers._group_actions[0].choices)
-        profiles = set(cis_image.PROFILES.keys())
+        import ohbs_image
+        registered = set(ohbs_image.build_parser()._subparsers._group_actions[0].choices)
+        profiles = set(ohbs_image.PROFILES.keys())
         assert check_readme.check_test_consistency(registered, profiles) == []
 
     def test_reports_missing_command_in_all_cmds(self, tmp_path, monkeypatch):

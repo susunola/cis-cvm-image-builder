@@ -1,6 +1,0 @@
----
-cis_os_key: rhel8
-cis_engine_file: cis_engine.py
-cis_rules_file: rules.json
-cis_guidance_file: guidance.json
-cis_sections_file: sections.json

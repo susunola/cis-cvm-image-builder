@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Verify README.md stays in sync with the codebase's CLI surface.
 
-Ensures every subcommand registered by ``cis_image.build_parser()`` and every
-OS profile in ``cis_image.PROFILES`` is documented in README.md (as
-``cis-image <cmd>`` / the profile name).  Run in CI so adding or removing a
+Ensures every subcommand registered by ``ohbs_image.build_parser()`` and every
+OS profile in ``ohbs_image.PROFILES`` is documented in README.md (as
+``ohbs-image <cmd>`` / the profile name).  Run in CI so adding or removing a
 command or profile without updating the docs fails the build.
 
 Usage:
     python3 scripts/check_readme.py [--readme PATH]
 
-The check is pure stdlib + the installed ``cis_image`` package (already
+The check is pure stdlib + the installed ``ohbs_image`` package (already
 importable in the CI test job, where this runs after ``pip install -e .``).
 Exit code 0 = docs current; 1 = something is missing.
 """
@@ -22,7 +22,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Must stay in sync with the profiles dict in cis_image/_profiles.py — the
+# Must stay in sync with the profiles dict in ohbs_image/_profiles.py — the
 # check uses this to find profile names in README without importing the full
 # module at parse time (kept as a flat alternation for the regex).
 _PROFILE_NAMES = (
@@ -35,8 +35,8 @@ _PROFILE_NAMES = (
 
 def registered_subcommands() -> set[str]:
     """Return the set of subcommand names the CLI actually registers."""
-    import cis_image
-    parser = cis_image.build_parser()
+    import ohbs_image
+    parser = ohbs_image.build_parser()
     return set(parser._subparsers._group_actions[0].choices)
 
 
@@ -46,7 +46,7 @@ def readme_documented_subcommands(readme_text: str,
     found: set[str] = set()
     # Longest-first so `verify` doesn't swallow `verify-image`.
     ordered = sorted(registered, key=len, reverse=True)
-    for m in re.finditer(r"cis-image\s+([a-z][a-z-]*)", readme_text):
+    for m in re.finditer(r"ohbs-image\s+([a-z][a-z-]*)", readme_text):
         word = m.group(1)
         for cmd in ordered:
             if word == cmd or word.startswith(cmd + "-"):
@@ -98,12 +98,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         registered = registered_subcommands()
     except Exception as exc:  # import/build_parser failure
-        print(f"check_readme: could not load cis_image CLI: {exc}",
+        print(f"check_readme: could not load ohbs_image CLI: {exc}",
               file=sys.stderr)
         return 2
 
-    import cis_image
-    profiles = set(cis_image.PROFILES.keys())
+    import ohbs_image
+    profiles = set(ohbs_image.PROFILES.keys())
 
     readme_text = readme_path.read_text(encoding="utf-8")
     errors = check_readme(readme_text, registered, profiles)

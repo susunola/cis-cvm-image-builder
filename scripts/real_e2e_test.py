@@ -3,8 +3,8 @@
 the repo onto it, install deps, run the full pytest/ruff/mypy suite over
 SSH, then tear the instance (and its temporary key pair) back down.
 
-This is a *supplement* to tests/test_cis_image.py, not a replacement.  The
-existing pytest suite mocks the cis_image._tc3_api boundary — it is fast, free,
+This is a *supplement* to tests/test_ohbs_image.py, not a replacement.  The
+existing pytest suite mocks the ohbs_image._tc3_api boundary — it is fast, free,
 and covers API response edge cases (null fields, wrong nesting, etc.) very
 well, but it can never catch "does `pip install -e .` actually work on a
 clean AlmaLinux box", "is the real network path from a CVM reachable", or
@@ -19,7 +19,7 @@ Usage (default — just tests this repo's own toolchain on the jump box):
         --vpc-id vpc-xxxxxxxx --subnet-id subnet-xxxxxxxx \\
         --security-group-id sg-xxxxxxxx [--yes]
 
-Usage (opt-in — also trigger a REAL `cis-image build` for one or more
+Usage (opt-in — also trigger a REAL `ohbs-image build` for one or more
 profile+level combinations, each on its OWN temporary build CVM reached
 from the jump box over the private network):
     python3 scripts/real_e2e_test.py --target-mode single \\
@@ -36,8 +36,8 @@ single/all-linux/all are ALWAYS deleted at the end of the run — this script
 never leaves a billed golden image behind.
 
 Hard requirements (see CONTRIBUTING.md "Running the real end-to-end test"):
-  - cis-image must already be installed in editable mode on THIS machine
-    (`pip install -e .`) — this script imports cis_image._tc3_api directly to
+  - ohbs-image must already be installed in editable mode on THIS machine
+    (`pip install -e .`) — this script imports ohbs_image._tc3_api directly to
     avoid re-implementing the TC3-HMAC-SHA256 signing logic.
   - The security group passed via --security-group-id must already allow
     inbound TCP/22 from this machine's public IP. This script does not
@@ -83,11 +83,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from cis_image import PROFILES, ConfigError, _tc3_api, banner, fail, info, ok, warn  # noqa: E402
+from ohbs_image import PROFILES, ConfigError, _tc3_api, banner, fail, info, ok, warn  # noqa: E402
 
 DEFAULT_IMAGE_ID = "img-31d8ynuj"
 DEFAULT_INSTANCE_TYPE = "SA5.MEDIUM2"
-REPO_URL = "https://github.com/susunola/cis-image.git"
+REPO_URL = "https://github.com/susunola/ohbs-image.git"
 LAST_INSTANCE_FILE = REPO_ROOT / "logs" / "e2e_last_instance.json"
 BOOT_TIMEOUT_SECONDS = 900
 # The jump box is a freshly-launched AlmaLinux CVM; boot + cloud-init + SSH
@@ -95,7 +95,7 @@ BOOT_TIMEOUT_SECONDS = 900
 # ready" failures on a slow-but-healthy instance.
 SSH_READY_TIMEOUT_SECONDS = 360
 
-# Same list-comprehension pattern as tests/test_cis_image.py's LINUX_PROFILES
+# Same list-comprehension pattern as tests/test_ohbs_image.py's LINUX_PROFILES
 # — used by --target-mode all-linux to enumerate every non-Windows profile.
 LINUX_PROFILES = [k for k, v in PROFILES.items() if v.get("family") != "windows"]
 
@@ -175,7 +175,7 @@ def parse_args() -> argparse.Namespace:
                     default="toolchain",
                     help="toolchain (default): only test this repo's own toolchain "
                          "(venv/ruff/mypy/pytest) on the jump box. single: trigger one "
-                         "real `cis-image build` for --profile/--level. all-linux: every "
+                         "real `ohbs-image build` for --profile/--level. all-linux: every "
                          "Linux profile x --levels (up to 16 real builds). all: +every "
                          "Windows profile x --levels (up to 24 real builds).")
     p.add_argument("--profile", choices=list(PROFILES),
@@ -189,7 +189,7 @@ def parse_args() -> argparse.Namespace:
                          "(use --level there). Default 'both'. "
                          "May also be set via E2E_LEVELS in scripts/e2e.env.")
     p.add_argument("--max-parallel-builds", type=int,
-                    help="Max concurrent `cis-image build` subprocesses on the jump "
+                    help="Max concurrent `ohbs-image build` subprocesses on the jump "
                          "box in all-linux/all mode. Defaults to $E2E_MAX_PARALLEL_BUILDS "
                          "if set, otherwise 4.")
     p.add_argument("--build-instance-type", default=DEFAULT_INSTANCE_TYPE,
@@ -479,7 +479,7 @@ def import_keypair(region: str, sid: str, skey: str, tok: str | None, pub_path: 
     pub_key = pub_path.read_text().strip()
     resp = _with_retry(
         _tc3_api, "cvm", "ImportKeyPair", "2017-03-12", region,
-        {"KeyName": f"cis_image_e2e_{int(time.time())}",
+        {"KeyName": f"ohbs_image_e2e_{int(time.time())}",
          "ProjectId": 0,
          "PublicKey": pub_key},
         sid, skey, tok)
@@ -595,7 +595,7 @@ def wait_for_ssh(host: str, ssh_user: str, key_path: Path,
 # Kept outside the repo checkout dir on purpose: step_clone does `rm -rf`
 # on REPO_DIR, which would otherwise wipe out earlier steps' own logs.
 REMOTE_LOG_DIR = "/root/cis-e2e-logs"
-REMOTE_REPO_DIR = "/root/cis-image"
+REMOTE_REPO_DIR = "/root/ohbs-image"
 
 # AlmaLinux 10 (the img-31d8ynuj default) ships Python 3.12, not 3.11 —
 # RHEL 10 dropped the python3.11 package name entirely.
@@ -647,13 +647,13 @@ step_venv() {{
 step_ruff() {{
     cd "$REPO_DIR" || return 1
     source .venv/bin/activate
-    ruff check cis_image
+    ruff check ohbs_image
 }}
 
 step_mypy() {{
     cd "$REPO_DIR" || return 1
     source .venv/bin/activate
-    mypy cis_image --ignore-missing-imports
+    mypy ohbs_image --ignore-missing-imports
 }}
 
 step_pytest() {{
@@ -673,10 +673,10 @@ echo "[remote] all steps complete"
 """
 
 # run_matrix.py is written to the remote host and driven from
-# MATRIX_REMOTE_SCRIPT below. It fans out `cis-image build` (one per
-# profile+level combo) with a bounded thread pool, using cis_image's own
+# MATRIX_REMOTE_SCRIPT below. It fans out `ohbs-image build` (one per
+# profile+level combo) with a bounded thread pool, using ohbs_image's own
 # packer-output parsers so score/image_id extraction never drifts from what
-# `cis-image build` itself considers authoritative.
+# `ohbs-image build` itself considers authoritative.
 RUN_MATRIX_PY = '''
 import json
 import os
@@ -688,7 +688,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, "REPO_DIR_PLACEHOLDER")
-from cis_image import _extract_image_ids  # noqa: E402
+from ohbs_image import _extract_image_ids  # noqa: E402
 
 TOML_TEMPLATE = """[build]
 profile = "{profile}"
@@ -753,7 +753,7 @@ def _redact(text):
 
 
 def _parse_score(all_lines):
-    """cis-image build reports the score as "Re-audit score: 94.8%" (not
+    """ohbs-image build reports the score as "Re-audit score: 94.8%" (not
     packer's bare "Score: 91.5%"), so _extract_score won't match — extract it
     from the combined stream here."""
     for line in all_lines:
@@ -777,20 +777,20 @@ def _disk_block(instance_type):
     instance type needs it. Some SA-series types do not support the packer
     default CLOUD_PREMIUM root disk (they fail with "CVM not support the
     required disk"); give them CLOUD_SSD. Other series keep the default
-    (empty block). Uses the [build.packer] passthrough added to cis-image."""
+    (empty block). Uses the [build.packer] passthrough added to ohbs-image."""
     if instance_type.upper().startswith("SA"):
         return "\\n[build.packer]\\ndisk_type = \\"CLOUD_SSD\\""
     return ""
 
 
 def _attempt_build(combo, instance_type, attempt_dir):
-    """Run one `cis-image build` for combo using instance_type. Returns a
+    """Run one `ohbs-image build` for combo using instance_type. Returns a
     result dict with the combined output already parsed."""
     profile, level = combo["profile"], combo["level"]
     image_id = combo["image_id"]
     family = combo["family"]
     attempt_dir.mkdir(parents=True, exist_ok=True)
-    toml_path = attempt_dir / "cis-image.toml"
+    toml_path = attempt_dir / "ohbs-image.toml"
     winrm_line = "winrm_password_env = \\"WINRM_PASSWORD\\"" if family == "windows" else ""
     toml_path.write_text(TOML_TEMPLATE.format(
         profile=profile, level=level, image_id=image_id,
@@ -806,7 +806,7 @@ def _attempt_build(combo, instance_type, attempt_dir):
          "--workdir", str(attempt_dir / "workdir"), "--yes"],
         capture_output=True, text=True, cwd=str(attempt_dir),
     )
-    # `cis-image build` writes nearly all readable output to STDERR: packer
+    # `ohbs-image build` writes nearly all readable output to STDERR: packer
     # output is printed via print(file=sys.stderr) inside run_packer, and the
     # ok()/info() summary lines go through the logging handler (stderr). The
     # produced image ID and score only appear in that combined stream, so we
@@ -1001,7 +1001,7 @@ def run_remote_matrix(host: str, ssh_user: str, key_path: Path, branch: str,
         RUN_MATRIX_PY
         .replace("REPO_DIR_PLACEHOLDER", REMOTE_REPO_DIR)
         .replace("MATRIX_WORKDIR_PLACEHOLDER", f"{REMOTE_LOG_DIR}/matrix-builds")
-        .replace("CIS_IMAGE_BIN_PLACEHOLDER", f"{REMOTE_REPO_DIR}/.venv/bin/cis-image")
+        .replace("CIS_IMAGE_BIN_PLACEHOLDER", f"{REMOTE_REPO_DIR}/.venv/bin/ohbs-image")
         .replace("BUILD_INSTANCE_TYPE_PLACEHOLDER", build_instance_type)
         .replace("REGION_PLACEHOLDER", target_placement["region"])
         .replace("ZONE_PLACEHOLDER", target_placement["zone"])
@@ -1341,7 +1341,7 @@ def render_html_report(
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>cis-image real E2E report — {html.escape(when)}</title>
+<title>ohbs-image real E2E report — {html.escape(when)}</title>
 <style>
   body {{ font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 2rem;
           color: #1a1a1a; background: #fafafa; }}
@@ -1369,7 +1369,7 @@ def render_html_report(
 </style>
 </head>
 <body>
-<h1>cis-image real end-to-end test report</h1>
+<h1>ohbs-image real end-to-end test report</h1>
 <div class="meta">
   <span><strong>When:</strong> {html.escape(when)}</span>
   <span><strong>Duration:</strong> {duration_s:.0f}s</span>

@@ -1,4 +1,4 @@
-# Contributing to cis-image
+# Contributing to ohbs-image
 
 Bug reports and pull requests are welcome. This document covers the
 development workflow, coding constraints, and how to add a new CIS profile.
@@ -6,12 +6,12 @@ development workflow, coding constraints, and how to add a new CIS profile.
 ## Development setup
 
 ```bash
-git clone https://github.com/susunola/cis-image.git
-cd cis-image
+git clone https://github.com/susunola/ohbs-image.git
+cd ohbs-image
 pip install -e ".[dev]"
 ```
 
-This installs `cis-image` in editable mode plus the dev toolchain (`pytest`,
+This installs `ohbs-image` in editable mode plus the dev toolchain (`pytest`,
 `pytest-cov`, `mypy`, `ruff`, `tomli_w`, `pywinrm`).
 
 ## Before opening a PR
@@ -19,13 +19,13 @@ This installs `cis-image` in editable mode plus the dev toolchain (`pytest`,
 Run the same checks CI runs (`.github/workflows/ci.yml`), in this order:
 
 ```bash
-ruff check cis_image
-mypy cis_image --ignore-missing-imports
+ruff check ohbs_image
+mypy ohbs_image --ignore-missing-imports
 pytest -v --tb=short
 ```
 
-- `ruff` and `mypy` only lint/type-check `cis_image/` — `cis_image/roles/` is
-  the vendored cis-os engine and is excluded (see `[tool.ruff]` /
+- `ruff` and `mypy` only lint/type-check `ohbs_image/` — `ohbs_image/roles/` is
+  the vendored ohbs-os engine and is excluded (see `[tool.ruff]` /
   `[tool.mypy]` in `pyproject.toml`).
 - CI runs the matrix on Python 3.11–3.13; keep changes compatible with 3.11+
   (no 3.12-only syntax).
@@ -33,12 +33,12 @@ pytest -v --tb=short
   this project have repeatedly come from untested edges in the Tencent
   Cloud API responses (e.g. `CreatedTime: null` on public images,
   `InstanceState` returned as a plain string instead of a dict) — mock at
-  the `cis_image._tc3_api` boundary and assert both the happy path and the
+  the `ohbs_image._tc3_api` boundary and assert both the happy path and the
   edge case that broke before.
 
 ## Running the real end-to-end test
 
-`tests/test_cis_image.py` mocks the `cis_image._tc3_api` boundary — it's
+`tests/test_ohbs_image.py` mocks the `ohbs_image._tc3_api` boundary — it's
 fast, free, and catches API-response edge cases well (null fields, wrong
 nesting, etc.), but it can never prove that `pip install -e .` actually
 works on a clean box, that the real network path is reachable, or that we
@@ -52,10 +52,10 @@ This is **not** a CI-required step — it's a manual/optional check to run
 when you suspect an environment-specific issue, or before a larger release.
 By default (no `--target-mode`, or `--target-mode toolchain`) it only
 validates that the checkout itself installs and tests cleanly on a real
-machine — it does **not** run a real `cis-image build`/`verify-image`/
+machine — it does **not** run a real `ohbs-image build`/`verify-image`/
 `cleanup-images` against a profile.
 
-To additionally trigger a REAL `cis-image build` against one or more
+To additionally trigger a REAL `ohbs-image build` against one or more
 profile+level combinations (e.g. "RHEL 8, CIS Level 1"), pass
 `--target-mode single|all-linux|all` — see "Triggering a real profile
 build" below.
@@ -89,13 +89,13 @@ python3 scripts/real_e2e_test.py \
   removed in favor of an explicit, required flag.
 - Defaults to image `img-31d8ynuj` (an AlmaLinux 10.2 build) — override with
   `--image-id` / `--instance-type` as needed. Confirm the image is actually
-  available in your target region first (`cis-image images --region ...`
+  available in your target region first (`ohbs-image images --region ...`
   or `DescribeImages`) since custom images don't automatically replicate
   across regions.
 - The security group you pass must already allow inbound TCP/22 from this
   machine's public IP; the script does not modify security group rules.
-- Requires `cis-image` to already be installed in editable mode on the
-  machine running the script (it imports `cis_image._tc3_api` directly
+- Requires `ohbs-image` to already be installed in editable mode on the
+  machine running the script (it imports `ohbs_image._tc3_api` directly
   rather than re-implementing TC3-HMAC-SHA256 signing).
 - Creates one real CVM instance for the duration of the run (roughly
   5-10 minutes) — this incurs real cloud cost, however small.
@@ -130,7 +130,7 @@ python3 scripts/real_e2e_test.py \
 ### Triggering a real profile build
 
 `--target-mode` (default `toolchain`) opts into triggering a REAL
-`cis-image build` for one or more profile+level combinations, each on its
+`ohbs-image build` for one or more profile+level combinations, each on its
 own temporary build CVM (with a public IP) reached from the jump box over
 the public internet:
 
@@ -145,7 +145,7 @@ In matrix mode (`single`/`all-linux`/`all`) the jump box skips
 `ruff`/`mypy`/`pytest` (that's the `toolchain` mode's job) and instead
 installs `packer` + `ansible-core` (+ `ansible.windows` if any Windows
 profile is in scope), then drives up to `--max-parallel-builds` (default 4)
-concurrent `cis-image build` subprocesses. The HTML report gets an
+concurrent `ohbs-image build` subprocesses. The HTML report gets an
 additional "Profile Build Matrix" section (profile, level, status, score,
 image ID(s)) alongside the existing step table.
 
@@ -191,21 +191,21 @@ Additional requirements for matrix mode:
 
 ## Hard constraints
 
-- **Zero third-party runtime dependencies.** `cis-image` itself only imports
+- **Zero third-party runtime dependencies.** `ohbs-image` itself only imports
   the Python 3.11+ standard library — `urllib.request`, `hashlib`, `hmac`,
   `tomllib`, etc. Do not add a `requirements.txt` entry or a new import from
-  PyPI to `cis_image/__init__.py`. Packer and Ansible remain external
+  PyPI to `ohbs_image/__init__.py`. Packer and Ansible remain external
   system-level tools, not Python dependencies. Dev-only tooling
   (`pytest`, `ruff`, `mypy`, `tomli_w`, `pywinrm`) belongs in
   `[project.optional-dependencies].dev`, never in the base install.
 - **No long-lived credentials in code or config.** Secrets come from
   `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` (and optionally
   `TENCENTCLOUD_SECURITY_TOKEN` for STS) via environment variables only.
-  Never read them from `cis-image.toml` or write them to disk.
+  Never read them from `ohbs-image.toml` or write them to disk.
 - **Bundled roles ship inside the package.** Every profile's role directory
-  lives under `cis_image/roles/<role_dir>/` (next to `__init__.py`), not
-  outside the package — otherwise a built wheel omits it and `cis-image
-  build` fails after a clean install. `tests/test_cis_image.py::TestPackaging`
+  lives under `ohbs_image/roles/<role_dir>/` (next to `__init__.py`), not
+  outside the package — otherwise a built wheel omits it and `ohbs-image
+  build` fails after a clean install. `tests/test_ohbs_image.py::TestPackaging`
   guards this; don't remove or weaken it.
 - **Fail open on read-only/advisory checks.** Anything that inspects cloud
   state before taking a destructive action (image cleanup, security-group
@@ -218,12 +218,12 @@ Additional requirements for matrix mode:
 
 There are 12 bundled profiles (8 Linux via `ansible-local` + SSH, 4 Windows
 via controller-side Ansible + WinRM). Each lives at
-`cis_image/roles/cis_<profile>/` and needs, at minimum:
+`ohbs_image/roles/cis_<profile>/` and needs, at minimum:
 
 ```
-cis_image/roles/cis_<profile>/
+ohbs_image/roles/cis_<profile>/
 ├── files/
-│   ├── cis_engine.py       # Linux: the rule check/fix engine (or cis_engine.ps1 for Windows)
+│   ├── ohbs_engine.py       # Linux: the rule check/fix engine (or ohbs_engine.ps1 for Windows)
 │   ├── rules.json          # rule catalog: id, title, section, levels, family, params, risk, page
 │   ├── guidance.json       # optional: human-readable remediation notes per rule
 │   └── sections.json       # chapter/subsection titles for report headers
@@ -233,7 +233,7 @@ cis_image/roles/cis_<profile>/
 └── templates/
 ```
 
-Then register the profile in `PROFILES` in `cis_image/__init__.py` (family,
+Then register the profile in `PROFILES` in `ohbs_image/__init__.py` (family,
 `role_dir`, `os_tag`, `benchmark`, and for Windows `winrm_username`; for
 Linux the SSH username/port defaults come from the `_ubuntu_profile` /
 `_rhel_profile` / `_tlinux_profile` helpers).
@@ -256,7 +256,7 @@ Rule entries in `rules.json` follow this shape:
 ```
 
 - `family` maps to a `c_<family>` (check) / `f_<family>` (fix) handler pair
-  in `cis_engine.py`, registered via the `@check(...)` / `@fix(...)`
+  in `ohbs_engine.py`, registered via the `@check(...)` / `@fix(...)`
   decorators. Reuse an existing family where the check/fix logic already
   fits (`kmod`, `sysctl`, `mount_opt`, `file_perm`, `svc_disabled`,
   `svc_enabled`, `pkg_absent`, `pkg_present`, `sshd_param`, ...) — only add
@@ -268,7 +268,7 @@ Rule entries in `rules.json` follow this shape:
     layout change on a live disk (see
     `test_none_risk_partition_rules_are_manual`).
 - `risk` is `"safe"` (apply freely) or a stronger label gated by
-  `[cis].allow_disruptive` in `cis-image.toml` — don't downgrade a
+  `[cis].allow_disruptive` in `ohbs-image.toml` — don't downgrade a
   legitimately disruptive rule to `"safe"` to make a benchmark score look
   better.
 - Keep the benchmark edition and page numbers accurate — they're surfaced
@@ -283,7 +283,7 @@ numbers present, etc.), so a malformed entry in any profile fails fast.
 ## Reporting bugs
 
 Include:
-- The exact `cis-image` command and relevant `cis-image.toml` fields
+- The exact `ohbs-image` command and relevant `ohbs-image.toml` fields
   (redact secrets — there shouldn't be any in the file, but redact anything
   you're unsure about).
 - Full output with `-v`/`--verbose`, or the contents of `--log-file` if you

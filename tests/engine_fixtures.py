@@ -1,6 +1,6 @@
-"""Reusable fixtures/helpers for unit-testing the per-OS cis_engine.py copies.
+"""Reusable fixtures/helpers for unit-testing the per-OS ohbs_engine.py copies.
 
-Each cis_image/roles/<role>/files/cis_engine.py is a standalone, stdlib-only
+Each ohbs_image/roles/<role>/files/ohbs_engine.py is a standalone, stdlib-only
 module (no Ansible imports), so it can be loaded directly via importlib and
 exercised with mocked filesystem/os primitives -- no root, no real mounts,
 no cloud.  PR #5 added ``fstab_only`` partition logic and a late-boot
@@ -24,19 +24,19 @@ import pytest
 
 # Map of role name -> engine file path (relative to repo root).
 ENGINE_PATHS = {
-    "cis_rhel8": "cis_image/roles/cis_rhel8/files/cis_engine.py",
-    "cis_rhel9": "cis_image/roles/cis_rhel9/files/cis_engine.py",
-    "cis_rhel10": "cis_image/roles/cis_rhel10/files/cis_engine.py",
-    "cis_tencentos3": "cis_image/roles/cis_tencentos3/files/cis_engine.py",
-    "cis_tencentos4": "cis_image/roles/cis_tencentos4/files/cis_engine.py",
-    "cis_ubuntu2004": "cis_image/roles/cis_ubuntu2004/files/cis_engine.py",
-    "cis_ubuntu2204": "cis_image/roles/cis_ubuntu2204/files/cis_engine.py",
-    "cis_ubuntu2404": "cis_image/roles/cis_ubuntu2404/files/cis_engine.py",
+    "ohbs-rhel8": "ohbs_image/roles/ohbs-rhel8/files/ohbs_engine.py",
+    "ohbs-rhel9": "ohbs_image/roles/ohbs-rhel9/files/ohbs_engine.py",
+    "ohbs-rhel10": "ohbs_image/roles/ohbs-rhel10/files/ohbs_engine.py",
+    "ohbs-tencentos3": "ohbs_image/roles/ohbs-tencentos3/files/ohbs_engine.py",
+    "ohbs-tencentos4": "ohbs_image/roles/ohbs-tencentos4/files/ohbs_engine.py",
+    "ohbs-ubuntu2004": "ohbs_image/roles/ohbs-ubuntu2004/files/ohbs_engine.py",
+    "ohbs-ubuntu2204": "ohbs_image/roles/ohbs-ubuntu2204/files/ohbs_engine.py",
+    "ohbs-ubuntu2404": "ohbs_image/roles/ohbs-ubuntu2404/files/ohbs_engine.py",
 }
 
 
 def load_engine(role, repo_root=None):
-    """Load a role's cis_engine.py as an importable module.
+    """Load a role's ohbs_engine.py as an importable module.
 
     Uses a unique module name per role so multiple engines can coexist in one
     test session without import-name collisions.
@@ -51,7 +51,7 @@ def load_engine(role, repo_root=None):
         path = os.path.join(os.getcwd(), path)
     if not os.path.exists(path):
         raise FileNotFoundError(f"engine not found: {path}")
-    spec = importlib.util.spec_from_file_location(f"cis_engine_{role}", path)
+    spec = importlib.util.spec_from_file_location(f"ohbs_engine_{role}", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -234,7 +234,7 @@ def mock_systemd(monkeypatch, engine, present=True, sh_calls=None):
 
 # -- a smoke test proving the harness loads an engine and mocks it ----------
 def test_harness_loads_ubuntu2404_and_mocks():
-    eng = load_engine("cis_ubuntu2404")
+    eng = load_engine("ohbs-ubuntu2404")
     assert callable(eng.c_partition)
     assert callable(getattr(eng, "_fstab_has_tmpfs", None)), \
         "PR #5 helper missing -- harness out of sync with engine"
