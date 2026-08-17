@@ -9,7 +9,11 @@ HCL_LINUX_TEMPLATE = r"""packer {
   required_plugins {
     tencentcloud = {
       source  = "github.com/hashicorp/tencentcloud"
-      version = ">= 1.0.0, < 2.0.0"
+      # >= 1.2.8: earlier v1.x (e.g. v1.2.0, installed by a fresh `packer init`
+      # against a <2.0.0 constraint) intermittently fails to find a just-created
+      # instance ("instance(...) not exist"), failing every build. Local builds
+      # with v1.2.8 work reliably. Pin the floor so the jump box gets the fix.
+      version = ">= 1.2.8, < 2.0.0"
     }
     ansible = {
       source  = "github.com/hashicorp/ansible"
@@ -677,7 +681,11 @@ HCL_WIN_TEMPLATE = r"""packer {
   required_plugins {
     tencentcloud = {
       source  = "github.com/hashicorp/tencentcloud"
-      version = ">= 1.0.0, < 2.0.0"
+      # >= 1.2.8: earlier v1.x (e.g. v1.2.0, installed by a fresh `packer init`
+      # against a <2.0.0 constraint) intermittently fails to find a just-created
+      # instance ("instance(...) not exist"), failing every build. Local builds
+      # with v1.2.8 work reliably. Pin the floor so the jump box gets the fix.
+      version = ">= 1.2.8, < 2.0.0"
     }
     ansible = {
       source  = "github.com/hashicorp/ansible"
