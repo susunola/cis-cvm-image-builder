@@ -1,0 +1,56 @@
+name: Monitor tencentcloud plugin fix
+
+# Watches our filed upstream issue (hashicorp/packer-plugin-tencentcloud#166)
+# and the plugin's releases. When a release newer than v1.2.0 (the current
+# latest, which has the intermittent "instance not exist" failure) appears,
+# this workflow reports it so we know to retry the ohbs-image e2e matrix.
+#
+# It is deliberately quiet on the happy path: it just records the current
+# state. It only surfaces loudly (fails / writes a summary) when something
+# changes — i.e. the issue is commented/closed or a fix release is published.
+
+on:
+  schedule:
+    - cron: "23 9 * * *"     # daily 09:23 local — off the :00/:30 marks
+  workflow_dispatch: {}      # allow manual trigger
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check upstream issue + releases
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO="hashicorp/packer-plugin-tencentcloud"
+          ISSUE=166
+
+          # Current latest release (parse with gh api)
+          LATEST=$(gh api "repos/$REPO/releases/latest" --jq '.tag_name' 2>/dev/null || echo "none")
+          echo "latest_release=$LATEST"
+          echo "latest_release=$LATEST" >> "$GITHUB_OUTPUT"
+
+          # Issue state + comment count
+          STATE=$(gh api "repos/$REPO/issues/$ISSUE" --jq '.state' 2>/dev/null || echo "error")
+          COMMENTS=$(gh api "repos/$REPO/issues/$ISSUE" --jq '.comments' 2>/dev/null || echo "0")
+          echo "issue_state=$STATE"
+          echo "issue_state=$STATE" >> "$GITHUB_OUTPUT"
+          echo "issue_comments=$COMMENTS" >> "$GITHUB_OUTPUT"
+
+      # Only surface when something changed: a fix release, or issue activity.
+      - name: Report fix available
+        if: steps.check.outputs.latest_release != 'v1.2.0'
+        run: |
+          echo "::warning::A new tencentcloud plugin release is available: ${{ steps.check.outputs.latest_release }}. Retry the ohbs-image e2e matrix."
+
+      - name: Report issue activity
+        if: steps.check.outputs.issue_state != 'open' || steps.check.outputs.issue_comments != '0'
+        run: |
+          echo "::warning::Upstream issue #166 activity detected (state=${{ steps.check.outputs.issue_state }}, comments=${{ steps.check.outputs.issue_comments }}). Review hashicorp/packer-plugin-tencentcloud#166."
