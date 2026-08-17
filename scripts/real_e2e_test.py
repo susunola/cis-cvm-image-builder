@@ -81,6 +81,7 @@ import os
 import re
 import shlex
 import subprocess
+import hashlib
 import sys
 import tempfile
 import time
@@ -1109,7 +1110,7 @@ export TENCENTCLOUD_SECRET_ID={secret_id}
 export TENCENTCLOUD_SECRET_KEY={secret_key}
 export TENCENTCLOUD_SECURITY_TOKEN={secret_token}
 export WINRM_PASSWORD={winrm_password}
-
+{packer_plugin_env}
 run_step() {{
     local name="$1"
     shift
@@ -1234,6 +1235,28 @@ def run_remote_matrix(host: str, ssh_user: str, key_path: Path, branch: str,
         if needs_windows else ""
     )
 
+    # Optional: use a locally-built, patched tencentcloud packer plugin (e.g.
+    # with the ClientToken fix for the upstream "instance not exist" bug). When
+    # E2E_TENCENT_PLUGIN_BIN points to a linux_amd64 plugin binary, it is SCP'd
+    # to the jump box and PACKER_PLUGIN_PATH is set so `packer init`/`build`
+    # use OUR plugin instead of re-downloading v1.2.0 from the public registry.
+    packer_plugin_env = ""
+    plugin_bin = os.environ.get("E2E_TENCENT_PLUGIN_BIN", "").strip()
+    if plugin_bin:
+        plugin_path = Path(plugin_bin)
+        if not plugin_path.is_file():
+            raise ConfigError(
+                f"E2E_TENCENT_PLUGIN_BIN set but file not found: {plugin_bin}")
+        plugin_name = plugin_path.name
+        remote_plug_dir = f"/opt/packer-plugins/github.com/hashicorp/tencentcloud"
+        # SCP the plugin + its checksum to the jump box in one round-trip.
+        _upload_packer_plugin(host, ssh_user, key_path, plugin_path,
+                              remote_plug_dir)
+        packer_plugin_env = (
+            f"export PACKER_PLUGIN_PATH=/opt/packer-plugins\n"
+            f"# custom patched tencentcloud plugin: {plugin_name}"
+        )
+
     script = MATRIX_REMOTE_SCRIPT.format(
         branch=branch, repo_url=REPO_URL,
         log_dir=REMOTE_LOG_DIR, repo_dir=REMOTE_REPO_DIR,
@@ -1241,8 +1264,47 @@ def run_remote_matrix(host: str, ssh_user: str, key_path: Path, branch: str,
         secret_token=shlex.quote(tok or ""), winrm_password=shlex.quote(winrm_password),
         combos_json=combos_json, run_matrix_py=run_matrix_py,
         max_parallel=max_parallel, windows_collection_step=windows_collection_step,
+        packer_plugin_env=packer_plugin_env,
     )
     return _run_remote_script(host, ssh_user, key_path, script, log_path)
+
+
+def _upload_packer_plugin(host: str, ssh_user: str, key_path: Path,
+                          plugin_path: Path, remote_plug_dir: str) -> None:
+    """SCP a pre-built packer plugin (and its *_SHA256SUM) to the jump box.
+
+    packer will otherwise re-download the latest public plugin during
+    `packer init` (overwriting anything in the default cache). Pointing
+    PACKER_PLUGIN_PATH at this dir makes packer use OUR plugin instead.
+    """
+    ssh_common = ["-i", str(key_path), "-o", "StrictHostKeyChecking=no",
+                  "-o", "UserKnownHostsFile=/dev/null"]
+    try:
+        subprocess.run(["ssh", *ssh_common, f"{ssh_user}@{host}",
+                        f"mkdir -p {shlex.quote(remote_plug_dir)}"],
+                       check=True, capture_output=True, timeout=30)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ConfigError(f"Could not mkdir {remote_plug_dir} on jump box: {exc}") from None
+    # Copy the plugin binary + checksum; packer verifies the SHA256SUM file.
+    sha = hashlib.sha256(plugin_path.read_bytes()).hexdigest()
+    checksum_line = f"{sha}  {plugin_path.name}\n"
+    # Pipe the binary over ssh cat (works even when scp is unavailable), plus
+    # write the checksum file.
+    try:
+        p = subprocess.run(
+            ["ssh", *ssh_common, f"{ssh_user}@{host}",
+             f"cat > {shlex.quote(remote_plug_dir + '/' + plugin_path.name)}"],
+            input=plugin_path.read_bytes(), capture_output=True, timeout=120)
+        if p.returncode != 0:
+            raise ConfigError(f"plugin upload failed: {p.stderr.decode()[:200]}")
+        subprocess.run(["ssh", *ssh_common, f"{ssh_user}@{host}",
+                        f"printf '%s' {shlex.quote(checksum_line)} > "
+                        f"{shlex.quote(remote_plug_dir + '/' + plugin_path.name + '_SHA256SUM')} "
+                        f"&& chmod +x {shlex.quote(remote_plug_dir + '/' + plugin_path.name)}"],
+                       check=True, capture_output=True, timeout=30)
+        info(f"Uploaded patched packer plugin {plugin_path.name} to {host}:{remote_plug_dir}")
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        raise ConfigError(f"Failed to upload patched packer plugin: {exc}") from None
 
 
 def _redact_line(line: str) -> str:

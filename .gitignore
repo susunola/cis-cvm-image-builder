@@ -45,3 +45,4 @@ htmlcov/
 # Build logs (local artifacts, never commit)
 logs/
 run.log
+packer-plugin-tencentcloud_v1.2.0_x5.0_linux_amd64
