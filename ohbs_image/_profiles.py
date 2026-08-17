@@ -48,7 +48,12 @@ PROFILES: dict[str, dict[str, Any]] = {
     "rhel9":       _rhel_profile("cis-rhel9", "rhel-9"),
     "rhel10":      _rhel_profile("cis-rhel10", "rhel-10"),
     "tencentos3":  _tlinux_profile("cis-tencentos3", "tencentos-3", ansible_core_spec="ansible-core>=2.11"),
-    "tencentos4":  _tlinux_profile("cis-tencentos4", "tencentos-4"),
+    # TencentOS Server 4's public images ship with sshd on the standard
+    # port 22 (not 36000 like TencentOS 3). Verified empirically: the
+    # img-6n21msk1 image listens only on :22 and accepts root key auth there,
+    # while :36000 is not an sshd (connection closed). Override the shared
+    # 36000 default or every tencentos4 build times out waiting for SSH.
+    "tencentos4":  _tlinux_profile("cis-tencentos4", "tencentos-4", ssh_port=22),
     # ── Windows Server (winrm + controller-side ansible) ──
     "win2016": {
         "family": "windows",
