@@ -1324,7 +1324,13 @@ def _run_remote_script(host: str, ssh_user: str, key_path: Path, script: str,
     log_path.parent.mkdir(exist_ok=True)
     with subprocess.Popen(
         ["ssh", "-i", str(key_path), "-o", "StrictHostKeyChecking=no",
-         "-o", "UserKnownHostsFile=/dev/null", f"{ssh_user}@{host}", "bash", "-s"],
+         "-o", "UserKnownHostsFile=/dev/null",
+         # Keep the connection alive during long-running builds — without these,
+         # a NAT/firewall can drop the idle SSH session mid-matrix
+         # ("Connection ... closed by remote host"), killing the whole run.
+         "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=10",
+         "-o", "TCPKeepAlive=yes", "-o", "ConnectTimeout=15",
+         f"{ssh_user}@{host}", "bash", "-s"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True,
     ) as proc, log_path.open("w") as log_f:
