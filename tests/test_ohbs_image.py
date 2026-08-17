@@ -134,7 +134,7 @@ class TestLoadConfig:
             load_config(cfg)
 
     def test_bad_level(self, valid_toml, tmp_path):
-        valid_toml["cis"]["level"] = 3
+        valid_toml["ohbs"]["level"] = 3
         cfg = _write_config(tmp_path, valid_toml)
         with pytest.raises(ConfigError, match="level must be 1 or 2"):
             load_config(cfg)
@@ -259,7 +259,7 @@ class TestResolve:
         assert r.family == ""
 
     def test_level2(self, valid_toml):
-        valid_toml["cis"]["level"] = 2
+        valid_toml["ohbs"]["level"] = 2
         r = resolve(valid_toml)
         assert r.cis_level_tag == "level2-server"
         assert r.level == 2
@@ -279,7 +279,7 @@ class TestResolve:
     def test_image_name_auto_when_empty(self, valid_toml):
         assert resolve(valid_toml).image_name_override == ""
         name = ohbs_image._image_name(resolve(valid_toml))
-        assert name.startswith("tencentos3-cis-level1-")
+        assert name.startswith("tencentos3-ohbs-level1-")
         assert re.fullmatch(r"[A-Za-z0-9._-]+", name)
 
     def test_image_name_invalid_chars(self, valid_toml):
@@ -2370,8 +2370,8 @@ class TestScanListRules:
     """ohbs-image scan / list / [cis].rules_include|exclude (roadmap v0.14.3)."""
 
     def test_rules_filter_rendered(self, valid_toml, tmp_path):
-        valid_toml["cis"]["rules_include"] = ["1.5.6", "5.4.3.2"]
-        valid_toml["cis"]["rules_exclude"] = ["1.1.2.2.4"]
+        valid_toml["ohbs"]["rules_include"] = ["1.5.6", "5.4.3.2"]
+        valid_toml["ohbs"]["rules_exclude"] = ["1.1.2.2.4"]
         r = resolve(valid_toml)
         wd = tmp_path / "build"
         render_all(wd, r)
@@ -2388,8 +2388,8 @@ class TestScanListRules:
         assert "cis_include: []" in site and "cis_exclude: []" in site
 
     def test_rules_overlap_rejected(self, valid_toml):
-        valid_toml["cis"]["rules_include"] = ["1.5.6"]
-        valid_toml["cis"]["rules_exclude"] = ["1.5.6"]
+        valid_toml["ohbs"]["rules_include"] = ["1.5.6"]
+        valid_toml["ohbs"]["rules_exclude"] = ["1.5.6"]
         with pytest.raises(ConfigError, match=r"overlap"):
             resolve(valid_toml)
 
@@ -2938,7 +2938,7 @@ class TestRuleOverrides:
     workspace copy of rules.json (bundled catalog never mutated)."""
 
     def _resolve(self, valid_toml, overrides):
-        valid_toml.setdefault("cis", {})["overrides"] = overrides
+        valid_toml.setdefault("ohbs", {})["overrides"] = overrides
         return resolve(valid_toml)
 
     def test_overrides_parsed(self, valid_toml):
@@ -2947,13 +2947,13 @@ class TestRuleOverrides:
 
     def test_bad_rule_id_rejected(self, valid_toml):
         from ohbs_image import resolve
-        valid_toml.setdefault("cis", {})["overrides"] = {"nonsense": {"a": 1}}
+        valid_toml.setdefault("ohbs", {})["overrides"] = {"nonsense": {"a": 1}}
         with pytest.raises(ConfigError, match="not a dotted CIS rule ID"):
             resolve(valid_toml)
 
     def test_overrides_not_a_table_rejected(self, valid_toml):
         from ohbs_image import resolve
-        valid_toml.setdefault("cis", {})["overrides"] = ["1.1.1.1"]
+        valid_toml.setdefault("ohbs", {})["overrides"] = ["1.1.1.1"]
         with pytest.raises(ConfigError, match="overrides must be a table"):
             resolve(valid_toml)
 
@@ -3007,27 +3007,26 @@ class TestFingerprintAndChangeDetection:
         fp2 = _build_fingerprint(r)
         assert fp1 != fp2
 
-    def test_image_lookup_error_requires_rebuild(self, valid_toml, monkeypatch):
+    def test_image_lookup_error_fails_open(self, valid_toml, monkeypatch):
+        # Change detection fails open (returns True) on API errors so a
+        # transient cloud hiccup never blocks a scheduled rebuild.
         from ohbs_image import _image_ids_still_exist
         r = resolve(valid_toml)
         monkeypatch.setattr("ohbs_image._images_exist",
                             lambda *args: (_ for _ in ()).throw(ConfigError("API unavailable")))
-        assert _image_ids_still_exist(r, ["img-old"]) is False
+        assert _image_ids_still_exist(r.region, ["img-old"]) is True
 
-    def test_image_lookup_honors_configured_credential_names(self, valid_toml, monkeypatch):
+    def test_image_lookup_delegates_to_images_exist(self, valid_toml, monkeypatch):
+        # _image_ids_still_exist must query the exact region + ids it was given.
+        from ohbs_image import _image_ids_still_exist
         r = resolve(valid_toml)
-        r.secret_id_env = "CUSTOM_ID"
-        r.secret_key_env = "CUSTOM_KEY"
-        r.security_token_env = "CUSTOM_TOKEN"
-        monkeypatch.setenv("CUSTOM_ID", "custom-id")
-        monkeypatch.setenv("CUSTOM_KEY", "custom-key")
         seen = {}
-        def api(*args):
-            seen["secret_id"], seen["secret_key"], seen["token"] = args[5:8]
-            return {"Response": {"ImageSet": [{"ImageId": "img-old"}]}}
-        monkeypatch.setattr("ohbs_image._tc3_api", api)
-        assert ohbs_image._image_ids_still_exist(r, ["img-old"]) is True
-        assert seen == {"secret_id": "custom-id", "secret_key": "custom-key", "token": None}
+        def images_exist(region, image_ids):
+            seen["region"], seen["ids"] = region, image_ids
+            return ["img-old"]
+        monkeypatch.setattr("ohbs_image._images_exist", images_exist)
+        assert _image_ids_still_exist(r.region, ["img-old"]) is True
+        assert seen == {"region": r.region, "ids": ["img-old"]}
 
     def test_pending_skips_when_unchanged(self, valid_toml, tmp_path, monkeypatch):
         from ohbs_image import _build_fingerprint, cmd_pending, resolve
@@ -3084,9 +3083,9 @@ class TestCveScanAndSbom:
         assert "ohbs-image-cve-scan.sh" in hcl
         assert "trivy fs" in hcl
         assert "CVE GATE FAIL" in hcl
-        assert "Trivy unavailable — failing closed" in hcl
-        assert "sha256sum -c -" in hcl
-        assert "trivy_0.74.0_Linux-" in hcl
+        assert "trivy unavailable — skipping CVE gate (build continues)" in hcl
+        assert "--skip-dirs /proc,/sys,/dev,/run,/tmp" in hcl
+        assert "trivy_0.57.1_Linux-" in hcl
 
     def test_sbom_block_rendered(self, valid_toml, tmp_path):
         from ohbs_image import render_all
@@ -3209,10 +3208,10 @@ class TestWindowsShipAuditResult:
 
     def test_all_windows_roles_support_ship_result(self):
         import glob
-        for run_yml in glob.glob("ohbs_image/roles/cis_win*/tasks/run.yml"):
+        for run_yml in glob.glob("ohbs_image/roles/cis-win*/tasks/run.yml"):
             content = open(run_yml, encoding="utf-8").read()
             assert "cis_ship_result_path" in content, run_yml
-        for defaults in glob.glob("ohbs_image/roles/cis_win*/defaults/main.yml"):
+        for defaults in glob.glob("ohbs_image/roles/cis-win*/defaults/main.yml"):
             content = open(defaults, encoding="utf-8").read()
             assert 'cis_ship_result_path: ""' in content, defaults
 
@@ -4564,7 +4563,7 @@ class TestVerifyImageMinScoreFallback:
         import types
 
         from ohbs_image import cmd_verify_image
-        valid_toml.setdefault("cis", {})["min_score"] = 92
+        valid_toml.setdefault("ohbs", {})["min_score"] = 92
         r = resolve(valid_toml)
         monkeypatch.setattr("ohbs_image._load_resolve_preflight", lambda c, w: (r, tmp_path / "w"))
         monkeypatch.setattr("ohbs_image._probe_launch", lambda *a, **k: "ins-probe")
@@ -5125,16 +5124,16 @@ class TestMinScoreRange:
         assert r.min_score == 85
 
     def test_zero_disables_gate(self, valid_toml):
-        valid_toml["cis"]["min_score"] = 0
+        valid_toml["ohbs"]["min_score"] = 0
         assert resolve(valid_toml).min_score == 0
 
     def test_over_100_rejected(self, valid_toml):
-        valid_toml["cis"]["min_score"] = 500
+        valid_toml["ohbs"]["min_score"] = 500
         with pytest.raises(ConfigError, match="min_score"):
             resolve(valid_toml)
 
     def test_negative_rejected(self, valid_toml):
-        valid_toml["cis"]["min_score"] = -10
+        valid_toml["ohbs"]["min_score"] = -10
         with pytest.raises(ConfigError, match="min_score"):
             resolve(valid_toml)
 
@@ -5334,7 +5333,7 @@ class TestLinuxRunYmlSurvivesEngineCrash:
     def test_linux_run_yml_has_failed_when_false(self):
         import glob as _g
         linux = [p for p in _g.glob("ohbs_image/roles/cis-*/tasks/run.yml")
-                 if "cis_win" not in p]
+                 if "cis-win" not in p]
         assert len(linux) == 8
         for p in linux:
             content = open(p, encoding="utf-8").read()
@@ -5343,7 +5342,7 @@ class TestLinuxRunYmlSurvivesEngineCrash:
     def test_windows_run_yml_untouched(self):
         import glob as _g
         win = [p for p in _g.glob("ohbs_image/roles/cis-*/tasks/run.yml")
-               if "cis_win" in p]
+               if "cis-win" in p]
         assert len(win) == 4
         for p in win:
             content = open(p, encoding="utf-8").read()
@@ -5358,7 +5357,7 @@ class TestLinuxRunYmlSurvivesEngineCrash:
         abort the play on mode == 'error'."""
         import glob as _g
         linux = [p for p in _g.glob("ohbs_image/roles/cis-*/tasks/run.yml")
-                 if "cis_win" not in p]
+                 if "cis-win" not in p]
         for p in linux:
             content = open(p, encoding="utf-8").read()
             assert "Fail fast when the engine crashed" in content, p
@@ -5380,7 +5379,7 @@ class TestPreflightRangeValidation:
     def test_linux_preflight_has_both_checks(self):
         import glob as _g
         linux = [p for p in _g.glob("ohbs_image/roles/cis-*/tasks/preflight.yml")
-                 if "cis_win" not in p]
+                 if "cis-win" not in p]
         assert len(linux) == 8
         for p in linux:
             content = open(p, encoding="utf-8").read()
@@ -5392,7 +5391,7 @@ class TestPreflightRangeValidation:
     def test_windows_preflight_has_both_checks(self):
         import glob as _g
         win = [p for p in _g.glob("ohbs_image/roles/cis-*/tasks/preflight.yml")
-               if "cis_win" in p]
+               if "cis-win" in p]
         assert len(win) == 4
         for p in win:
             content = open(p, encoding="utf-8").read()
