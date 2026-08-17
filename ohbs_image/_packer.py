@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,28 @@ from ._render import _check_ansible_windows_collection, _check_bundled_role, _ch
 from ._tc_cloud import _check_security_group_ingress
 
 PACKER_TIMEOUT_MINUTES = 120
+
+# Number of attempts for the (network-dependent) `packer init` step. GitHub
+# API 5xx / rate-limits while downloading the tencentcloud plugin are
+# transient; a short exponential backoff mirrors the _tc3_api convention.
+INIT_MAX_ATTEMPTS = 4
+
+# Signatures of a *transient* `packer init` failure worth retrying — GitHub
+# API gateway/rate-limit errors and network-layer hiccups. Anything else
+# (e.g. a genuine HCL/plugin-version error) is terminal and fails fast.
+_INIT_TRANSIENT_RE = re.compile(
+    r"rate limit|API rate limit exceeded| 5\d\d |matching-refs/tags|"
+    r"connection reset|temporary failure in name resolution|timed out|"
+    r"unable to access|SSL|TLS|certificate|network is unreachable",
+    re.IGNORECASE,
+)
+
+
+def _is_transient_init_failure(combined: str) -> bool:
+    """True when a failed `packer init` looks like a retryable network/rate-limit
+    failure rather than a genuine HCL/plugin error."""
+    return bool(_INIT_TRANSIENT_RE.search(combined or ""))
+
 
 def run_packer(
     workdir: Path,
@@ -52,24 +75,46 @@ def run_packer(
     # 1. packer init
     # Plugin downloads can be tens of MB on a slow/proxied link; 60s was
     # too aggressive and produced a misleading "check network" error.
-    try:
-        init_res = subprocess.run(
-            ["packer", "init", hcl_path],
-            cwd=workdir,
-            capture_output=True,
-            text=True,
-            timeout=300,
-            env=env,
-        )
-    except FileNotFoundError:
-        fail("packer not found in PATH. Install from https://developer.hashicorp.com/packer/install")
-        return PackerResult(exit_code=1)
-    except subprocess.TimeoutExpired:
-        fail("packer init timed out (300s). Check network / plugin registry access.")
-        return PackerResult(exit_code=1)
+    # GitHub API 5xx / rate-limits while resolving/downloading the
+    # tencentcloud plugin are transient — retry with exponential backoff
+    # (mirrors _tc3_api). A genuine HCL/plugin error fails fast.
+    init_res: subprocess.CompletedProcess[str] | None = None
+    combined = ""
+    for attempt in range(INIT_MAX_ATTEMPTS):
+        try:
+            init_res = subprocess.run(
+                ["packer", "init", hcl_path],
+                cwd=workdir,
+                capture_output=True,
+                text=True,
+                timeout=300,
+                env=env,
+            )
+        except FileNotFoundError:
+            fail("packer not found in PATH. Install from https://developer.hashicorp.com/packer/install")
+            return PackerResult(exit_code=1)
+        except subprocess.TimeoutExpired:
+            # A timeout is a network/stall symptom worth retrying.
+            if attempt == INIT_MAX_ATTEMPTS - 1:
+                fail(f"packer init timed out (300s) after {INIT_MAX_ATTEMPTS} attempts. "
+                     f"Check network / plugin registry access.")
+                return PackerResult(exit_code=1)
+            warn(f"packer init timed out (attempt {attempt + 1}/{INIT_MAX_ATTEMPTS}) — retrying")
+            time.sleep(2 ** attempt)
+            continue
 
-    if init_res.returncode != 0:
+        if init_res.returncode == 0:
+            break
         combined = (init_res.stdout or "") + (init_res.stderr or "")
+        if not _is_transient_init_failure(combined):
+            break  # real error — fail without retrying
+        if attempt == INIT_MAX_ATTEMPTS - 1:
+            break  # exhausted retries — surface the last failure
+        warn(f"packer init failed transiently (attempt {attempt + 1}/{INIT_MAX_ATTEMPTS}) — retrying")
+        time.sleep(2 ** attempt)
+
+    assert init_res is not None  # loop always assigns on non-FileNotFound paths
+    if init_res.returncode != 0:
         # init output is captured (not streamed) — surface it before failing.
         if combined.strip():
             print(combined.rstrip("\n"), file=sys.stderr)
