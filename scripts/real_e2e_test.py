@@ -992,41 +992,65 @@ def _attempt_build(combo, instance_type, attempt_dir):
 
 def build_one(combo):
     profile, level = combo["profile"], combo["level"]
-    types = _stock_aware_types(image_id=combo.get("image_id"))
-    last = None
-    for idx, instance_type in enumerate(types):
-        attempt_dir = WORKDIR / f"{profile}-l{level}" if idx == 0 else WORKDIR / f"{profile}-l{level}-{idx}"
-        result = _attempt_build(combo, instance_type, attempt_dir)
-        last = result
-        if result["exit_code"] == 0:
-            return result
-        # Retry with the next in-stock type when the failure is a launch-time
-        # (inventory/placement) problem rather than a hardening failure:
-        #   * ResourceInsufficient.SpecifiedInstanceType  — type understocked
-        #   * "not exist" after "Waiting for instance ready" — instance was
-        #     reclaimed immediately (transient zone/subnet inventory mismatch)
-        #   * "CVM not support the required disk"          — wrong disk type
-        #     (shouldn't happen given _disk_type_for, but retry defensively)
-        # Any OTHER failure (e.g. ansible hardening error, low score) is a real
-        # problem and surfaces immediately instead of burning the rest of the
-        # candidate list on the same broken profile.
-        tail = result["log_tail"] or ""
-        launch_failure = (
-            "ResourceInsufficient.SpecifiedInstanceType" in tail  # type understocked
-            or "not exist" in tail                                # reclaimed after launch
-            or "not support the required disk" in tail            # wrong disk type
-            # The source image is gated to certain instance families; this
-            # 2c4g type can't boot it ("No image found under current
-            # instance_type(...) restriction"). Not a config error — try the
-            # next in-stock type, which may be from a compatible family.
-            or "No image found under current instance_type" in tail
-        )
-        if not launch_failure:
-            return result
-        print(f"[matrix] {profile} L{level}: instance type {instance_type} "
-              f"launch failed ({tail.splitlines()[-1][:80]!r}) — trying next "
-              f"({len(types)-idx-1} left)", flush=True)
-    return last
+    # Transient Tencent-side image availability (e.g. "No image found under
+    # current instance_type(...) restriction") is INTERMITTENT — the same
+    # image+type succeeds on a later attempt (verified: a direct RunInstances
+    # and a local build both succeed while the jump-box packer intermittently
+    # reports "No image"). When every instance type fails with an
+    # image-availability error, wait with backoff and retry the whole list
+    # instead of giving up, so a transient blip doesn't kill a valid build.
+    import time
+    MAX_IMAGE_RETRIES = 3
+    image_retry = 0
+    while True:
+        types = _stock_aware_types(image_id=combo.get("image_id"))
+        last = None
+        all_image_unavailable = True
+        for idx, instance_type in enumerate(types):
+            attempt_dir = WORKDIR / f"{profile}-l{level}" if idx == 0 else WORKDIR / f"{profile}-l{level}-{idx}"
+            result = _attempt_build(combo, instance_type, attempt_dir)
+            last = result
+            if result["exit_code"] == 0:
+                return result
+            # Retry with the next in-stock type when the failure is a launch-time
+            # (inventory/placement) problem rather than a hardening failure:
+            #   * ResourceInsufficient.SpecifiedInstanceType  — type understocked
+            #   * "not exist" after "Waiting for instance ready" — instance was
+            #     reclaimed immediately (transient zone/subnet inventory mismatch)
+            #   * "CVM not support the required disk"          — wrong disk type
+            #   * "No image found under current instance_type" — source image
+            #     gated to instance family, OR an intermittent Tencent-side
+            #     image-availability blip. Try the next in-stock type; if ALL
+            #     fail this way we back off and retry (below).
+            # Any OTHER failure (e.g. ansible hardening error, low score) is a
+            # real problem and surfaces immediately.
+            tail = result["log_tail"] or ""
+            launch_failure = (
+                "ResourceInsufficient.SpecifiedInstanceType" in tail
+                or "not exist" in tail
+                or "not support the required disk" in tail
+                or "No image found under current instance_type" in tail
+            )
+            if not launch_failure:
+                return result
+            if "No image found under current instance_type" not in tail:
+                all_image_unavailable = False
+            print(f"[matrix] {profile} L{level}: instance type {instance_type} "
+                  f"launch failed ({tail.splitlines()[-1][:80]!r}) — trying next "
+                  f"({len(types)-idx-1} left)", flush=True)
+        # Every type failed. If they were ALL image-availability failures, this
+        # is likely a transient blip — back off and retry the whole list.
+        if last is None:
+            return None
+        if all_image_unavailable and image_retry < MAX_IMAGE_RETRIES:
+            image_retry += 1
+            wait = 30 * image_retry
+            print(f"[matrix] {profile} L{level}: all {len(types)} type(s) hit "
+                  f"image-availability errors — retrying in {wait}s "
+                  f"(attempt {image_retry}/{MAX_IMAGE_RETRIES})", flush=True)
+            time.sleep(wait)
+            continue
+        return last
 
 
 def main():
