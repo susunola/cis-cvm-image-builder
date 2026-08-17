@@ -9,10 +9,7 @@ HCL_LINUX_TEMPLATE = r"""packer {
   required_plugins {
     tencentcloud = {
       source  = "github.com/hashicorp/tencentcloud"
-      # v1.2.0 (latest public) intermittently fails to find a just-created
-      # instance ("instance(...) not exist"), failing every build. v1.1.1 is the
-      # prior release and is more stable. Pin to it until v1.2.x is fixed.
-      version = "1.1.1"
+      version = ">= 1.0.0, < 2.0.0"
     }
     ansible = {
       source  = "github.com/hashicorp/ansible"
@@ -680,10 +677,7 @@ HCL_WIN_TEMPLATE = r"""packer {
   required_plugins {
     tencentcloud = {
       source  = "github.com/hashicorp/tencentcloud"
-      # v1.2.0 (latest public) intermittently fails to find a just-created
-      # instance ("instance(...) not exist"), failing every build. v1.1.1 is the
-      # prior release and is more stable. Pin to it until v1.2.x is fixed.
-      version = "1.1.1"
+      version = ">= 1.0.0, < 2.0.0"
     }
     ansible = {
       source  = "github.com/hashicorp/ansible"
