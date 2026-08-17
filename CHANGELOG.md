@@ -37,6 +37,20 @@ can be traced across rebuilds.
 ### Fixed
 - `_audit_results_xccdf` now emits a timezone-aware, UTC-normalized
   timestamp instead of a naive `datetime.utcnow().isoformat()`.
+- **`packer init` retries transient failures** — the `packer init` step now
+  retries up to 4 attempts with exponential backoff on GitHub API 5xx /
+  rate-limit and network-layer errors (e.g. while downloading the
+  `packer-plugin-tencentcloud`). A genuine HCL/plugin error or a missing
+  `packer` binary still fails fast. This removes intermittent CI flakiness
+  in the real-HCL `TestRealPackerValidateAllProfiles` checks.
+
+### CI / tests
+- **Tests aligned with the `ohbs_` rebrand** — the test suite referenced the
+  pre-rebrand `cis` naming (config section `[cis]`, `cis_win` role filter,
+  `tencentos3-cis-` image prefix, legacy `_image_ids_still_exist`
+  signature, old CVE template text). Updated to match current `ohbs_image`
+  behavior, fixing 22 CI failures.
+
 
 ### Runtime-robustness (ported from the pre-refactor ohbs lineage)
 - **Guaranteed temp-dir cleanup in the roles** — all 12 OS `run.yml`
