@@ -1005,7 +1005,7 @@ def build_one(combo):
     while True:
         types = _stock_aware_types(image_id=combo.get("image_id"))
         last = None
-        all_image_unavailable = True
+        all_transient = True
         for idx, instance_type in enumerate(types):
             attempt_dir = WORKDIR / f"{profile}-l{level}" if idx == 0 else WORKDIR / f"{profile}-l{level}-{idx}"
             result = _attempt_build(combo, instance_type, attempt_dir)
@@ -1033,20 +1033,29 @@ def build_one(combo):
             )
             if not launch_failure:
                 return result
-            if "No image found under current instance_type" not in tail:
-                all_image_unavailable = False
+            # Track whether every failure was a TRANSIENT launch problem that a
+            # backoff+retry can reasonably ride out: image-availability blips and
+            # the intermittent "instance(...) not exist" that occurs when Tencent's
+            # DescribeInstances query drops a just-launched instance (observed
+            # repeatedly in ap-guangzhou-6). If ANY type failed for a different,
+            # deterministic reason we surface immediately instead of retrying.
+            if not ("No image found under current instance_type" in tail
+                    or "not exist" in tail):
+                all_transient = False
             print(f"[matrix] {profile} L{level}: instance type {instance_type} "
                   f"launch failed ({tail.splitlines()[-1][:80]!r}) — trying next "
                   f"({len(types)-idx-1} left)", flush=True)
-        # Every type failed. If they were ALL image-availability failures, this
-        # is likely a transient blip — back off and retry the whole list.
+        # Every type failed. If they were ALL transient launch problems
+        # (image availability / instance-not-exist), back off and retry the
+        # whole list — these are intermittent and a later attempt often succeeds.
         if last is None:
             return None
-        if all_image_unavailable and image_retry < MAX_IMAGE_RETRIES:
+        if all_transient and image_retry < MAX_IMAGE_RETRIES:
             image_retry += 1
             wait = 30 * image_retry
             print(f"[matrix] {profile} L{level}: all {len(types)} type(s) hit "
-                  f"image-availability errors — retrying in {wait}s "
+                  f"transient launch errors (image-availability / instance-not-exist) "
+                  f"— retrying in {wait}s "
                   f"(attempt {image_retry}/{MAX_IMAGE_RETRIES})", flush=True)
             time.sleep(wait)
             continue
