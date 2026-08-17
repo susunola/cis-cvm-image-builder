@@ -1317,6 +1317,86 @@ class TestRunPacker:
         assert result.exit_code == 1
         assert result.stdout_lines == ["partial output before hang"]
 
+    def _run_packer_with_init_results(self, tmp_path, init_results, subcmd="validate"):
+        """Run run_packer with a patched subprocess.run that yields *init_results*
+        for the `packer init` step, and a succeeding `packer validate` step."""
+        wd = tmp_path / "build"
+        wd.mkdir()
+        (wd / "packer").mkdir()
+        (wd / "packer" / "main.pkr.hcl").write_text("")
+
+        with (
+            mock.patch("subprocess.run", side_effect=init_results) as mock_run,
+            mock.patch("subprocess.Popen") as mock_popen,
+            mock.patch("ohbs_image._packer.time.sleep") as mock_sleep,
+        ):
+            mock_proc = mock.MagicMock()
+            mock_proc.returncode = 0
+            mock_proc.stdout = ["OK\n"]
+            mock_proc.__enter__.return_value = mock_proc
+            mock_popen.return_value = mock_proc
+            result = run_packer(wd, subcmd, capture=True)
+        return result, mock_run, mock_sleep
+
+    def test_init_retries_transient_then_succeeds(self, tmp_path):
+        """A transient rate-limit during packer init is retried; success on the
+        second attempt returns 0."""
+        results = [
+            subprocess.CompletedProcess([], 1, stdout="API rate limit exceeded for 1.2.3.4", stderr=""),
+            subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+        ]
+        result, mock_run, mock_sleep = self._run_packer_with_init_results(tmp_path, results)
+        assert result.exit_code == 0
+        assert mock_run.call_count == 2          # one transient failure + one success
+        assert mock_sleep.call_count == 1        # one backoff between attempts
+
+    def test_init_retries_then_fails_on_persistent_transient(self, tmp_path):
+        """Persistent transient failures exhaust retries and return non-zero."""
+        from ohbs_image._packer import INIT_MAX_ATTEMPTS
+        results = [subprocess.CompletedProcess([], 1, stdout="GET .../tags: 503  []", stderr="")] * INIT_MAX_ATTEMPTS
+        result, mock_run, mock_sleep = self._run_packer_with_init_results(tmp_path, results)
+        assert result.exit_code == 1
+        assert mock_run.call_count == INIT_MAX_ATTEMPTS
+
+    def test_init_does_not_retry_real_error(self, tmp_path):
+        """A genuine HCL/plugin error fails fast — no retries."""
+        results = [
+            subprocess.CompletedProcess([], 1, stdout="Error: unknown plugin tencentcloud", stderr=""),
+        ]
+        result, mock_run, _ = self._run_packer_with_init_results(tmp_path, results)
+        assert result.exit_code == 1
+        assert mock_run.call_count == 1          # no retry for a real error
+
+    def test_init_timeout_retries(self, tmp_path):
+        """A packer init timeout (network stall) is retried, not fatal."""
+        from ohbs_image._packer import INIT_MAX_ATTEMPTS
+        calls = {"n": 0}
+
+        def _init_behavior(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] < INIT_MAX_ATTEMPTS:
+                raise subprocess.TimeoutExpired(cmd="packer init", timeout=300)
+            return subprocess.CompletedProcess([], 0, stdout="", stderr="")
+
+        wd = tmp_path / "build"
+        wd.mkdir()
+        (wd / "packer").mkdir()
+        (wd / "packer" / "main.pkr.hcl").write_text("")
+
+        with (
+            mock.patch("subprocess.run", side_effect=_init_behavior) as mock_run,
+            mock.patch("subprocess.Popen") as mock_popen,
+            mock.patch("ohbs_image._packer.time.sleep") as mock_sleep,
+        ):
+            mock_proc = mock.MagicMock()
+            mock_proc.returncode = 0
+            mock_proc.stdout = ["OK\n"]
+            mock_proc.__enter__.return_value = mock_proc
+            mock_popen.return_value = mock_proc
+            result = run_packer(wd, "validate", capture=True)
+        assert result.exit_code == 0
+        assert mock_run.call_count == INIT_MAX_ATTEMPTS
+
     def test_log_file_writes_captured_output(self, tmp_path):
         """When log_file is given, the reader thread must append every line
         to that file (in addition to collecting it into stdout_lines), and
