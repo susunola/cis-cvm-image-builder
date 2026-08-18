@@ -723,6 +723,7 @@ RUN_MATRIX_PY = '''
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import threading
@@ -747,7 +748,14 @@ security_group_id = "{security_group_id}"
 # ap-hongkong, targets in ap-guangzhou). The target security group must
 # allow inbound TCP/22 (Linux) / TCP/5986 (Windows) from the jump box.
 associate_public_ip = true
-instance_name = "CIS_E2E_{profile}_L{level}"
+# MUST be unique per build attempt. The tencentcloud-cvm plugin passes
+# instance_name straight through as the RunInstances *ClientToken*
+# (idempotency key). Replaying a token returns the FIRST call's instance id —
+# and once that instance has been torn down, the replay hands back a dead id
+# that DescribeInstances can never resolve, so the build dies with
+# "instance(ins-...) not exist" and every later instance-type attempt inherits
+# the same dead id. The {uniq} suffix gives each attempt a fresh token.
+instance_name = "CIS_E2E_{profile}_L{level}_{uniq}"
 {disk_block}
 [image]
 name_prefix = "e2e-{profile}-l{level}"
@@ -969,6 +977,8 @@ def _attempt_build(combo, instance_type, attempt_dir):
         security_group_id=TARGET_SG_ID,
         winrm_line=winrm_line,
         disk_block=_disk_block(instance_type),
+        # Fresh per attempt -> fresh RunInstances ClientToken (see TOML_TEMPLATE).
+        uniq=secrets.token_hex(2),
     ))
     cp = subprocess.run(
         [CIS_IMAGE_BIN, "build", "--config", str(toml_path),
@@ -1003,6 +1013,12 @@ def build_one(combo):
     # instead of giving up, so a transient blip doesn't kill a valid build.
     import time
     MAX_IMAGE_RETRIES = 3
+    # A "not exist" failure means RunInstances handed back an instance id that
+    # DescribeInstances cannot resolve. Trying a different instance TYPE cannot
+    # fix that — the cure is a brand-new ClientToken, which every
+    # _attempt_build call now mints via the instance_name {uniq} suffix. So
+    # relaunch the SAME type instead of burning the whole type list.
+    MAX_PHANTOM_RETRIES = 2
     image_retry = 0
     while True:
         types = _stock_aware_types(image_id=combo.get("image_id"))
@@ -1011,6 +1027,19 @@ def build_one(combo):
         for idx, instance_type in enumerate(types):
             attempt_dir = WORKDIR / f"{profile}-l{level}" if idx == 0 else WORKDIR / f"{profile}-l{level}-{idx}"
             result = _attempt_build(combo, instance_type, attempt_dir)
+            phantom_retry = 0
+            while (result["exit_code"] != 0
+                   and "not exist" in (result["log_tail"] or "")
+                   and phantom_retry < MAX_PHANTOM_RETRIES):
+                phantom_retry += 1
+                print(f"[matrix] {profile} L{level}: {instance_type} returned an "
+                      f"unresolvable instance id — relaunching with a fresh "
+                      f"ClientToken ({phantom_retry}/{MAX_PHANTOM_RETRIES})",
+                      flush=True)
+                time.sleep(5 * phantom_retry)
+                result = _attempt_build(
+                    combo, instance_type,
+                    WORKDIR / f"{profile}-l{level}-{idx}-p{phantom_retry}")
             last = result
             if result["exit_code"] == 0:
                 return result

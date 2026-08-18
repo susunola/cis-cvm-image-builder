@@ -767,8 +767,13 @@ class TestRunMatrixToml:
     def test_toml_template_includes_cis_e2e_instance_name(self):
         tpl = real_e2e_test.RUN_MATRIX_PY
         # The embedded toml template names every target build CVM with a
-        # CIS_E2E_<profile>_L<level> prefix.
-        assert 'instance_name = "CIS_E2E_{profile}_L{level}"' in tpl
+        # CIS_E2E_<profile>_L<level> prefix plus a per-attempt unique suffix.
+        # The suffix is load-bearing: the tencentcloud-cvm plugin reuses
+        # instance_name as the RunInstances ClientToken, so a constant name
+        # makes Tencent replay a torn-down instance id ("instance(...) not
+        # exist"). See _attempt_build's uniq=secrets.token_hex(2).
+        assert 'instance_name = "CIS_E2E_{profile}_L{level}_{uniq}"' in tpl
+        assert "uniq=secrets.token_hex(2)" in tpl
 
     def test_run_matrix_renders_instance_name_line(self):
         # Render the embedded run_matrix.py with placeholders replaced and
@@ -783,7 +788,59 @@ class TestRunMatrixToml:
             .replace("VPC_ID_PLACEHOLDER", "vpc-1")
             .replace("SUBNET_ID_PLACEHOLDER", "subnet-1")
             .replace("SECURITY_GROUP_ID_PLACEHOLDER", "sg-1"))
-        assert 'instance_name = "CIS_E2E_{profile}_L{level}"' in rendered
+        assert 'instance_name = "CIS_E2E_{profile}_L{level}_{uniq}"' in rendered
+
+    def test_rendered_instance_name_is_unique_per_attempt(self):
+        # Regression guard for the "instance(...) not exist" phantom: the
+        # plugin passes instance_name through as the RunInstances ClientToken
+        # (an idempotency key). Two attempts at the SAME profile+level must
+        # therefore render DIFFERENT instance names, or Tencent replays the
+        # first call's — possibly already torn down — instance id.
+        import ast
+        import re
+        import secrets
+
+        embedded = ast.parse(real_e2e_test.RUN_MATRIX_PY)
+        toml_template = next(
+            ast.literal_eval(node.value)
+            for node in embedded.body
+            if isinstance(node, ast.Assign)
+            and getattr(node.targets[0], "id", None) == "TOML_TEMPLATE"
+        )
+        fields = {
+            "profile": "win2016", "level": 1, "image_id": "img-1",
+            "region": "ap-guangzhou", "zone": "ap-guangzhou-6",
+            "instance_type": "S6.MEDIUM2", "vpc_id": "vpc-1",
+            "subnet_id": "subnet-1", "security_group_id": "sg-1",
+            "winrm_line": "", "disk_block": "",
+        }
+
+        def render_name():
+            out = toml_template.format(uniq=secrets.token_hex(2), **fields)
+            line = next(ln for ln in out.splitlines()
+                        if ln.startswith("instance_name"))
+            return line.split('"')[1]
+
+        names = {render_name() for _ in range(20)}
+        assert len(names) > 1, "instance_name must differ across attempts"
+        for name in names:
+            assert name.startswith("CIS_E2E_win2016_L1_")
+            # ohbs-image's [build].instance_name validation (_config.py).
+            assert len(name) <= 60
+            assert re.fullmatch(r"[A-Za-z0-9._-]+", name)
+            # The plugin derives the hostname as lower(name).replace("_","-")
+            # truncated to 15 chars; a trailing "-" there makes ohbs-image
+            # silently rewrite the name. The suffix must not change that.
+            host = re.sub(r"[^a-z0-9-]+", "-",
+                          name.lower().replace("_", "-")).strip("-.")
+            assert not host[:15].endswith(("-", "."))
+
+    def test_build_one_relaunches_on_unresolvable_instance_id(self):
+        # A "not exist" failure cannot be fixed by switching instance TYPE —
+        # only by a fresh ClientToken. build_one must relaunch the same type.
+        tpl = real_e2e_test.RUN_MATRIX_PY
+        assert "MAX_PHANTOM_RETRIES" in tpl
+        assert "relaunching with a fresh" in tpl
 
     def test_run_matrix_writes_progress_incrementally(self):
         # The embedded runner must print a progress line per finished build
