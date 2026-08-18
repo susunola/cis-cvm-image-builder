@@ -673,9 +673,21 @@ step_python_check() {{
 }}
 
 step_clone() {{
-    rm -rf "$REPO_DIR"
-    git clone --branch {branch} --depth 1 {repo_url} "$REPO_DIR"
-    cd "$REPO_DIR" && git rev-parse HEAD > "$LOGDIR/commit.txt"
+    # Cloning from GitHub over a CVM's egress is flaky: it can fail fast
+    # ("Recv failure: Connection reset by peer") or stall indefinitely. A bare
+    # clone with no timeout turns the latter into a silent hang that produces
+    # no output at all, so retry with a hard per-attempt timeout.
+    for attempt in 1 2 3 4; do
+        rm -rf "$REPO_DIR"
+        if timeout 300 git clone --branch {branch} --depth 1 {repo_url} "$REPO_DIR"; then
+            cd "$REPO_DIR" && git rev-parse HEAD > "$LOGDIR/commit.txt"
+            return 0
+        fi
+        echo "clone attempt $attempt failed; retrying in $((attempt * 5))s" >&2
+        sleep $((attempt * 5))
+    done
+    echo "clone failed after 4 attempts" >&2
+    return 1
 }}
 
 step_venv() {{
@@ -1164,9 +1176,21 @@ step_python_check() {{
 }}
 
 step_clone() {{
-    rm -rf "$REPO_DIR"
-    git clone --branch {branch} --depth 1 {repo_url} "$REPO_DIR"
-    cd "$REPO_DIR" && git rev-parse HEAD > "$LOGDIR/commit.txt"
+    # Cloning from GitHub over a CVM's egress is flaky: it can fail fast
+    # ("Recv failure: Connection reset by peer") or stall indefinitely. A bare
+    # clone with no timeout turns the latter into a silent hang that produces
+    # no output at all, so retry with a hard per-attempt timeout.
+    for attempt in 1 2 3 4; do
+        rm -rf "$REPO_DIR"
+        if timeout 300 git clone --branch {branch} --depth 1 {repo_url} "$REPO_DIR"; then
+            cd "$REPO_DIR" && git rev-parse HEAD > "$LOGDIR/commit.txt"
+            return 0
+        fi
+        echo "clone attempt $attempt failed; retrying in $((attempt * 5))s" >&2
+        sleep $((attempt * 5))
+    done
+    echo "clone failed after 4 attempts" >&2
+    return 1
 }}
 
 step_venv() {{
