@@ -80,6 +80,7 @@ import json
 import os
 import re
 import shlex
+import secrets
 import subprocess
 import hashlib
 import sys
@@ -509,7 +510,7 @@ def import_keypair(region: str, sid: str, skey: str, tok: str | None, pub_path: 
     pub_key = pub_path.read_text().strip()
     resp = _with_retry(
         _tc3_api, "cvm", "ImportKeyPair", "2017-03-12", region,
-        {"KeyName": f"ohbs_image_e2e_{int(time.time())}",
+        {"KeyName": f"e2e_{int(time.time()) % 100000000}_{secrets.token_hex(2)}",
          "ProjectId": 0,
          "PublicKey": pub_key},
         sid, skey, tok)
