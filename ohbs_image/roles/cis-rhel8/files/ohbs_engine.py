@@ -837,6 +837,23 @@ def c_sysctl(ctx, p):
     return "pass", "; ".join(good) or "ok"
 
 
+
+def _concrete_sysctl_value(want):
+    """Resolve a CIS regex-ish expectation like '(1|2)' to the most
+    restrictive concrete value (2).  A regex must not be written into
+    sysctl.conf: the persistence check compares the FILE value against the
+    same regex, and a literal '(1|2)' never matches (regex (1|2) matches
+    only '1' or '2')."""
+    w = str(want).strip()
+    if w.startswith("(") and w.endswith(")") and "|" in w:
+        alts = [x.strip() for x in w[1:-1].split("|")]
+        nums = [int(x) for x in alts if x.isdigit()]
+        if nums:
+            return str(max(nums))
+        if alts:
+            return alts[-1]
+    return w
+
 @fix("sysctl")
 def f_sysctl(ctx, p):
     path = "/etc/sysctl.d/60-cis-hardening.conf"
@@ -846,6 +863,7 @@ def f_sysctl(ctx, p):
         rc, _, _ = sh(["sysctl", "-n", k])
         if rc != 0:
             continue
+        v = _concrete_sysctl_value(v)
         set_kv_in_file(ctx, path, k, v, sep=" = ")
         sh(["sysctl", "-w", "%s=%s" % (k, v)])
         done.append(k)
@@ -2045,13 +2063,11 @@ def f_kv_conf(ctx, p):
         if os.path.abspath(path) != os.path.abspath(target):
             comment_out(ctx, path, r"^\s*\$?" + re.escape(key) + r"\b")
     if op == "bool_present":
-        lines = readlines(target) if exists(target) else []
-        if not any(re.match(r"^\s*" + re.escape(key) + r"\s*$", x) for x in lines):
-            backup(ctx, target)
-            os.makedirs(os.path.dirname(target) or "/", exist_ok=True)
-            with open(target, "a", encoding="utf-8") as fh:
-                fh.write("\n%s\n" % key)
-            ctx.add_changed_file(target)
+        # Locked write: a bare read+append here races with parallel
+        # fixes writing the SAME drop-in (their atomic_write could
+        # wipe the appended flag).  sep="" writes the bare flag line
+        # idempotently through the shared per-path lock.
+        set_kv_in_file(ctx, target, key, "", sep="", mode=0o644)
         return True, "ensured flag %s in %s" % (key, target)
     mode = 0o644
     if target.endswith(".sh"):
@@ -4680,16 +4696,27 @@ def f_pam_arg(ctx, p):
     # refuses to clone, so apply-changes can re-inject the removed arg
     # (nullok) from the stock profile.  Re-apply the edit once more so the
     # final on-disk state is correct regardless.
-    if newarg is None:
-        for f in PAM_FILES:
-            if not exists(f):
-                continue
-            lines = readlines(f)
-            res = []
-            for l in lines:
-                if mod in l and not l.lstrip().startswith("#"):
-                    l = re.sub(r"\s+%s(=\S+)?" % re.escape(arg), "", l).rstrip()
+    # authselect apply-changes regenerates /etc/pam.d from the selected
+    # profile and can re-inject the stock arg (observed on TencentOS 3
+    # with a modified sssd profile).  Re-apply the edit once more so the
+    # final on-disk state is correct regardless of set/absent mode.
+    for f in PAM_FILES:
+        if not exists(f):
+            continue
+        lines = readlines(f)
+        res = []
+        hit = False
+        for l in lines:
+            if mod in l and not l.lstrip().startswith("#"):
+                base = re.sub(r"\s+%s(=\S+)?" % re.escape(arg), "", l).rstrip()
+                if newarg:
+                    base = base + " " + newarg
+                if base != l:
+                    hit = True
+                res.append(base)
+            else:
                 res.append(l)
+        if hit:
             write_file(ctx, f, "\n".join(res).rstrip("\n") + "\n")
     verb = "removed" if newarg is None else "set"
     return True, "%s %s on %s in %d file(s)" % (verb, arg, mod, changed)
