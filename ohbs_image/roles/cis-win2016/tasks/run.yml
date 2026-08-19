@@ -70,6 +70,12 @@
         fail_on_missing: false
       when: cis_report_json | bool
 
+    - name: Ensure the result ship directory exists
+      ansible.windows.win_file:
+        path: "{{ cis_ship_result_path | regex_replace('\\\\[^\\\\/]+$', '') }}"
+        state: directory
+      when: cis_ship_result_path | length > 0
+
     - name: Ship the audit result inside the image
       ansible.windows.win_copy:
         src: "{{ cis_remote_tmp }}\\cis-run\\result.json"
