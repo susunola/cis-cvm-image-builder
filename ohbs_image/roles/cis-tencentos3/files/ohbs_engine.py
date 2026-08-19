@@ -1971,6 +1971,9 @@ def c_kv_conf(ctx, p):
     elif op == "ge":
         n, w = as_int(curc), as_int(want)
         ok = n is not None and w is not None and n >= w
+    elif op == "le":
+        n, w = as_int(curc), as_int(want)
+        ok = n is not None and w is not None and n <= w
     elif op == "le_pos":
         n, w = as_int(curc), as_int(want)
         ok = n is not None and w is not None and 0 < n <= w
