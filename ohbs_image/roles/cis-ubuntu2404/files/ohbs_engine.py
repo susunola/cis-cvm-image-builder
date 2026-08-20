@@ -3245,6 +3245,17 @@ def _norm_rule(r):
     # Canonicalise both the expected rule and the running/ondisk pools the
     # same way so _rule_present's string-set comparison still matches.
     r = re.sub(r"-S all\b", "", r)  # drop injected -S all
+    # v0.16.27: auditctl -l joins consecutive -S syscall lists with commas
+    # ("-S adjtimex -S settimeofday" renders as "-S adjtimex,settimeofday")
+    # and normalizes watch paths by dropping trailing slashes.  Canonicalize
+    # the expected rule the same way or the token-set comparison never matches
+    # (9x 6.3.3.x L2 rules were failing 'not loaded' although loaded).
+    r = re.sub(r"(-S\s+[A-Za-z0-9_,]+)((?:\s+-S\s+[A-Za-z0-9_,]+)+)",
+               lambda m: "-S " + ",".join(sorted(set(
+                   [m.group(1)[3:]] + re.findall(r"-S\s+([A-Za-z0-9_,]+)", m.group(2))))),
+               r)
+    r = re.sub(r"-w\s+([^\s]+?)/+(?=\s|$)", lambda m: "-w " + m.group(1), r)
+    r = re.sub(r"-F\s+path=([^\s]+?)/+(?=\s|$)", lambda m: "-F path=" + m.group(1), r)
     r = re.sub(r"-S\s+([A-Za-z0-9_,]+)",
                lambda m: "-S " + ",".join(sorted(set(m.group(1).split(",")))),
                r)  # sort syscall list
