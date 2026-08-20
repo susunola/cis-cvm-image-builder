@@ -44,13 +44,24 @@ jobs:
           echo "issue_state=$STATE" >> "$GITHUB_OUTPUT"
           echo "issue_comments=$COMMENTS" >> "$GITHUB_OUTPUT"
 
+          # Baseline: issue #166 already had 3 pre-existing comments when this
+          # monitor was added (2026-08), so a raw `comments != 0` check would
+          # fire forever. Only count comments BEYOND the baseline as activity.
+          BASELINE_COMMENTS=3
+          if [ "$COMMENTS" -gt "$BASELINE_COMMENTS" ] 2>/dev/null; then
+            echo "new_comments=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "new_comments=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # Only surface when something changed: a fix release, or issue activity.
+      # ('none' means the releases API call failed — stay quiet, not noisy.)
       - name: Report fix available
-        if: steps.check.outputs.latest_release != 'v1.2.0'
+        if: steps.check.outputs.latest_release != 'v1.2.0' && steps.check.outputs.latest_release != 'none'
         run: |
           echo "::warning::A new tencentcloud plugin release is available: ${{ steps.check.outputs.latest_release }}. Retry the ohbs-image e2e matrix."
 
       - name: Report issue activity
-        if: steps.check.outputs.issue_state != 'open' || steps.check.outputs.issue_comments != '0'
+        if: steps.check.outputs.issue_state == 'closed' || steps.check.outputs.new_comments == 'true'
         run: |
           echo "::warning::Upstream issue #166 activity detected (state=${{ steps.check.outputs.issue_state }}, comments=${{ steps.check.outputs.issue_comments }}). Review hashicorp/packer-plugin-tencentcloud#166."

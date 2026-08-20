@@ -4,13 +4,24 @@
 # Usage: bash scripts/check_tencentcloud_plugin.sh
 set -euo pipefail
 
-source ~/wbenv
+# Optional local env (defines GITHUB_TOKEN for a higher API rate limit).
+# Not required — without a token the anonymous rate limit still allows the
+# two lookups below, so the script must work on any machine / CI runner.
+# shellcheck disable=SC1090
+if [ -f ~/wbenv ]; then
+  source ~/wbenv
+fi
 
 REPO="hashicorp/packer-plugin-tencentcloud"
 ISSUE=166
 
+AUTH=()
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+  AUTH=(-H "Authorization: Bearer $GITHUB_TOKEN")
+fi
+
 echo "=== Issue #$ISSUE status ==="
-curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+curl -s ${AUTH[@]+"${AUTH[@]}"} \
   "https://api.github.com/repos/$REPO/issues/$ISSUE" |
   python3 -c "
 import json,sys
@@ -22,7 +33,7 @@ print(f\"  title: {d.get('title')}\")
 "
 
 echo "=== Latest releases (look for v1.2.x+ > v1.2.0) ==="
-curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+curl -s ${AUTH[@]+"${AUTH[@]}"} \
   "https://api.github.com/repos/$REPO/releases?per_page=5" |
   python3 -c "
 import json,sys,re
