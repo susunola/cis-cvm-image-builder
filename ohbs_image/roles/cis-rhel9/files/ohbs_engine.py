@@ -1171,6 +1171,15 @@ def f_logfile_perm(ctx, p):
         ctx.add_changed_file(tf)
     sh("systemd-tmpfiles --create /etc/tmpfiles.d/ohbs-cis-logperms.conf "
        "2>/dev/null || true", 30)
+    # apt re-creates /var/log/apt/*.log* 0644 on every run (ubuntu2004
+    # 6.2.4.1); hook DPkg so the CIS perms survive later apt activity.
+    if os.path.isdir("/etc/apt/apt.conf.d"):
+        hook = "/etc/apt/apt.conf.d/99cis-logperms"
+        body = ('DPkg::Post-Invoke {"chmod g-wx,o-rwx /var/log/apt/*.log* '
+                '2>/dev/null || true";};\n')
+        if read(hook) != body:
+            write_file(ctx, hook, body, 0o644)
+            ctx.add_changed_file(hook)
     return True, "applied chmod g-wx,o-rwx under /var/log (btmp/utmp/wtmp via tmpfiles drop-in)"
 
 
@@ -2181,7 +2190,13 @@ def c_sshd_param(ctx, p):
     return "pass", "; ".join(good)
 
 
-SSHD_DROPIN = "/etc/ssh/sshd_config.d/60-cis-hardening.conf"
+# OpenSSH honours the FIRST-obtained value, and vendor drop-ins
+# (50-redhat.conf, 50-cloud-init.conf, crypto-policy includes) sort before
+# 60-cis-hardening.conf — the old name lost every conflict (rhel9
+# 5.1.4/5.1.11, rhel10 5.1.20, tencentos4 5.2.6).  00- sorts first, so our
+# values win; the stale 60- file from older images is removed on write.
+SSHD_DROPIN = "/etc/ssh/sshd_config.d/00-cis-hardening.conf"
+SSHD_DROPIN_STALE = "/etc/ssh/sshd_config.d/60-cis-hardening.conf"
 
 
 def _sshd_write(ctx, pairs):
@@ -2189,6 +2204,7 @@ def _sshd_write(ctx, pairs):
     # Snapshot both targets so a failed `sshd -t` can be rolled back — an
     # image whose sshd config is invalid boots with NO remote access (P0).
     snap_dropin = read(SSHD_DROPIN)
+    snap_stale = read(SSHD_DROPIN_STALE)
     snap_main = read("/etc/ssh/sshd_config")
     with ctx.file_lock(SSHD_DROPIN):
         supports_dropin = os.path.isdir("/etc/ssh/sshd_config.d") or \
@@ -2196,6 +2212,11 @@ def _sshd_write(ctx, pairs):
                            read("/etc/ssh/sshd_config") or "", re.M | re.I))
         if supports_dropin:
             os.makedirs("/etc/ssh/sshd_config.d", exist_ok=True)
+            # Remove the stale pre-rename drop-in from older images — the
+            # 00- file would win conflicts, but keys we no longer manage
+            # would linger otherwise.
+            if exists(SSHD_DROPIN_STALE):
+                os.unlink(SSHD_DROPIN_STALE)
             body = ["# Managed by CIS Ansible hardening"]
             old = {}
             for ln in readlines(SSHD_DROPIN):
@@ -2208,7 +2229,7 @@ def _sshd_write(ctx, pairs):
                 body.append("%s %s" % (k, v))
             write_file(ctx, SSHD_DROPIN, "\n".join(body) + "\n", 0o600)
             # ensure Include directive exists; comment out conflicting directives
-            # so the drop-in (60-cis-hardening.conf) always takes precedence
+            # so the drop-in (00-cis-hardening.conf) always takes precedence
             main_lines = readlines("/etc/ssh/sshd_config")
             has_include = any(
                 re.search(r"^\s*Include\s+/etc/ssh/sshd_config\.d/", ln, re.I)
@@ -2244,6 +2265,8 @@ def _sshd_write(ctx, pairs):
                     pass
             else:
                 atomic_write(SSHD_DROPIN, snap_dropin, mode=0o600)
+            if snap_stale is not None:
+                atomic_write(SSHD_DROPIN_STALE, snap_stale, mode=0o600)
             if snap_main is not None:
                 atomic_write("/etc/ssh/sshd_config", snap_main, mode=0o600)
             return tgt, err
@@ -2871,9 +2894,13 @@ def c_selinux(ctx, p):
         grubcfg = out("grep -Prs '^\\s*(GRUB_CMDLINE_LINUX|kernelopts)' "
                       "/etc/default/grub /boot/grub2/grubenv 2>/dev/null | "
                       "grep -Eo '(selinux|enforcing)=0' | sort -u", 30)
-        if hits or grubcfg:
+        # BLS entries embed their own cmdline — check them too, or a
+        # selinux=0 left in /boot/loader/entries false-passes (tencentos).
+        bls = out("grep -Eho '(selinux|enforcing)=0' "
+                  "/boot/loader/entries/*.conf 2>/dev/null | sort -u", 30)
+        if hits or grubcfg or bls:
             return "fail", "SELinux disabled on the kernel command line: %s" % (
-                " ".join(hits) or grubcfg.replace("\n", " "))
+                " ".join(hits) or " ".join((grubcfg + " " + bls).split()))
         return "pass", "no selinux=0 / enforcing=0 in the bootloader configuration"
     if kind == "policy":
         want = (p.get("value") or "targeted").lower()
@@ -2924,6 +2951,11 @@ def f_selinux(ctx, p):
         with ctx.file_lock("__cmd__:grub2-mkconfig"):
             sh("grub2-mkconfig -o \"$(dirname \"$(find /boot -name grub.cfg "
                "-print -quit 2>/dev/null)\")/grub.cfg\" >/dev/null 2>&1", 300)
+        if _bls_dir() and have("grubby"):
+            # BLS entries embed their own cmdline — grub2-mkconfig does not
+            # propagate to them, so strip the args via grubby as well.
+            sh(["grubby", "--update-kernel=ALL",
+                "--remove-args=selinux enforcing"], 120)
         return True, "removed selinux=0/enforcing=0 and regenerated grub.cfg (reboot required)"
     if kind == "policy":
         set_kv_in_file(ctx, "/etc/selinux/config", "SELINUXTYPE",
@@ -2962,7 +2994,11 @@ def crypto_policy_now(ctx):
 # Tightens sshd's MACs/Ciphers directly so the four rules can pass WITHOUT
 # touching the system-wide crypto policy (TencentOS ships LEGACY by design;
 # switching it to DEFAULT affects every service, not just SSH).
-SSH_CRYPTO_DROPIN = "/etc/ssh/sshd_config.d/60-cis-crypto.conf"
+# The 05- prefix beats 40-redhat-crypto-policies.conf (OpenSSH honours the
+# FIRST-obtained value); the stale 60-cis-crypto.conf from older images is
+# removed on write and read as a fallback so pinned algos survive the rename.
+SSH_CRYPTO_DROPIN = "/etc/ssh/sshd_config.d/05-cis-crypto.conf"
+SSH_CRYPTO_DROPIN_STALE = "/etc/ssh/sshd_config.d/60-cis-crypto.conf"
 
 # OpenSSH built-in defaults (server side) — the baseline every rule trims.
 # NOTE: UMAC must use the @openssh.com form — the bare "umac-128" name is
@@ -2992,7 +3028,12 @@ def _sshd_algos(ctx, key):
 
 def _sshd_crypto_dropin_current():
     """(macs, ciphers) already pinned in the drop-in, or None for unset."""
-    txt = read(SSH_CRYPTO_DROPIN) or ""
+    txt = read(SSH_CRYPTO_DROPIN)
+    if txt is None:
+        # Pre-rename drop-in from an older image — keep composing from its
+        # pinned algorithms so the rename does not lose earlier trims.
+        txt = read(SSH_CRYPTO_DROPIN_STALE)
+    txt = txt or ""
     macs = ciphers = None
     for ln in txt.splitlines():
         m = re.match(r"^\s*MACs\s+(.+)$", ln, re.I)
@@ -3032,6 +3073,10 @@ def _fix_sshd_crypto(ctx, kind):
         body = ("# CIS hardening: SSH crypto policy (1.6.x)\n"
                 "MACs %s\nCiphers %s\n" % (",".join(macs), ",".join(ciphers)))
         write_file(ctx, SSH_CRYPTO_DROPIN, body, 0o600)
+        # Remove the stale pre-rename drop-in so it cannot keep applying
+        # keys the new file no longer carries.
+        if exists(SSH_CRYPTO_DROPIN_STALE):
+            os.unlink(SSH_CRYPTO_DROPIN_STALE)
     # OpenSSH honours the FIRST-obtained value for list params — make sure
     # the drop-in loads before any sshd_config MACs/Ciphers directive, and
     # neutralise ones already in the main file.
@@ -3665,6 +3710,18 @@ def _grub_cfg():
     return hits.strip() or None
 
 
+def _bls_dir():
+    """BootLoaderSpec entries dir, or None when the system doesn't use BLS.
+
+    On BLS systems (tencentos images) each /boot/loader/entries/*.conf
+    embeds its own kernel cmdline — editing /etc/default/grub and running
+    grub2-mkconfig does NOT propagate to the existing entries, so cmdline
+    fixes must also go through `grubby --update-kernel=ALL`.
+    """
+    d = "/boot/loader/entries"
+    return d if os.path.isdir(d) and globmod.glob(d + "/*.conf") else None
+
+
 def _fstype_of(path):
     """Filesystem type hosting path, via /proc/mounts (longest prefix)."""
     best, fstype = "", None
@@ -3732,6 +3789,10 @@ def f_grub_flag(ctx, p):
     if cfg:
         with ctx.file_lock("__cmd__:grub2-mkconfig"):
             sh(["grub2-mkconfig", "-o", cfg], 300)
+    if _bls_dir() and have("grubby"):
+        # BLS entries embed their own cmdline — grub2-mkconfig does not
+        # propagate to them, so set the flag via grubby as well.
+        sh(["grubby", "--update-kernel=ALL", "--args=%s" % flag], 120)
     return True, "added %s to GRUB_CMDLINE_LINUX and regenerated %s (reboot required)" % (
         flag, cfg or "grub.cfg")
 
@@ -4449,6 +4510,23 @@ def f_user_audit(ctx, p):
             return False, "could not chown any unowned path"
         ctx.invalidate("fs_scan")
         return True, "assigned root:root to %d path(s)" % len(done)
+    if kind == "ungrouped":
+        # Mirror of the unowned fixer: assign the root group (chgrp root)
+        paths = _fs_scan(ctx)["ungrouped"]
+        if not paths:
+            return False, "no ungrouped files found"
+        done = []
+        for f in paths:
+            if os.path.lexists(f):
+                try:
+                    os.chown(f, -1, 0)
+                    done.append(os.path.basename(f))
+                except OSError:
+                    ctx.add_note("cannot chgrp %s" % f)
+        if not done:
+            return False, "could not chgrp any ungrouped path"
+        ctx.invalidate("fs_scan")
+        return True, "assigned root group to %d path(s)" % len(done)
     return False, ("finding requires human judgement (accounts, ownership or data "
                    "loss risk); remediate manually")
 
@@ -4730,7 +4808,17 @@ def f_pam_arg(ctx, p):
             write_file(ctx, f, "\n".join(res).rstrip("\n") + "\n")
             changed += 1
     if not changed:
-        return False, "nothing to change (module line missing?)"
+        if p.get("_arg_retry"):
+            # The insert just succeeded and the arg edit is a no-op, so the
+            # inserted line already carries the arg as required.
+            return True, "inserted %s; %s already as required" % (mod, arg)
+        # Module line itself is missing (tencentos4 5.5.3) — insert it via
+        # the pam_module path (authselect feature when available, otherwise
+        # PAM_INSERT_HINT), then retry the arg edit once.
+        ok, why = f_pam_module(ctx, {"module": mod})
+        if not ok:
+            return False, "nothing to change (module line missing; insert failed: %s)" % why
+        return f_pam_arg(ctx, dict(p, _arg_retry=1))
     _pam_apply(ctx)
     # authselect apply-changes regenerates /etc/pam.d from the selected
     # profile.  TencentOS 3 ships a modified sssd profile that authselect
