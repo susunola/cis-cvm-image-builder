@@ -19,7 +19,12 @@ associate_public_ip = false               # set to true only if a public IP is r
 name_prefix  = "tencentos3-cis"
 copy_regions = []                         # add regions (e.g. ["ap-shanghai"]) to copy the image
 
-[cis]
+# Hardening section. [ohbs] is the current name (what 'ohbs-image init'
+# generates); the legacy [cis] name is still accepted — if both exist, [ohbs]
+# wins with a warning. Types are validated strictly: list options must be TOML
+# arrays and level/min_score/assume_role_duration/ssh_port must be integers
+# (floats and booleans are rejected).
+[ohbs]
 level = 1                                 # 1 or 2
 
 [cloud]

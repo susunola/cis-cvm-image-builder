@@ -43,6 +43,15 @@ can be traced across rebuilds.
   `packer-plugin-tencentcloud`). A genuine HCL/plugin error or a missing
   `packer` binary still fails fast. This removes intermittent CI flakiness
   in the real-HCL `TestRealPackerValidateAllProfiles` checks.
+- **Review-wave correctness fixes (2026-08-20)** — probe scan role glob,
+  verify-boot probe key auth, `ModifyImageSharePermission` parameters, oscap
+  score normalization, scan lineage no longer poisoning skip-if-unchanged,
+  and stricter config type validation; e2e script fixes (`--reuse-last`
+  re-queries the kept jump box's public IP, batch-image cleanup targets the
+  actual build region); the build-image workflow installs packer and
+  generates `ohbs-image.toml` from secrets; the upstream-plugin monitor
+  stays quiet via a comment-count baseline; setuptools floor bumped to
+  >=62.3 for the recursive `roles/**/*` package-data glob.
 
 ### CI / tests
 - **Tests aligned with the `ohbs_` rebrand** — the test suite referenced the
@@ -82,6 +91,56 @@ can be traced across rebuilds.
   (`/opt/ohbs-image-AUDIT-RESULT.json` /
   `C:\ProgramData\ohbs-image\AUDIT-RESULT.json`) still ships — drift and
   verify-image use it as the baseline.
+
+## [0.16.26] — 2026-08-17
+
+### Added
+- **Benchmark catalog layer** (`ohbs_image/_catalog.py`) — benchmark becomes
+  a first-class, multi-benchmark-capable concept: a profile can select a
+  non-CIS catalog (`rules_<slug>.json`, e.g. STIG/NIST) with a `rules.json`
+  fallback, without renaming internals or touching the 12 byte-identical
+  engine copies. `catalog_basename` is threaded through `ResolvedConfig`,
+  rendering (workspace promotion), report hashing, the probe scan, the
+  finalize re-scan / image tags, and `ohbs-image list --versions`.
+- **Stock-aware e2e builds** — the e2e runner picks instance types via an
+  explicit disk-family map, pre-filters candidates by image compatibility,
+  and retries the whole build with backoff across in-stock types on any
+  launch failure (understocked types, image gated to an instance family,
+  transient image-availability or intermittent "instance not exist" errors).
+- **Persistent e2e jump box** — `--keep` / `--reuse-last` /
+  `--terminate-last` let a batch of runs share one jump box.
+- **Upstream plugin monitor** — `scripts/check_tencentcloud_plugin.sh` and a
+  scheduled workflow watch hashicorp/packer-plugin-tencentcloud#166 and new
+  plugin releases; the e2e runner can inject a locally patched plugin.
+
+### Fixed
+- Rebrand residuals: builder glob, banner/report strings, `[ohbs]`/`[cis]`
+  config-section backward-compat alias; role bundles keep the `cis-*`
+  prefix (renamed back after the glob fix).
+- HCL templates: `extra_builder_args` uses `map(string)` (not `map(any)`);
+  removed a substitution token from a template comment.
+- `instance_name` is sanitized so the packer hostname never ends in `-`.
+- tencentos4 profile uses SSH port 22, not 36000.
+- tencentcloud packer plugin pinned to v1.2.0 (v1.2.8 was never published).
+- e2e: SSH kept alive during long builds; unique `RunInstances`
+  ClientToken and `ImportKeyPair` key name per (parallel) run; the remote
+  `git clone` is retried with a hard timeout.
+
+## [0.16.25] — 2026-08-16
+
+The ohbs (OH BASELINE) rebrand release.
+
+### Changed
+- **`cis-image` → `ohbs-image`** — package `cis_image` renamed to
+  `ohbs_image`, CLI to `ohbs-image`, state dir to `~/.ohbs-image/`, config
+  file to `ohbs-image.toml`. Added `LICENSE` (MIT) and `DISCLAIMER.md`
+  (CIS Benchmark content is licensed and not redistributable).
+- README restored in full with ohbs branding (zh/ja/th translations kept in
+  sync), OH BASELINE logo, and a rebranded architecture diagram; residual
+  `cis_*` project tokens (`cis_os_key`, `cis-engine`, `cis_image`) cleared.
+
+### Fixed
+- Image safety gates now fail closed.
 
 ## [0.16.24] — 2026-08-14
 

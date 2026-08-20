@@ -146,6 +146,12 @@ ohbs-image clean
 
 `ohbs-image.toml` が唯一の信頼できる情報源です — Packer テンプレートの手編集は不要。
 
+型は厳密に検証されます：リスト系オプション（`rules_include` など）は TOML
+配列、`level` / `min_score` / `assume_role_duration` / `ssh_port` は整数である
+必要があります（浮動小数点・真偽値は拒否）。ハードニングのセクション名は
+`[ohbs]`（`ohbs-image init` が生成）です — 旧来の `[cis]` も利用可能ですが、
+両方存在する場合は警告付きで `[ohbs]` が優先されます。
+
 ```toml
 [build]
 profile             = "tencentos3"
@@ -166,7 +172,7 @@ associate_public_ip = true
 name_prefix  = "tencentos3-cis"
 copy_regions = ["ap-shanghai"]            # [] でクロスリージョンコピー無効
 
-[cis]
+[ohbs]
 level = 1                                 # 1 または 2
 
 [cloud]
@@ -194,7 +200,7 @@ benchmark = "CIS-v1.0.0"
 | | `associate_public_ip` | bool | ビルドインスタンスにパブリック IP を付与 |
 | `[image]` | `name_prefix` | string | 出力イメージ名のプレフィックス |
 | | `copy_regions` | []string | レプリカ先リージョン（空 = スキップ） |
-| `[cis]` | `level` | int | 1（Level 1）または 2（Level 2） |
+| `[ohbs]` | `level` | int | 1（Level 1）または 2（Level 2） |
 | `[cloud]` | `secret_id_env` | string | Tencent Cloud Secret ID の環境変数名 |
 | | `secret_key_env` | string | Tencent Cloud Secret Key の環境変数名 |
 | | `winrm_password_env` | string | Windows Administrator パスワードの環境変数名（Windows のみ） |

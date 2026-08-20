@@ -159,7 +159,7 @@ ohbs-image --version
 ## Commands
 
 ```bash
-ohbs-image                                    # show help
+ohbs-image                                    # show help (exits 2)
 ohbs-image init                               # generate ohbs-image.toml
 ohbs-image preflight                          # validate config, credentials, prerequisites
 ohbs-image validate                           # render templates + packer validate
@@ -204,7 +204,7 @@ ohbs-image clean                              # remove .ohbs-image-build/
 | `--parse <csv>` | audit --tool kitty | HardeningKitty audit CSV export to parse |
 | `--older-than <days>` | cleanup-images | Retire builds older than N days (default `30`) |
 | `--keep-latest <n>` | cleanup-images | Always keep the newest N builds (default `1`) |
-| `--unused-since <days>` | cleanup-images | Only delete images NOT shared with other accounts (in-use guard; `0` = off) |
+| `--unused-since <days>` | cleanup-images | Only delete images NOT shared with other accounts; the in-use guard expires N days after the lineage record — older shared images are presumed unused and retired anyway (`0` = off) |
 | `--apply` | cleanup-images | Actually delete (default is a dry run) |
 
 ---
@@ -212,6 +212,13 @@ ohbs-image clean                              # remove .ohbs-image-build/
 ## Configuration
 
 `ohbs-image.toml` is the single source of truth — no manual template editing.
+
+Validation is strict about types: list options (`rules_include`,
+`rules_exclude`, `share_accounts`, `share_org_units`, `test_components`) must
+be TOML arrays, and `level`, `min_score`, `assume_role_duration`, `ssh_port`
+must be integers (floats and booleans are rejected). The hardening section is
+`[ohbs]` (what `ohbs-image init` generates); the legacy `[cis]` name is still
+accepted — if both exist, `[ohbs]` wins with a warning.
 
 ```toml
 [build]
@@ -242,15 +249,16 @@ name_prefix  = "tencentos3-cis"
 # name = "my-ohbs-image"                  # optional: fixed image name (empty = auto prefix-level-timestamp)
 copy_regions = ["ap-shanghai"]            # [] to disable cross-region copy
 # share_accounts = ["uin/1234567890"]    # optional: share the built image with other accounts
-# share_org_units = ["uin/1234567890"]   # optional: org-level sharing (same API)
+# share_org_units = ["ou-xxxx"]          # NOT supported: ModifyImageSharePermission takes
+                                        # account IDs only — the tool warns and skips this
 
-[cis]
+[ohbs]
 level = 1                                 # 1 or 2
 # min_score = 85                          # post-reboot audit gate (0 disables; default 85)
 # rules_include = ["1.5.6"]               # run only these rules
 # rules_exclude = ["1.1.2.2.4"]           # always wins over rules_include
 # Per-control parameter overrides (deep-merged into the catalog at render):
-# [cis.overrides."5.2.2"]
+# [ohbs.overrides."5.2.2"]
 # ssh_max_auth_tries = 4
 
 [cloud]
@@ -305,12 +313,12 @@ benchmark = "CIS-v1.0.0"
 | | `name` | string | Fixed image name (empty = auto `prefix-level-timestamp`) |
 | | `copy_regions` | []string | Regions to replicate (empty = skip) |
 | | `share_accounts` | []string | Share the built image with other accounts (`uin/…`) after build (empty = off) |
-| | `share_org_units` | []string | Org-level sharing — same `ModifyImageSharePermission` API, merged with `share_accounts` (empty = off) |
-| `[cis]` | `level` | int | `1` (Level 1) or `2` (Level 2) |
+| | `share_org_units` | []string | Not supported — `ModifyImageSharePermission` accepts account IDs only; the tool warns and skips this option (use `share_accounts`) |
+| `[ohbs]` | `level` | int | `1` (Level 1) or `2` (Level 2) |
 | | `min_score` | int | Post-reboot audit gate (default `85`; `0` disables) |
 | | `rules_include` | []string | Rule-ID filter — when set, ONLY these rules run (empty = all) |
 | | `rules_exclude` | []string | Rule-ID filter — always wins over `rules_include` |
-| | `overrides` | table | Per-control parameter overrides, keyed by rule ID — deep-merged into the catalog at render time (e.g. `[cis.overrides."5.2.2"]`) |
+| | `overrides` | table | Per-control parameter overrides, keyed by rule ID — deep-merged into the catalog at render time (e.g. `[ohbs.overrides."5.2.2"]`) |
 | `[cloud]` | `secret_id_env` | string | Env var for Secret ID |
 | | `secret_key_env` | string | Env var for Secret Key |
 | | `security_token_env` | string | STS session-token env var (default `TENCENTCLOUD_SECURITY_TOKEN`; used with OIDC/STS credentials) |
@@ -612,7 +620,11 @@ distribute pipeline):
 
 - **Lineage (distribute metadata)** — every build appends a record
   (`~/.ohbs-image/lineage.jsonl`): source image → output image IDs, level,
-  region, score, version, timestamp.  The full per-rule audit JSON is
+  region, score, version, timestamp, and a `mode` field (`build` / `scan` /
+  `test`). Scan and test images are recorded so `cleanup-images` can retire
+  them, but they are not hardened builds — `--skip-if-unchanged` and
+  `pending` ignore them (only `mode: build` records count; records written
+  before the field existed count as `build`).  The full per-rule audit JSON is
   archived alongside it on the build machine at
   `~/.ohbs-image/reports/<image-name>.json`.  Query it with:
 
@@ -679,8 +691,9 @@ distribute pipeline):
   `sbomPackageCount`) — SLSA L2-style evidence of what exactly shipped.
   `ohbs-image build --skip-if-unchanged` / `ohbs-image pending` compare a
   deterministic input fingerprint (source image, rule catalog hash,
-  benchmark, level, filters) against the last successful lineage record and
-  skip the rebuild when nothing changed — a scheduled-pipeline cost saver.
+  benchmark, level, filters) against the last successful `mode: build`
+  lineage record and skip the rebuild when nothing changed — a
+  scheduled-pipeline cost saver.
 
   ```bash
   ohbs-image build --skip-if-unchanged    # skip if inputs unchanged
@@ -692,7 +705,11 @@ distribute pipeline):
   verify-image --image img-xxx` boots a probe instance from the produced
   image, runs the bundled engine in scan mode on the FRESH boot (catching
   SELinux relabel stalls, first-boot services, cloud-init reconfiguration),
-  gates on the score, and always terminates the probe. `[meta].verify_boot
+  gates on the score, and always terminates the probe. The probe uses a
+  throwaway ed25519 key pair (created locally, imported via
+  `cvm:ImportKeyPair`, deleted afterwards) and logs in as the image's
+  built-in `ohbsimage` user — root login is disabled by the hardening, so no
+  credentials need to be supplied. `[meta].verify_boot
   = true` chains it automatically after every successful build (Linux only).
 
   ```bash
@@ -759,7 +776,11 @@ distribute pipeline):
 - **Safe cleanup** — `cleanup-images --unused-since N` only deletes images
   that are NOT shared with other accounts (via
   `DescribeImageSharePermission`), so an image still referenced downstream
-  is never accidentally retired. Fails open (keeps the image) on API errors.
+  is not retired while it is fresh. The guard expires N days after the
+  image's lineage record: a shared image whose record is older than N days
+  (undated records count as ancient) is presumed unused since then and is
+  retired anyway; `0` disables the guard entirely. Fails open (keeps the
+  image) on API errors.
 
 ---
 
@@ -795,7 +816,7 @@ distribute pipeline):
 - [x] Independent audit tool (`ohbs-image audit` — oscap / inspec / kitty)
 - [x] Benchmark-pinned rule IDs in engine output + SARIF (CIS-CAT cross-reference)
 - [x] Clean-boot verification (`ohbs-image verify-image` / `[meta].verify_boot`)
-- [x] Per-control overrides (`[cis].overrides` in `ohbs-image.toml`)
+- [x] Per-control overrides (`[ohbs].overrides` in `ohbs-image.toml`)
 - [x] CVE scan gate + SBOM emission (`[meta].cve_scan` / `[meta].sbom`)
 - [x] Change detection (`ohbs-image pending` / `build --skip-if-unchanged`)
 - [x] XCCDF 1.2 report export (`scan --xccdf`, audit `--xccdf`)
@@ -806,8 +827,8 @@ distribute pipeline):
 - [x] User test components (`[meta].test_components`, Image Builder style)
 - [x] Deploy trigger webhook (`[notify].deploy_webhook`, EventBridge style)
 - [x] Spot-instance build VM (`[build].spot`, up to ~90% cheaper)
-- [x] Safe cleanup (`cleanup-images --unused-since`, shared images kept)
-- [x] Org-level sharing (`[image].share_org_units`)
+- [x] Safe cleanup (`cleanup-images --unused-since`, shared images kept within the guard window)
+- [x] Sharing guard (`[image].share_org_units` is rejected with a warning — the API accepts account IDs only; use `share_accounts`)
 - [x] Rule-set versioning (`ohbs-image list --versions`)
 - [x] Vendor image refresh detection (`ohbs-image check-source`)
 - [ ] SLSA L2: fully reproducible builds (pinned build environment)
