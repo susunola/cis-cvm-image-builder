@@ -5,7 +5,39 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
-## [Unreleased] — build-CVM naming, packer passthrough, API retries, real E2E
+## [0.17.0] — 2026-08-20 — build-CVM naming, packer passthrough, API retries, real E2E
+
+### Added (rule-catalog automation, rounds 2–4)
+- **Second wave of manual-rule automation** — dozens more CIS rules moved
+  from `manual` to automated families across all 8 Linux catalogs: `7.1.x`
+  /etc file permissions, `6.3.4.x` audit log/config permissions, `6.3.2.2`
+  auditd `keep_logs`, plus SELinux `1.3.1.4` reclassified to `safe`
+  (applies permissive; `1.3.1.5` enforcing stays `disruptive`). ubuntu2404
+  L2 manual count drops from 169 (2026-08-19 report) to ~67.
+- **Audit-rule canon** — multi-`-S` syscall lists are merged and watch-path
+  trailing slashes stripped (`-F path=` before tokenization), fixing audit
+  rules that previously failed to load via augenrules on 64-bit; `-S stime`
+  dropped (aborts augenrules); 32-bit syscall variants (b32) corrected.
+
+### Fixed (engine + catalog, 2026-08-20)
+- **Conditional `svc_enabled` rules** — catalog rules may now set
+  `params.if_in_use`: when neither the unit nor its provider package
+  exists, the check returns `notapplicable` (and the fixer a no-op)
+  instead of `fail`. Fixes the ubuntu2404 2.3.2.2 false positive where
+  chrony covers time sync and Debian packaging removes
+  `systemd-timesyncd`. Applied to 2.3.2.2 in ubuntu2004/2204/2404.
+- **telnet/ftp client removal reclassified to `safe`** — was
+  `disruptive` and skipped at build time on rhel8/9/10 and
+  ubuntu2004/2204/2404; removing a client package does not interrupt
+  services (tencentos3/4 already marked `safe`).
+- **ubuntu 1.4.1 bootloader password** — moved to `family=manual`
+  (risk=none) with a documenting note: the GRUB password is a
+  site-specific credential with no automated remediation; cloud golden
+  images normally exempt it.
+- **Engine correctness** — `kv_conf` reads its key after the
+  `limits_core` branch (1.5.1 KeyError); `f_kv_conf` fix-end key;
+  shadow group root; `crypto_policy` kind default → `not_legacy`;
+  journal-upload/remote no longer reference non-existent RHEL10 packages.
 
 ### Added
 - **`[build].instance_name`** — optional explicit name for the temporary
