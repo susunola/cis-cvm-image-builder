@@ -2617,8 +2617,7 @@
   "family": "audit_rule",
   "params": {
    "rules": [
-    "-a always,exit -F arch=b64 -C euid!=uid -F auid!=unset -S execve -k user_emulation",
-    "-a always,exit -F arch=b32 -C euid!=uid -F auid!=unset -S execve -k user_emulation"
+    "-a always,exit -F arch=b64 -C euid!=uid -F auid!=unset -S execve -k user_emulation"
    ],
    "name": "actions as another user are always logged"
   },
@@ -2657,7 +2656,6 @@
   "params": {
    "rules": [
     "-a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k time-change",
-    "-a always,exit -F arch=b32 -S adjtimex,settimeofday,clock_settime -k time-change",
     "-w /etc/localtime -p wa -k time-change"
    ],
    "name": "events that modify date and time information are collected"
@@ -2678,7 +2676,6 @@
   "params": {
    "rules": [
     "-a always,exit -F arch=b64 -S sethostname,setdomainname -k system-locale",
-    "-a always,exit -F arch=b32 -S sethostname,setdomainname -k system-locale",
     "-w /etc/issue -p wa -k system-locale",
     "-w /etc/issue.net -p wa -k system-locale",
     "-w /etc/hosts -p wa -k system-locale",
@@ -2716,9 +2713,7 @@
   "params": {
    "rules": [
     "-a always,exit -F arch=b64 -S creat,open,openat,truncate,ftruncate -F exit=-EACCES -F auid>=1000 -F auid!=unset -k access",
-    "-a always,exit -F arch=b64 -S creat,open,openat,truncate,ftruncate -F exit=-EPERM -F auid>=1000 -F auid!=unset -k access",
-    "-a always,exit -F arch=b32 -S creat,open,openat,truncate,ftruncate -F exit=-EACCES -F auid>=1000 -F auid!=unset -k access",
-    "-a always,exit -F arch=b32 -S creat,open,openat,truncate,ftruncate -F exit=-EPERM -F auid>=1000 -F auid!=unset -k access"
+    "-a always,exit -F arch=b64 -S creat,open,openat,truncate,ftruncate -F exit=-EPERM -F auid>=1000 -F auid!=unset -k access"
    ],
    "name": "unsuccessful file access attempts are collected"
   },
@@ -2761,9 +2756,7 @@
   "params": {
    "rules": [
     "-a always,exit -F arch=b64 -S chmod,fchmod,fchmodat,setxattr,lsetxattr,fsetxattr,removexattr,lremovexattr,fremovexattr -F auid>=1000 -F auid!=unset -k perm_mod",
-    "-a always,exit -F arch=b32 -S chmod,fchmod,fchmodat,setxattr,lsetxattr,fsetxattr,removexattr,lremovexattr,fremovexattr -F auid>=1000 -F auid!=unset -k perm_mod",
-    "-a always,exit -F arch=b64 -S chown,fchown,lchown,fchownat -F auid>=1000 -F auid!=unset -k perm_mod",
-    "-a always,exit -F arch=b32 -S chown,fchown,lchown,fchownat -F auid>=1000 -F auid!=unset -k perm_mod"
+    "-a always,exit -F arch=b64 -S chown,fchown,lchown,fchownat -F auid>=1000 -F auid!=unset -k perm_mod"
    ],
    "name": "discretionary access control permission modification events are collected"
   },
@@ -2782,8 +2775,7 @@
   "family": "audit_rule",
   "params": {
    "rules": [
-    "-a always,exit -F arch=b64 -S mount -F auid>=1000 -F auid!=unset -k mounts",
-    "-a always,exit -F arch=b32 -S mount -F auid>=1000 -F auid!=unset -k mounts"
+    "-a always,exit -F arch=b64 -S mount -F auid>=1000 -F auid!=unset -k mounts"
    ],
    "name": "successful file system mounts are collected"
   },
@@ -2843,8 +2835,7 @@
   "family": "audit_rule",
   "params": {
    "rules": [
-    "-a always,exit -F arch=b64 -S rename,unlink,unlinkat,renameat -F auid>=1000 -F auid!=unset -k delete",
-    "-a always,exit -F arch=b32 -S rename,unlink,unlinkat,renameat -F auid>=1000 -F auid!=unset -k delete"
+    "-a always,exit -F arch=b64 -S rename,unlink,unlinkat,renameat -F auid>=1000 -F auid!=unset -k delete"
    ],
    "name": "file deletion events by users are collected"
   },
@@ -3073,7 +3064,6 @@
   "family": "audit_rule",
   "params": {
    "rules": [
-    "-a always,exit -F arch=b32 -S finit_module -F auid>=1000 -F auid!=4294967295",
     "-a always,exit -F arch=b64 -S finit_module -F auid>=1000 -F auid!=4294967295"
    ],
    "name": "Ensure successful and unsuccessful uses of the finit_module syscall are recorded"
@@ -3094,7 +3084,6 @@
   "params": {
    "rules": [
     "-a always,exit -F arch=b64 -S init_module,finit_module,delete_module,create_module,query_module -F auid>=1000 -F auid!=unset -k kernel_modules",
-    "-a always,exit -F arch=b32 -S init_module,finit_module,delete_module,create_module,query_module -F auid>=1000 -F auid!=unset -k kernel_modules",
     "-a always,exit -F path=/usr/bin/kmod -F perm=x -F auid>=1000 -F auid!=unset -k kernel_modules"
    ],
    "name": "kernel module loading unloading and modification is collected"

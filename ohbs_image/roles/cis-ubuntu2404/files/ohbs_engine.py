@@ -2025,9 +2025,6 @@ def c_kv_conf(ctx, p):
 @fix("kv_conf")
 def f_kv_conf(ctx, p):
     op = p.get("op", "eq")
-    key = p["key"]
-    want = str(p.get("value", ""))
-    sep = p.get("sep", "=")
 
     if op == "limits_core":
         write_file(ctx, "/etc/security/limits.d/60-cis-coredump.conf",
@@ -2035,6 +2032,9 @@ def f_kv_conf(ctx, p):
                    "* hard core 0\n* soft core 0\n")
         return True, "wrote /etc/security/limits.d/60-cis-coredump.conf"
 
+    key = p["key"]
+    want = str(p.get("value", ""))
+    sep = p.get("sep", "=")
     if op == "tmout":
         target = (p.get("files") or ["/etc/cis-hardening.conf"])[0]
         # Write with bash guard so non-bash shells (sh, scp) don't

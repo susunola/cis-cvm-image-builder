@@ -5362,8 +5362,7 @@
   "family": "audit_rule",
   "params": {
    "rules": [
-    "-a always,exit -F arch=b64 -C euid!=uid -F auid!=unset -S execve -k user_emulation",
-    "-a always,exit -F arch=b32 -C euid!=uid -F auid!=unset -S execve -k user_emulation"
+    "-a always,exit -F arch=b64 -C euid!=uid -F auid!=unset -S execve -k user_emulation"
    ],
    "name": "Ensure actions as another user are always logged"
   },
@@ -5408,7 +5407,6 @@
   "params": {
    "rules": [
     "-a always,exit -F arch=b64 -S adjtimex -S settimeofday -k time-change",
-    "-a always,exit -F arch=b32 -S adjtimex -S settimeofday -k time-change",
     "-a always,exit -F arch=b64 -S clock_settime -k time-change"
    ],
    "name": "Ensure events that modify date and time information are collected"
@@ -5432,7 +5430,6 @@
   "params": {
    "rules": [
     "-a always,exit -F arch=b64 -S sethostname -S setdomainname -k system-locale",
-    "-a always,exit -F arch=b32 -S sethostname -S setdomainname -k system-locale",
     "-w /etc/issue -p wa -k system-locale",
     "-w /etc/issue.net -p wa -k system-locale",
     "-w /etc/hosts -p wa -k system-locale",
@@ -5476,9 +5473,7 @@
   "params": {
    "rules": [
     "-a always,exit -F arch=b64 -S creat -S open -S openat -S truncate -S ftruncate -F exit=-EACCES -F auid>=1000 -F auid!=unset -k access",
-    "-a always,exit -F arch=b32 -S creat -S open -S openat -S truncate -S ftruncate -F exit=-EACCES -F auid>=1000 -F auid!=unset -k access",
-    "-a always,exit -F arch=b64 -S creat -S open -S openat -S truncate -S ftruncate -F exit=-EPERM -F auid>=1000 -F auid!=unset -k access",
-    "-a always,exit -F arch=b32 -S creat -S open -S openat -S truncate -S ftruncate -F exit=-EPERM -F auid>=1000 -F auid!=unset -k access"
+    "-a always,exit -F arch=b64 -S creat -S open -S openat -S truncate -S ftruncate -F exit=-EPERM -F auid>=1000 -F auid!=unset -k access"
    ],
    "name": "Ensure unsuccessful file access attempts are collected"
   },
@@ -5543,8 +5538,7 @@
   "family": "audit_rule",
   "params": {
    "rules": [
-    "-a always,exit -F arch=b64 -S mount -F auid>=1000 -F auid!=unset -k mounts",
-    "-a always,exit -F arch=b32 -S mount -F auid>=1000 -F auid!=unset -k mounts"
+    "-a always,exit -F arch=b64 -S mount -F auid>=1000 -F auid!=unset -k mounts"
    ],
    "name": "Ensure successful file system mounts are collected"
   },
@@ -5613,8 +5607,7 @@
   "family": "audit_rule",
   "params": {
    "rules": [
-    "-a always,exit -F arch=b64 -S unlink -S unlinkat -S rename -S renameat -F auid>=1000 -F auid!=unset -k delete",
-    "-a always,exit -F arch=b32 -S unlink -S unlinkat -S rename -S renameat -F auid>=1000 -F auid!=unset -k delete"
+    "-a always,exit -F arch=b64 -S unlink -S unlinkat -S rename -S renameat -F auid>=1000 -F auid!=unset -k delete"
    ],
    "name": "Ensure file deletion events by users are collected"
   },
@@ -6172,7 +6165,7 @@
    "path": "/etc/shadow",
    "mode": "640",
    "owner": "root",
-   "group": "shadow",
+   "group": "root",
    "kind": "file"
   },
   "risk": "safe",
@@ -6195,7 +6188,7 @@
    "path": "/etc/shadow-",
    "mode": "640",
    "owner": "root",
-   "group": "shadow",
+   "group": "root",
    "kind": "file"
   },
   "risk": "safe",
@@ -6218,7 +6211,7 @@
    "path": "/etc/gshadow",
    "mode": "640",
    "owner": "root",
-   "group": "shadow",
+   "group": "root",
    "kind": "file"
   },
   "risk": "safe",
@@ -6241,7 +6234,7 @@
    "path": "/etc/gshadow-",
    "mode": "640",
    "owner": "root",
-   "group": "shadow",
+   "group": "root",
    "kind": "file"
   },
   "risk": "safe",
