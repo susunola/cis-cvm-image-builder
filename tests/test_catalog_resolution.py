@@ -33,6 +33,16 @@ def test_cis_maps_to_rules_json():
         assert _catalog_path("cis-rhel9", bm).name == "rules.json"
 
 
+def test_any_cis_prefixed_benchmark_maps_to_rules_json():
+    # The legacy check matches any case-insensitive "cis*" prefix — a
+    # versioned CIS string like "cis-v9.9" must NOT resolve to a
+    # benchmark-specific rules_cis_v9_9.json (which would fall back to
+    # rules.json anyway, but only via the absence check).
+    for bm in ("cis-v9.9", "CIS-v2.0.0", "CiS-anything"):
+        assert _catalog_basename("cis-rhel9", bm) == "rules.json"
+        assert _catalog_path("cis-rhel9", bm).name == "rules.json"
+
+
 def test_stig_resolves_to_specific_file_when_present(tmp_path, monkeypatch):
     # Simulate a bundled benchmark-specific catalog by redirecting the resolver's
     # roles root at a synthetic tree containing rules_stig_rhel9.json.

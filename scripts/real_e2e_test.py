@@ -1874,6 +1874,19 @@ def main() -> int:
                          "not be reachable.")
                 priv_key = JUMP_KEY_FILE
                 banner(f"Reusing kept jump box {instance_id} (region={kept.get('region')})")
+                # The persisted state stores no IP — re-query it. The box lives
+                # in its recorded region, which may differ from --region.
+                reuse_region = kept.get("region") or args.region
+                public_ip = wait_for_public_ip(reuse_region, sid, skey, tok, instance_id,
+                                               timeout=args.timeout)
+                if not public_ip:
+                    raise ConfigError(
+                        f"Kept jump box {instance_id} has no public IP — it may have "
+                        "been stopped or terminated. Clear the stale state with "
+                        "--terminate-last.")
+                ok(f"Public IP: {public_ip}")
+                wait_for_ssh(public_ip, args.ssh_user, priv_key, timeout=args.ssh_timeout)
+                ok("SSH is up")
             else:
                 banner("Generating temporary SSH key pair")
                 if args.keep:
@@ -1990,7 +2003,10 @@ def main() -> int:
             overall_passed = False
         finally:
             if batch_image_ids:
-                delete_batch_images(args.region, sid, skey, tok, batch_image_ids)
+                # Images were created in the TARGET build region, which may
+                # differ from the jump box's --region (E2E_TARGET_REGION).
+                delete_batch_images(target_placement(args)["region"],
+                                    sid, skey, tok, batch_image_ids)
             # Decide whether the jump box survives this run:
             #   * --keep          -> always keep (persist key+state for reuse).
             #   * --keep-on-failure -> keep only if the run failed.
