@@ -7,6 +7,34 @@ can be traced across rebuilds.
 
 ## [Unreleased]
 
+### Added (rule-catalog automation, round 6)
+- **141 more manual rules wired to existing engine families** — no engine
+  changes; every params block is modelled on an already-automated rule with
+  the same title in a sibling catalog. By family: `user_audit` ×54 (UID/GID
+  0, system-shell, nologin-locked, unowned, groups-exist, home-dirs,
+  root-path, password-change-date), `sysctl` ×17 (ICMP/source-route/martian/
+  accept-ra, ptrace_scope, ASLR, suid_dumpable), `crypto_policy` ×9 (no_sha1,
+  weak-MAC, chacha20, EtM, FUTURE-or-FIPS), `sshd` ×10 (KexAlgorithms
+  deny-list ×6, sshd crypto-policy override ×2, host-key permissions ×2),
+  service/package ×10 (`svc_enabled` ×7, `pkg_present` ×3), auditd ×16
+  (`audit_rule` DAC perm_mod ×5, `audit_perm` ×4, `audit_failure_mode` ×2,
+  `aide_audit_tools` ×5), `kv_conf` ×5, PAM ×5, `mta_local` ×6, `selinux`
+  no-unconfined ×3, `cron_allow` ×2, `firewalld_zone_target` ×2,
+  `sudo_defaults` ×1, `file_perm` ×1. Linux manual total drops 354 → 213.
+  Remaining manual rules either are manual by benchmark design (partitions,
+  patching, IPv6 status, remote log hosts, SUID/SGID review, bootloader
+  password, sshd access lists) or have no matching engine family yet
+  (multi-module kmod, AppArmor profiles, shadow-group, listener inventory,
+  pam_motd, post-quantum kex, ListenAddress, rsyslog gtls).
+
+### Fixed
+- **3 title/family mismatches in sshd rules** — rhel8 5.1.15 and tencentos3
+  5.1.15 (titled `LoginGraceTime`) and rhel9 5.1.15 (titled `LogLevel`) were
+  wired to `crypto_policy/no_weak_mac`; guidance.json confirms the titles
+  match the benchmark text, so the family was wrong. All three now use
+  `sshd_param` (`LoginGraceTime ≤ 60` / `LogLevel INFO`), consistent with
+  the sibling rules in the ubuntu catalogs.
+
 ### Added
 - **`[ohbs].allow_disruptive` config option** (default `true`) — controls
   whether the engine applies disruptive remediations (mount options,

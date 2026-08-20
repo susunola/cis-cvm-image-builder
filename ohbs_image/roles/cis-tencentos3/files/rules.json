@@ -3940,9 +3940,15 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "crypto_policy",
+    "family": "sshd_param",
     "params": {
-      "kind": "no_weak_mac"
+      "params": [
+        {
+          "key": "LoginGraceTime",
+          "value": "60",
+          "op": "le"
+        }
+      ]
     },
     "risk": "safe",
     "page": 634
@@ -5694,9 +5700,13 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "pkg_present",
+    "params": {
+      "packages": [
+        "logrotate"
+      ]
+    },
+    "risk": "safe",
     "page": 862
   },
   {

@@ -893,9 +893,12 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "selinux",
+    "params": {
+      "kind": "no_unconfined",
+      "value": ""
+    },
+    "risk": "safe",
     "page": 160
   },
   {
@@ -1009,9 +1012,16 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "kernel.yama.ptrace_scope",
+          "value": "1"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 180
   },
   {
@@ -1095,9 +1105,9 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "sshd_crypto_policy",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 195
   },
   {
@@ -1112,9 +1122,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "safe",
+    "family": "crypto_policy",
+    "params": {
+      "kind": "no_sha1"
+    },
+    "risk": "disruptive",
     "page": 197
   },
   {
@@ -1129,8 +1141,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "crypto_policy",
+    "params": {
+      "kind": "no_weak_mac"
+    },
     "risk": "safe",
     "page": 200
   },
@@ -1165,8 +1179,10 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
+    "family": "crypto_policy",
+    "params": {
+      "kind": "no_chacha_ssh"
+    },
     "risk": "safe",
     "page": 207
   },
@@ -1182,9 +1198,11 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "crypto_policy",
+    "params": {
+      "kind": "no_etm_ssh"
+    },
+    "risk": "safe",
     "page": 211
   },
   {
@@ -2022,9 +2040,9 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "mta_local",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 330
   },
   {
@@ -2388,9 +2406,9 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "cron_allow",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 369
   },
   {
@@ -2405,9 +2423,9 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "cron_allow",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 374
   },
   {
@@ -2616,9 +2634,16 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv4.icmp_ignore_bogus_error_responses",
+          "value": "1"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 422
   },
   {
@@ -2633,9 +2658,16 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv4.icmp_echo_ignore_broadcasts",
+          "value": "1"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 427
   },
   {
@@ -2678,9 +2710,20 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv4.conf.all.secure_redirects",
+          "value": "0"
+        },
+        {
+          "key": "net.ipv4.conf.default.secure_redirects",
+          "value": "0"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 437
   },
   {
@@ -2723,9 +2766,28 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv4.conf.all.accept_source_route",
+          "value": "0"
+        },
+        {
+          "key": "net.ipv4.conf.default.accept_source_route",
+          "value": "0"
+        },
+        {
+          "key": "net.ipv6.conf.all.accept_source_route",
+          "value": "0"
+        },
+        {
+          "key": "net.ipv6.conf.default.accept_source_route",
+          "value": "0"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 447
   },
   {
@@ -2740,9 +2802,20 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv4.conf.all.log_martians",
+          "value": "1"
+        },
+        {
+          "key": "net.ipv4.conf.default.log_martians",
+          "value": "1"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 453
   },
   {
@@ -2781,9 +2854,20 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv6.conf.all.accept_ra",
+          "value": "0"
+        },
+        {
+          "key": "net.ipv6.conf.default.accept_ra",
+          "value": "0"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 463
   },
   {
@@ -2955,9 +3039,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "path_perm_glob",
+    "params": {
+      "kind": "ssh_private"
+    },
+    "risk": "safe",
     "page": 504
   },
   {
@@ -2972,9 +3058,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "path_perm_glob",
+    "params": {
+      "kind": "ssh_public"
+    },
+    "risk": "safe",
     "page": 508
   },
   {
@@ -3014,9 +3102,17 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sshd_param",
+    "params": {
+      "params": [
+        {
+          "key": "KexAlgorithms",
+          "value": "diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1",
+          "op": "deny_list"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 516
   },
   {
@@ -3238,9 +3334,15 @@
       "Server",
       "Workstation"
     ],
-    "family": "crypto_policy",
+    "family": "sshd_param",
     "params": {
-      "kind": "no_weak_mac"
+      "params": [
+        {
+          "key": "LogLevel",
+          "value": "INFO",
+          "op": "eq"
+        }
+      ]
     },
     "risk": "safe",
     "page": 544,
@@ -4246,8 +4348,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "user_audit",
+    "params": {
+      "kind": "pw_change_past"
+    },
     "risk": "none",
     "page": 684
   },
@@ -4263,8 +4367,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "user_audit",
+    "params": {
+      "kind": "uid0_root_only"
+    },
     "risk": "none",
     "page": 687
   },
@@ -4280,8 +4386,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "user_audit",
+    "params": {
+      "kind": "gid0_root_only"
+    },
     "risk": "none",
     "page": 688
   },
@@ -4331,9 +4439,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "root_path"
+    },
+    "risk": "safe",
     "page": 694
   },
   {
@@ -4373,9 +4483,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "system_shell"
+    },
+    "risk": "safe",
     "page": 700
   },
   {
@@ -4390,9 +4502,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "nologin_locked"
+    },
+    "risk": "safe",
     "page": 703
   },
   {
@@ -4519,9 +4633,9 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "aide_audit_tools",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 725
   },
   {
@@ -5337,9 +5451,15 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "audit_rule",
+    "params": {
+      "rules": [
+        "-a always,exit -F arch=b64 -S chmod,fchmod,fchmodat,setxattr,lsetxattr,fsetxattr,removexattr,lremovexattr,fremovexattr -F auid>=1000 -F auid!=unset -k perm_mod",
+        "-a always,exit -F arch=b64 -S chown,fchown,lchown,fchownat -F auid>=1000 -F auid!=unset -k perm_mod"
+      ],
+      "name": "discretionary access control permission modification events are collected"
+    },
+    "risk": "safe",
     "page": 847
   },
   {
@@ -6071,9 +6191,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "unowned"
+    },
+    "risk": "safe",
     "page": 947
   },
   {
@@ -6143,8 +6265,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "user_audit",
+    "params": {
+      "kind": "groups_exist"
+    },
     "risk": "none",
     "page": 959
   },
@@ -6236,9 +6360,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "home_dirs"
+    },
+    "risk": "safe",
     "page": 968
   },
   {
