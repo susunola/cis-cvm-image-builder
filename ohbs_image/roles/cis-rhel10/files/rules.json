@@ -4398,6 +4398,25 @@
   "page": 688
  },
  {
+  "id": "5.3.2.3.3",
+  "title": "Ensure pam_pwhistory includes use_authtok",
+  "section": "5.3.2.3",
+  "levels": [
+   1
+  ],
+  "platforms": [
+   "Server",
+   "Workstation"
+  ],
+  "family": "authselect_feature",
+  "params": {
+   "feature": "with-pwhistory"
+  },
+  "risk": "safe",
+  "page": 696,
+  "assessment": "Automated"
+ },
+ {
   "id": "5.3.2.3.1",
   "title": "Ensure password history remember is configured",
   "section": "5.3.2.3",
@@ -4440,25 +4459,6 @@
   "page": 694
  },
  {
-  "id": "5.3.2.3.3",
-  "title": "Ensure pam_pwhistory includes use_authtok",
-  "section": "5.3.2.3",
-  "levels": [
-   1
-  ],
-  "platforms": [
-   "Server",
-   "Workstation"
-  ],
-  "family": "authselect_feature",
-  "params": {
-   "feature": "with-pwhistory"
-  },
-  "risk": "safe",
-  "page": 696,
-  "assessment": "Automated"
- },
- {
   "id": "5.3.2.4.1",
   "title": "Ensure pam_unix does not include nullok",
   "section": "5.3.2.4",
@@ -4469,11 +4469,9 @@
    "Server",
    "Workstation"
   ],
-  "family": "pam_arg",
+  "family": "authselect_feature",
   "params": {
-   "module": "pam_unix.so",
-   "arg": "nullok",
-   "mode": "absent"
+   "feature": "without-nullok"
   },
   "risk": "safe",
   "page": 700,
