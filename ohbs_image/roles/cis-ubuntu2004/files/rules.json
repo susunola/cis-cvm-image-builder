@@ -905,9 +905,16 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "kernel.yama.ptrace_scope",
+          "value": "1"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 150
   },
   {
@@ -1814,9 +1821,9 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "mta_local",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 258
   },
   {
@@ -1991,11 +1998,17 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "svc_enabled",
     "params": {
-      "note": "manual: authorized timeserver is site-specific"
+      "units": [
+        "systemd-timesyncd.service"
+      ],
+      "packages": [
+        "systemd-timesyncd"
+      ],
+      "if_in_use": true
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 285
   },
   {
@@ -2033,11 +2046,16 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "svc_enabled",
     "params": {
-      "note": "manual: site-specific timeserver; timesyncd is the Ubuntu path"
+      "units": [
+        "chrony.service"
+      ],
+      "packages": [
+        "chrony"
+      ]
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 292
   },
   {
@@ -2052,9 +2070,20 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "kv_conf",
+    "params": {
+      "files": [
+        "/etc/chrony/chrony.conf"
+      ],
+      "globs": [
+        "/etc/chrony/conf.d/*.conf"
+      ],
+      "key": "user",
+      "sep": " ",
+      "value": "_chrony",
+      "op": "eq"
+    },
+    "risk": "safe",
     "page": 296
   },
   {
@@ -2069,11 +2098,16 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "svc_enabled",
     "params": {
-      "note": "manual: chrony conflicts with systemd-timesyncd (Debian packaging removes it) — timesyncd is the Ubuntu 20.04 default path"
+      "units": [
+        "chrony.service"
+      ],
+      "packages": [
+        "chrony"
+      ]
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 298
   },
   {
@@ -2501,9 +2535,16 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv4.icmp_ignore_bogus_error_responses",
+          "value": "1"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 368
   },
   {
@@ -2518,9 +2559,16 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv4.icmp_echo_ignore_broadcasts",
+          "value": "1"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 373
   },
   {
@@ -2563,9 +2611,20 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv4.conf.all.secure_redirects",
+          "value": "0"
+        },
+        {
+          "key": "net.ipv4.conf.default.secure_redirects",
+          "value": "0"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 383
   },
   {
@@ -2608,9 +2667,28 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv4.conf.all.accept_source_route",
+          "value": "0"
+        },
+        {
+          "key": "net.ipv4.conf.default.accept_source_route",
+          "value": "0"
+        },
+        {
+          "key": "net.ipv6.conf.all.accept_source_route",
+          "value": "0"
+        },
+        {
+          "key": "net.ipv6.conf.default.accept_source_route",
+          "value": "0"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 393
   },
   {
@@ -2625,9 +2703,20 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv4.conf.all.log_martians",
+          "value": "1"
+        },
+        {
+          "key": "net.ipv4.conf.default.log_martians",
+          "value": "1"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 399
   },
   {
@@ -2666,9 +2755,20 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv6.conf.all.accept_ra",
+          "value": "0"
+        },
+        {
+          "key": "net.ipv6.conf.default.accept_ra",
+          "value": "0"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 409
   },
   {
@@ -3484,9 +3584,17 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sshd_param",
+    "params": {
+      "params": [
+        {
+          "key": "KexAlgorithms",
+          "value": "diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1",
+          "op": "deny_list"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 523
   },
   {
@@ -3809,9 +3917,13 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sudo_defaults",
+    "params": {
+      "key": "authenticate",
+      "value": "",
+      "op": "flag"
+    },
+    "risk": "safe",
     "page": 554
   },
   {
@@ -4565,8 +4677,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "user_audit",
+    "params": {
+      "kind": "pw_change_past"
+    },
     "risk": "none",
     "page": 657
   },
@@ -4582,8 +4696,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "user_audit",
+    "params": {
+      "kind": "uid0_root_only"
+    },
     "risk": "none",
     "page": 660
   },
@@ -4599,8 +4715,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "user_audit",
+    "params": {
+      "kind": "gid0_root_only"
+    },
     "risk": "none",
     "page": 662
   },
@@ -4650,9 +4768,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "root_path"
+    },
+    "risk": "safe",
     "page": 668
   },
   {
@@ -4692,9 +4812,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "system_shell"
+    },
+    "risk": "safe",
     "page": 673
   },
   {
@@ -4709,9 +4831,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "nologin_locked"
+    },
+    "risk": "safe",
     "page": 675
   },
   {
@@ -5620,9 +5744,15 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "audit_rule",
+    "params": {
+      "rules": [
+        "-a always,exit -F arch=b64 -S chmod,fchmod,fchmodat,setxattr,lsetxattr,fsetxattr,removexattr,lremovexattr,fremovexattr -F auid>=1000 -F auid!=unset -k perm_mod",
+        "-a always,exit -F arch=b64 -S chown,fchown,lchown,fchownat -F auid>=1000 -F auid!=unset -k perm_mod"
+      ],
+      "name": "discretionary access control permission modification events are collected"
+    },
+    "risk": "safe",
     "page": 801
   },
   {
@@ -6354,9 +6484,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "unowned"
+    },
+    "risk": "safe",
     "page": 887
   },
   {
@@ -6426,8 +6558,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "user_audit",
+    "params": {
+      "kind": "groups_exist"
+    },
     "risk": "none",
     "page": 899
   },
@@ -6536,9 +6670,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "home_dirs"
+    },
+    "risk": "safe",
     "page": 911
   },
   {

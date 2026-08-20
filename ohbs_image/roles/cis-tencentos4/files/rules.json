@@ -1069,11 +1069,11 @@
     ],
     "platforms": [],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "crypto_policy",
     "params": {
       "kind": "future_or_fips"
     },
-    "risk": "none",
+    "risk": "disruptive",
     "page": 167,
     "reboot_required": true,
     "note": "crypto policy kept DEFAULT: FUTURE/FIPS would break sshd key exchange; verify site policy"
@@ -2246,16 +2246,14 @@
     ],
     "platforms": [],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "svc_enabled",
     "params": {
       "units": [
         "nftables.service"
       ],
-      "packages": [
-        "nftables"
-      ]
+      "packages": []
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 307,
     "note": "profile uses the firewalld scheme (3.4.2.x); nftables scheme is an alternative, not additive"
   },
@@ -3521,9 +3519,13 @@
     ],
     "platforms": [],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "pkg_present",
+    "params": {
+      "packages": [
+        "logrotate"
+      ]
+    },
+    "risk": "safe",
     "page": 486
   },
   {

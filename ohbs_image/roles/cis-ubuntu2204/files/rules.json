@@ -905,9 +905,16 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "kernel.randomize_va_space",
+          "value": "2"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 150
   },
   {
@@ -922,9 +929,16 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "kernel.yama.ptrace_scope",
+          "value": "(1|2|3)"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 155
   },
   {
@@ -939,9 +953,16 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "fs.suid_dumpable",
+          "value": "0"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 160
   },
   {
@@ -1865,9 +1886,9 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "mta_local",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 264
   },
   {
@@ -2116,8 +2137,19 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "kv_conf",
+    "params": {
+      "files": [
+        "/etc/chrony/chrony.conf"
+      ],
+      "globs": [
+        "/etc/chrony/conf.d/*.conf"
+      ],
+      "key": "user",
+      "sep": " ",
+      "value": "_chrony",
+      "op": "eq"
+    },
     "risk": "safe",
     "page": 301
   },
@@ -3462,9 +3494,17 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sshd_param",
+    "params": {
+      "params": [
+        {
+          "key": "KexAlgorithms",
+          "value": "diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1",
+          "op": "deny_list"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 510
   },
   {
@@ -3934,8 +3974,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "pam_module",
+    "params": {
+      "module": "pam_unix.so"
+    },
     "risk": "safe",
     "page": 557
   },
@@ -3951,8 +3993,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "pam_module",
+    "params": {
+      "module": "pam_faillock.so"
+    },
     "risk": "safe",
     "page": 559
   },
@@ -3968,8 +4012,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "pam_module",
+    "params": {
+      "module": "pam_pwquality.so"
+    },
     "risk": "safe",
     "page": 562
   },
@@ -3985,8 +4031,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "pam_module",
+    "params": {
+      "module": "pam_pwhistory.so"
+    },
     "risk": "safe",
     "page": 565
   },
@@ -4283,8 +4331,12 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "pam_arg",
+    "params": {
+      "module": "pam_pwhistory.so",
+      "arg": "remember",
+      "mode": "ge:24"
+    },
     "risk": "safe",
     "page": 604
   },
@@ -4533,8 +4585,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "user_audit",
+    "params": {
+      "kind": "pw_change_past"
+    },
     "risk": "none",
     "page": 636
   },
@@ -4550,8 +4604,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "user_audit",
+    "params": {
+      "kind": "uid0_root_only"
+    },
     "risk": "none",
     "page": 638
   },
@@ -4567,8 +4623,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "user_audit",
+    "params": {
+      "kind": "gid0_root_only"
+    },
     "risk": "none",
     "page": 639
   },
@@ -4618,9 +4676,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "root_path"
+    },
+    "risk": "safe",
     "page": 644
   },
   {
@@ -4660,9 +4720,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "system_shell"
+    },
+    "risk": "safe",
     "page": 650
   },
   {
@@ -4677,9 +4739,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "nologin_locked"
+    },
+    "risk": "safe",
     "page": 652
   },
   {
@@ -5553,9 +5617,15 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "audit_rule",
+    "params": {
+      "rules": [
+        "-a always,exit -F arch=b64 -S chmod,fchmod,fchmodat,setxattr,lsetxattr,fsetxattr,removexattr,lremovexattr,fremovexattr -F auid>=1000 -F auid!=unset -k perm_mod",
+        "-a always,exit -F arch=b64 -S chown,fchown,lchown,fchownat -F auid>=1000 -F auid!=unset -k perm_mod"
+      ],
+      "name": "discretionary access control permission modification events are collected"
+    },
+    "risk": "safe",
     "page": 774
   },
   {
@@ -6086,9 +6156,9 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "aide_audit_tools",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 848
   },
   {
@@ -6350,9 +6420,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "unowned"
+    },
+    "risk": "safe",
     "page": 878
   },
   {
@@ -6422,8 +6494,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "user_audit",
+    "params": {
+      "kind": "groups_exist"
+    },
     "risk": "none",
     "page": 889
   },
@@ -6532,9 +6606,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "home_dirs"
+    },
+    "risk": "safe",
     "page": 901
   },
   {

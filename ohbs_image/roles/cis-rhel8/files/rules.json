@@ -952,9 +952,12 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "selinux",
+    "params": {
+      "kind": "no_unconfined",
+      "value": ""
+    },
+    "risk": "safe",
     "page": 159
   },
   {
@@ -1300,9 +1303,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "crypto_policy",
+    "params": {
+      "kind": "no_sha1"
+    },
+    "risk": "disruptive",
     "page": 226
   },
   {
@@ -1355,8 +1360,10 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
+    "family": "crypto_policy",
+    "params": {
+      "kind": "no_chacha_ssh"
+    },
     "risk": "safe",
     "page": 236
   },
@@ -1372,8 +1379,10 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
+    "family": "crypto_policy",
+    "params": {
+      "kind": "no_etm_ssh"
+    },
     "risk": "safe",
     "page": 240
   },
@@ -2194,9 +2203,9 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "mta_local",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 353
   },
   {
@@ -3441,9 +3450,17 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "kv_conf",
+    "params": {
+      "key": "FirewallBackend",
+      "sep": "=",
+      "value": "nftables",
+      "op": "set",
+      "files": [
+        "/etc/firewalld/firewalld.conf"
+      ]
+    },
+    "risk": "safe",
     "page": 576
   },
   {
@@ -3458,9 +3475,16 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "svc_enabled",
+    "params": {
+      "units": [
+        "firewalld.service"
+      ],
+      "packages": [
+        "firewalld"
+      ]
+    },
+    "risk": "safe",
     "page": 578
   },
   {
@@ -3475,7 +3499,7 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "firewalld_zone_target",
     "params": {},
     "risk": "none",
     "page": 579
@@ -3543,9 +3567,9 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "sshd_crypto_policy",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 591
   },
   {
@@ -3577,9 +3601,15 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "file_perm",
+    "params": {
+      "path": "/etc/sysconfig/sshd",
+      "mode": "640",
+      "owner": "root",
+      "group": "root",
+      "kind": "file"
+    },
+    "risk": "safe",
     "page": 596
   },
   {
@@ -3817,9 +3847,17 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sshd_param",
+    "params": {
+      "params": [
+        {
+          "key": "KexAlgorithms",
+          "value": "diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1",
+          "op": "deny_list"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 630
   },
   {
@@ -3833,9 +3871,15 @@
       "Server",
       "Workstation"
     ],
-    "family": "crypto_policy",
+    "family": "sshd_param",
     "params": {
-      "kind": "no_weak_mac"
+      "params": [
+        {
+          "key": "LoginGraceTime",
+          "value": "60",
+          "op": "le"
+        }
+      ]
     },
     "risk": "safe",
     "page": 634,
@@ -4870,8 +4914,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "user_audit",
+    "params": {
+      "kind": "pw_change_past"
+    },
     "risk": "none",
     "page": 772
   },
@@ -4887,8 +4933,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "user_audit",
+    "params": {
+      "kind": "uid0_root_only"
+    },
     "risk": "none",
     "page": 775
   },
@@ -4904,8 +4952,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "user_audit",
+    "params": {
+      "kind": "gid0_root_only"
+    },
     "risk": "none",
     "page": 777
   },
@@ -4955,9 +5005,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "root_path"
+    },
+    "risk": "safe",
     "page": 783
   },
   {
@@ -4997,9 +5049,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "system_shell"
+    },
+    "risk": "safe",
     "page": 789
   },
   {
@@ -5014,9 +5068,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "nologin_locked"
+    },
+    "risk": "safe",
     "page": 791
   },
   {
@@ -5143,9 +5199,9 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "aide_audit_tools",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 812
   },
   {
@@ -5950,9 +6006,15 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "audit_rule",
+    "params": {
+      "rules": [
+        "-a always,exit -F arch=b64 -S chmod,fchmod,fchmodat,setxattr,lsetxattr,fsetxattr,removexattr,lremovexattr,fremovexattr -F auid>=1000 -F auid!=unset -k perm_mod",
+        "-a always,exit -F arch=b64 -S chown,fchown,lchown,fchownat -F auid>=1000 -F auid!=unset -k perm_mod"
+      ],
+      "name": "discretionary access control permission modification events are collected"
+    },
+    "risk": "safe",
     "page": 928
   },
   {
@@ -6193,9 +6255,9 @@
       "Server",
       "Workstation"
     ],
-    "family": "manual",
+    "family": "audit_failure_mode",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 972,
     "assessment": "Manual"
   },
@@ -6701,9 +6763,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "unowned"
+    },
+    "risk": "safe",
     "page": 1028
   },
   {
@@ -6773,8 +6837,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "user_audit",
+    "params": {
+      "kind": "groups_exist"
+    },
     "risk": "none",
     "page": 1040
   },
@@ -6866,9 +6932,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "home_dirs"
+    },
+    "risk": "safe",
     "page": 1050
   },
   {
