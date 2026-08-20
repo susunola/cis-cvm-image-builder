@@ -1158,20 +1158,25 @@ def c_logfile_perm(ctx, p):
 def f_logfile_perm(ctx, p):
     sh("find /var/log/ -type f -perm /g+wx,o+rwx -exec chmod g-wx,o-rwx {} + "
        "2>/dev/null", 300)
-    # v0.16.28: /var/log/{btmp,utmp,wtmp} are re-created by systemd-tmpfiles
-    # on every boot with looser perms (0660), so a one-shot chmod reverts.
-    # Persist the CIS perms via a tmpfiles.d drop-in that re-applies them at
-    # boot (rhel10-l1/2: 6.2.4.1 kept failing 'too permissive' on btmp).
-    tf = "/etc/tmpfiles.d/ohbs-cis-logperms.conf"
-    spec = "z /var/log/btmp 0640 root utmp -\n" \
-          "z /var/log/wtmp 0640 root utmp -\n" \
-          "z /var/log/utmp 0640 root utmp -\n"
-    if readlines(tf) if exists(tf) else [] != spec.splitlines():
+    # v0.16.29: /var/log/{btmp,utmp,wtmp} are created by systemd-tmpfiles at
+    # boot with looser perms (vendor /usr/lib/tmpfiles.d/var.conf: btmp 0660,
+    # wtmp 0664). tmpfiles processes /usr/lib AFTER /etc, so a plain drop-in
+    # in /etc/tmpfiles.d/ is overridden by the vendor file.  Override the
+    # vendor file by NAME (/etc/tmpfiles.d/var.conf) with z lines that force
+    # CIS perms on every boot (rhel10: 6.2.4.1 kept failing on btmp).
+    tf = "/etc/tmpfiles.d/var.conf"
+    spec = ("# CIS hardening: override vendor perms for login/log files\n"
+            "z /var/log/btmp 0640 root utmp -\n"
+            "z /var/log/wtmp 0640 root utmp -\n"
+            "z /var/log/lastlog 0640 root utmp -\n"
+            "z /var/log/utmp 0640 root utmp -\n"
+            "Z /var/log/journal 0640 root systemd-journal -\n")
+    if (readlines(tf) if exists(tf) else []) != spec.splitlines():
         write_file(ctx, tf, spec, 0o644)
         ctx.add_changed_file(tf)
-    sh("systemd-tmpfiles --create /etc/tmpfiles.d/ohbs-cis-logperms.conf "
+    sh("systemd-tmpfiles --create /etc/tmpfiles.d/var.conf "
        "2>/dev/null || true", 30)
-    return True, "applied chmod g-wx,o-rwx under /var/log (btmp/utmp/wtmp via tmpfiles drop-in)"
+    return True, "applied chmod g-wx,o-rwx under /var/log (btmp/utmp/wtmp/lastlog via tmpfiles var.conf override)"
 
 
 @check("journald_fileperm")
@@ -2207,6 +2212,26 @@ def _sshd_write(ctx, pairs):
             for k, v in old.values():
                 body.append("%s %s" % (k, v))
             write_file(ctx, SSHD_DROPIN, "\n".join(body) + "\n", 0o600)
+            keys_lower = {k.lower() for k, v in pairs}
+            # v0.16.29: OpenSSH takes the FIRST-obtained value for list params
+            # and the LAST for scalars — either way a vendor drop-in that
+            # sorts BEFORE ours (40-redhat-*, 50-cloud-init, 01-*) can
+            # override what we just wrote.  Comment the same key out of every
+            # other sshd_config.d file so our drop-in is authoritative.
+            for other in sorted(globmod.glob("/etc/ssh/sshd_config.d/*.conf")):
+                if os.path.realpath(other) == os.path.realpath(SSHD_DROPIN):
+                    continue
+                commented = False
+                ol = readlines(other)
+                for i, ln in enumerate(ol):
+                    m = re.match(r"^\s*(\w+)\s+", ln)
+                    if m and m.group(1).lower() in keys_lower \
+                       and not ln.lstrip().startswith("#"):
+                        ol[i] = "# " + ln
+                        commented = True
+                if commented:
+                    backup(ctx, other)
+                    write_file(ctx, other, "\n".join(ol).rstrip("\n") + "\n", 0o600)
             # ensure Include directive exists; comment out conflicting directives
             # so the drop-in (60-cis-hardening.conf) always takes precedence
             main_lines = readlines("/etc/ssh/sshd_config")
@@ -2962,7 +2987,11 @@ def crypto_policy_now(ctx):
 # Tightens sshd's MACs/Ciphers directly so the four rules can pass WITHOUT
 # touching the system-wide crypto policy (TencentOS ships LEGACY by design;
 # switching it to DEFAULT affects every service, not just SSH).
-SSH_CRYPTO_DROPIN = "/etc/ssh/sshd_config.d/60-cis-crypto.conf"
+# v0.16.29: MUST load BEFORE 40-redhat-crypto-policies.conf.  OpenSSH takes
+# the FIRST-obtained value for list params (MACs/Ciphers); a 60-* drop-in
+# loses to the vendor 40-redhat-crypto-policies.conf, so the CIS whitelist
+# never took effect (rhel10 5.1.15/1.6.3 stayed 'weak MACs permitted').
+SSH_CRYPTO_DROPIN = "/etc/ssh/sshd_config.d/05-cis-crypto.conf"
 
 # OpenSSH built-in defaults (server side) — the baseline every rule trims.
 # NOTE: UMAC must use the @openssh.com form — the bare "umac-128" name is
@@ -3042,6 +3071,19 @@ def _fix_sshd_crypto(ctx, kind):
                    "Include /etc/ssh/sshd_config.d/*.conf\n" + main, 0o600)
     comment_out(ctx, "/etc/ssh/sshd_config", r"^\s*MACs\s")
     comment_out(ctx, "/etc/ssh/sshd_config", r"^\s*Ciphers\s")
+    # Neutralise MACs/Ciphers in sibling drop-ins (40-redhat-crypto-*,
+    # cloud-init) — with 05-cis-crypto.conf first, OpenSSH already takes
+    # ours, but belt-and-braces so a later re-run stays stable.
+    for other in sorted(globmod.glob("/etc/ssh/sshd_config.d/*.conf")):
+        if os.path.realpath(other) == os.path.realpath(SSH_CRYPTO_DROPIN):
+            continue
+        ol = readlines(other)
+        nw = [ln for ln in ol
+              if not re.match(r"^\s*(MACs|Ciphers)\s", ln)
+              or ln.lstrip().startswith("#")]
+        if len(nw) != len(ol):
+            backup(ctx, other)
+            write_file(ctx, other, "\n".join(nw).rstrip("\n") + "\n", 0o600)
     # Validate BEFORE deferring a restart: a drop-in sshd rejects would
     # kill the daemon on the next restart (and on reboot).  Roll the file
     # back so SSH can never be bricked by a bad algorithm name.

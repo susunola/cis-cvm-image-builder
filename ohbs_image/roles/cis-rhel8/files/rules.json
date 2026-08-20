@@ -4124,7 +4124,7 @@
   "params": {
    "key": "logfile",
    "value": "/var/log/sudo.log",
-   "op": "eq"
+   "op": "kv"
   },
   "risk": "safe",
   "page": 667,

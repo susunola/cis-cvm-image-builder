@@ -3961,7 +3961,7 @@
   "params": {
    "key": "logfile",
    "value": "/var/log/sudo.log",
-   "op": "eq"
+   "op": "kv"
   },
   "risk": "safe",
   "page": 630,
@@ -5122,19 +5122,11 @@
    "Server",
    "Workstation"
   ],
-  "family": "kv_conf",
-  "params": {
-   "files": [
-    "/etc/systemd/journald.conf.d/99-cis.conf"
-   ],
-   "key": "ForwardToSyslog",
-   "sep": "=",
-   "value": "no",
-   "op": "eq"
-  },
-  "risk": "safe",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
   "page": 796,
-  "assessment": "Automated"
+  "assessment": "Manual"
  },
  {
   "id": "6.2.2.3",

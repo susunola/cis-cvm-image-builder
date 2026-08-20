@@ -4176,7 +4176,7 @@
   "params": {
    "key": "logfile",
    "value": "/var/log/sudo.log",
-   "op": "eq"
+   "op": "kv"
   },
   "risk": "safe",
   "page": 593,
@@ -5684,19 +5684,11 @@
    "Server",
    "Workstation"
   ],
-  "family": "kv_conf",
-  "params": {
-   "files": [
-    "/etc/audit/auditd.conf"
-   ],
-   "key": "max_log_file_action",
-   "sep": "=",
-   "value": "keep_logs",
-   "op": "eq"
-  },
-  "risk": "safe",
+  "family": "manual",
+  "params": {},
+  "risk": "none",
   "page": 791,
-  "assessment": "Automated"
+  "assessment": "Manual"
  },
  {
   "id": "6.2.2.3",
