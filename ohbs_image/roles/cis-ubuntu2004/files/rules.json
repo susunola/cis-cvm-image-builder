@@ -846,10 +846,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "bootloader_password",
+    "family": "manual",
     "params": {},
-    "risk": "safe",
-    "page": 141
+    "risk": "none",
+    "page": 141,
+    "note": "Site-specific credential; GRUB/bootloader passwords are not set on cloud golden images by default. Exempt or set one out-of-band per site policy."
   },
   {
     "id": "1.4.2",
@@ -1916,7 +1917,7 @@
         "telnet"
       ]
     },
-    "risk": "disruptive",
+    "risk": "safe",
     "page": 271
   },
   {
@@ -1958,7 +1959,7 @@
         "ftp"
       ]
     },
-    "risk": "disruptive",
+    "risk": "safe",
     "page": 275
   },
   {
@@ -2014,7 +2015,8 @@
       "units": [
         "systemd-timesyncd.service"
       ],
-      "packages": []
+      "packages": [],
+      "if_in_use": true
     },
     "risk": "safe",
     "page": 289

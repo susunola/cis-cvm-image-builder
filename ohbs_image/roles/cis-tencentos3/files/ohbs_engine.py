@@ -1311,6 +1311,16 @@ def c_svc_enabled(ctx, p):
     pkgs = p.get("packages") or []
     if not units and not pkgs:
         return "error", "rule has no units/packages configured (incomplete catalog)"
+    # Conditional rule ("... when <service> is in use", e.g. CIS 2.3.2.2
+    # systemd-timesyncd): when neither the unit nor its provider package
+    # exists, the service is simply not in use on this host — another time
+    # sync daemon (chrony) may be covering the control.  That is
+    # notapplicable, not a failure.
+    if p.get("if_in_use") and not any(unit_exists(u) for u in units) \
+            and not any(pkg_installed(x) for x in pkgs):
+        return ("notapplicable",
+                "%s not present — service not in use on this host (conditional rule)"
+                % ", ".join(units or pkgs))
     missing_pkg = [x for x in pkgs if not pkg_installed(x)]
     if pkgs and missing_pkg == pkgs:
         return "fail", "required package(s) not installed: " + ", ".join(pkgs)
@@ -1449,6 +1459,10 @@ def _bootstrap_journal_upload(ctx):
 
 @fix("svc_enabled")
 def f_svc_enabled(ctx, p):
+    # Conditional rule not in use on this host (see c_svc_enabled): do NOT
+    # install/enable anything — the control is covered by another daemon.
+    if p.get("if_in_use") and not any(unit_exists(u) for u in (p.get("units") or [])):
+        return True, "service not present (conditional rule not in use) — nothing to do"
     pkgs = p.get("packages") or []
     missing = [x for x in pkgs if not pkg_installed(x)]
     if missing:
