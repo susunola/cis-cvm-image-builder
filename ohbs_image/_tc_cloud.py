@@ -25,18 +25,21 @@ def _creds(sid_env: str, skey_env: str, tok_env: str) -> tuple[str, str, str | N
     return os.environ.get(sid_env, ""), os.environ.get(skey_env, ""), tok
 
 
-def _image_ids_still_exist(region: str, image_ids: list[str]) -> bool:
+def _image_ids_still_exist(region: str, image_ids: list[str],
+                           r: ResolvedConfig | None = None) -> bool:
     """Best-effort: True when *any* of *image_ids* still exists in *region*.
 
-    Fails open (returns True) on missing credentials/API errors so change
-    detection never *blocks* a rebuild due to a transient API problem.
+    Fails CLOSED (returns False) on missing credentials/API errors: change
+    detection must never *skip* a rebuild because of a transient API
+    problem — skipping could leave users on a silently stale image.  When
+    *r* is given, its custom credential env-var names are honoured.
     """
     if not image_ids:
         return False
     try:
-        return bool(ohbs_image._images_exist(region, image_ids[:5]))
+        return bool(ohbs_image._images_exist(region, image_ids[:5], r=r))
     except Exception:
-        return True  # fail open — let the rebuild proceed
+        return False  # fail closed — rebuild on any lookup error
 
 def _tc3_api(service: str, action: str, version: str, region: str,
              params: dict[str, Any], secret_id: str, secret_key: str,
@@ -232,15 +235,21 @@ def _check_security_group_ingress(r: ResolvedConfig) -> None:
              f"will likely time out connecting to the build instance. Add an "
              f"inbound rule for {my_ip}/32 : TCP {port} before running 'build'.")
 
-def _images_exist(region: str, image_ids: list[str]) -> list[str]:
-    """Return which of *image_ids* still exist in *region* (via DescribeImages)."""
+def _images_exist(region: str, image_ids: list[str],
+                  r: ResolvedConfig | None = None) -> list[str]:
+    """Return which of *image_ids* still exist in *region* (via DescribeImages).
+
+    Credentials come from the resolved config's custom env-var names when
+    *r* is given, otherwise from the default TENCENTCLOUD_* variables.
+    """
     if not image_ids:
         return []
-    sid, skey, tok = _creds("TENCENTCLOUD_SECRET_ID",
-                         "TENCENTCLOUD_SECRET_KEY",
-                         "TENCENTCLOUD_SECURITY_TOKEN")
+    sid_env = r.secret_id_env if r else "TENCENTCLOUD_SECRET_ID"
+    skey_env = r.secret_key_env if r else "TENCENTCLOUD_SECRET_KEY"
+    tok_env = r.security_token_env if r else "TENCENTCLOUD_SECURITY_TOKEN"
+    sid, skey, tok = _creds(sid_env, skey_env, tok_env)
     if not sid or not skey:
-        raise ConfigError("TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY not set — "
+        raise ConfigError(f"{sid_env} / {skey_env} not set — "
                           "cannot query images for cleanup")
     try:
         resp = ohbs_image._tc3_api("cvm", "DescribeImages", "2017-03-12", region,
@@ -303,8 +312,72 @@ def _source_image_created(r: ResolvedConfig) -> str:
     # Public images report CreatedTime as null — treat as unavailable.
     return str(imgs[0].get("CreatedTime") or "")
 
-def _probe_launch(r: ResolvedConfig, image_id: str, instance_name: str) -> str:
-    """Launch a probe instance from *image_id*; return instance-id."""
+def _probe_setup_keypair(r: ResolvedConfig) -> tuple[str, str, str]:
+    """Create a throwaway SSH key pair for the probe instance.
+
+    Generates an ed25519 key locally via ssh-keygen (paramiko/cryptography
+    are deliberately not runtime deps) and imports the public half with
+    cvm:ImportKeyPair — the same pattern as scripts/real_e2e_test.py.
+    Returns (key_id, private_key_path, public_key_text).  The caller MUST
+    call _probe_teardown_keypair() once the probe is done — otherwise both
+    the cloud KeyPair and the local temp dir leak.
+    """
+    import secrets
+    import tempfile
+    import time as _time
+    sid, skey, tok = _creds(r.secret_id_env, r.secret_key_env, r.security_token_env)
+    if not sid or not skey:
+        raise ConfigError(
+            f"{r.secret_id_env} / {r.secret_key_env} not set — "
+            "cannot import the probe key pair")
+    tmpdir = tempfile.mkdtemp(prefix="ohbs-image-probe-")
+    priv = os.path.join(tmpdir, "probe_key")
+    try:
+        subprocess.run(["ssh-keygen", "-t", "ed25519", "-N", "", "-f", priv],
+                       check=True, capture_output=True)
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        raise ConfigError(f"ssh-keygen failed — cannot create probe key pair: {exc}") from exc
+    os.chmod(priv, 0o600)
+    with open(priv + ".pub", encoding="utf-8") as fh:
+        pub = fh.read().strip()
+    key_name = f"ohbs-image-probe-{int(_time.time())}-{secrets.token_hex(2)}"
+    resp = ohbs_image._tc3_api("cvm", "ImportKeyPair", "2017-03-12", r.region,
+                    {"KeyName": key_name, "ProjectId": 0, "PublicKey": pub},
+                    sid, skey, tok or None)
+    resp_r = resp.get("Response", {})
+    if "Error" in resp_r:
+        raise ConfigError(f"ImportKeyPair failed: {resp_r['Error']}")
+    key_id = resp_r.get("KeyId")
+    if not key_id:
+        raise ConfigError("ImportKeyPair returned no KeyId")
+    return str(key_id), priv, pub
+
+def _probe_teardown_keypair(r: ResolvedConfig, key_id: str, priv_path: str) -> None:
+    """Best-effort cleanup of the probe key pair (cloud KeyPair + local files)."""
+    import shutil
+    if key_id:
+        sid, skey, tok = _creds(r.secret_id_env, r.secret_key_env, r.security_token_env)
+        if sid and skey:
+            try:
+                ohbs_image._tc3_api("cvm", "DeleteKeyPairs", "2017-03-12", r.region,
+                         {"KeyIds": [key_id]}, sid, skey, tok or None)
+            except Exception as exc:
+                warn(f"Could not delete probe key pair {key_id}: {exc}")
+    if priv_path:
+        shutil.rmtree(os.path.dirname(priv_path), ignore_errors=True)
+
+def _probe_launch(r: ResolvedConfig, image_id: str, instance_name: str,
+                  key_ids: list[str] | None = None, pub_key: str = "") -> str:
+    """Launch a probe instance from *image_id*; return instance-id.
+
+    *key_ids* (from _probe_setup_keypair) is wired into LoginSettings —
+    without it the instance gets NO credentials and the key-only
+    (BatchMode=yes) SSH probe can never connect.  *pub_key* additionally
+    seeds the key for the image's 'ohbsimage' build user via UserData:
+    CIS hardening sets PermitRootLogin no, so the default LoginSettings
+    injection (root) is not a usable login channel on a hardened image.
+    """
+    import base64
     sid, skey, tok = _creds(r.secret_id_env, r.secret_key_env, r.security_token_env)
     if not sid or not skey:
         raise ConfigError(
@@ -312,24 +385,38 @@ def _probe_launch(r: ResolvedConfig, image_id: str, instance_name: str) -> str:
             "cannot launch verification instance")
     # TencentCloud RunInstances — the built image may be a custom image of
     # any family; we launch with the SAME placement as the build itself.
-    resp = ohbs_image._tc3_api(
-        "cvm", "RunInstances", "2017-03-12", r.region,
-        {"ImageId": image_id,
-         "InstanceType": r.instance_type,
-         "InstanceChargeType": "POSTPAID_BY_HOUR",
-         "InstanceName": instance_name,
-         "Placement": {"Zone": r.zone},
-         "VirtualPrivateCloud": {"VpcId": r.vpc_id,
-                                 "SubnetId": r.subnet_id},
-         "SecurityGroupIds": [r.security_group_id],
-         "InternetAccessible": {"PublicIpAssigned": r.associate_public_ip,
-                                "InternetChargeType": "TRAFFIC_POSTPAID_BY_HOUR",
-                                "InternetMaxBandwidthOut": 1},
-         "InstanceCount": 1,
-         "TagSpecification": [{"ResourceType": "instance",
-                               "Tags": [{"Key": "purpose", "Value": "ohbs-image-verify"},
-                                        {"Key": "ephemeral", "Value": "true"}]}]},
-        sid, skey, tok or None)
+    params: dict[str, Any] = {
+        "ImageId": image_id,
+        "InstanceType": r.instance_type,
+        "InstanceChargeType": "POSTPAID_BY_HOUR",
+        "InstanceName": instance_name,
+        "Placement": {"Zone": r.zone},
+        "VirtualPrivateCloud": {"VpcId": r.vpc_id,
+                                "SubnetId": r.subnet_id},
+        "SecurityGroupIds": [r.security_group_id],
+        "InternetAccessible": {"PublicIpAssigned": r.associate_public_ip,
+                               "InternetChargeType": "TRAFFIC_POSTPAID_BY_HOUR",
+                               "InternetMaxBandwidthOut": 1},
+        "InstanceCount": 1,
+        "TagSpecification": [{"ResourceType": "instance",
+                              "Tags": [{"Key": "purpose", "Value": "ohbs-image-verify"},
+                                       {"Key": "ephemeral", "Value": "true"}]}]}
+    if key_ids:
+        params["LoginSettings"] = {"KeyIds": key_ids}
+    if pub_key:
+        # Root SSH is disabled by CIS hardening; the 'ohbsimage' build user
+        # (sudo + authorized_keys, see the install-ansible provisioner) is
+        # the viable login, so install the probe key for it via cloud-init.
+        ud = ("#!/bin/bash\n"
+              "h=$(getent passwd ohbsimage | cut -d: -f6)\n"
+              "[ -n \"$h\" ] || exit 0\n"
+              "mkdir -p \"$h/.ssh\"\n"
+              f"echo '{pub_key}' >> \"$h/.ssh/authorized_keys\"\n"
+              "chown -R ohbsimage:ohbsimage \"$h/.ssh\"\n"
+              "chmod 700 \"$h/.ssh\" && chmod 600 \"$h/.ssh/authorized_keys\"\n")
+        params["UserData"] = base64.b64encode(ud.encode("utf-8")).decode("ascii")
+    resp = ohbs_image._tc3_api("cvm", "RunInstances", "2017-03-12", r.region,
+                    params, sid, skey, tok or None)
     resp_r = resp.get("Response", {})
     if "Error" in resp_r:
         raise ConfigError(f"RunInstances failed: {resp_r['Error']}")
@@ -390,16 +477,17 @@ def _probe_terminate(r: ResolvedConfig, instance_id: str) -> None:
         warn(f"Could not terminate verification instance {instance_id}: {exc}")
 
 def _probe_ssh_ready(ip: str, ssh_port: int, ssh_user: str,
-                     timeout_s: int = 600) -> bool:
+                     key_path: str | None = None, timeout_s: int = 600) -> bool:
     """Wait for SSH on the probe instance (best-effort BatchMode probe)."""
     import time as _time
     deadline = _time.time() + timeout_s
+    key_args = ["-i", key_path] if key_path else []
     while _time.time() < deadline:
         try:
             cp = subprocess.run(
                 ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
                  "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
-                 "-p", str(ssh_port), f"{ssh_user}@{ip}",
+                 *key_args, "-p", str(ssh_port), f"{ssh_user}@{ip}",
                  "true"],
                 capture_output=True, text=True, timeout=20)
             if cp.returncode == 0:
@@ -410,7 +498,7 @@ def _probe_ssh_ready(ip: str, ssh_port: int, ssh_user: str,
     return False
 
 def _probe_scan(r: ResolvedConfig, ip: str, ssh_port: int, ssh_user: str,
-                level: int) -> dict[str, Any]:
+                level: int, key_path: str | None = None) -> dict[str, Any]:
     """Run the bundled engine in scan mode on the probe instance over SSH.
 
     The produced image ships the engine + catalog under
@@ -423,8 +511,10 @@ def _probe_scan(r: ResolvedConfig, ip: str, ssh_port: int, ssh_user: str,
     # (CIS / legacy).  The build promotes the active catalog to rules.json too,
     # so rules.json is always safe, but this makes the probe explicit.
     cat = r.catalog_basename or "rules.json"
+    # Role dirs are dash-named (cis-ubuntu2204, cis-rhel8, ...) — the glob
+    # must match that, not the old underscore form.
     remote = (
-        "ENG=$(ls -d /opt/ohbs-image-ansible/roles/cis_*/files 2>/dev/null | head -1); "
+        "ENG=$(ls -d /opt/ohbs-image-ansible/roles/cis-*/files 2>/dev/null | head -1); "
         "if [ -n \"$ENG\" ] && [ -f \"$ENG/ohbs_engine.py\" ]; then "
         "CAT=\"$ENG/rules.json\"; "
         f"[ -f \"$ENG/{cat}\" ] && CAT=\"$ENG/{cat}\"; "
@@ -433,11 +523,12 @@ def _probe_scan(r: ResolvedConfig, ip: str, ssh_port: int, ssh_user: str,
         "--out /tmp/ohbs-image-verify.json >/dev/null 2>&1 && "
         "cat /tmp/ohbs-image-verify.json; fi"
     )
+    key_args = ["-i", key_path] if key_path else []
     try:
         cp = subprocess.run(
             ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
              "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=15",
-             "-p", str(ssh_port), f"{ssh_user}@{ip}", remote],
+             *key_args, "-p", str(ssh_port), f"{ssh_user}@{ip}", remote],
             capture_output=True, text=True, timeout=900)
     except subprocess.TimeoutExpired:
         return {"error": f"remote scan timed out after 900s on {ip}"}
@@ -466,8 +557,11 @@ def _share_images(r: ResolvedConfig, image_ids: list[str], accounts: list[str]) 
     """Share built images with other Tencent Cloud accounts (P2#9).
 
     Uses cvm:ModifyImageSharePermission with the configured AccountIds
-    (uin/… strings).  Credentials come from the SAME env names as the
-    build itself ([cloud].secret_id_env / secret_key_env / security_token_env)
+    (uin/… strings).  The API takes ONE ImageId per call and requires an
+    explicit Permission ("SHARE"/"CANCEL") — there is no batch ImageIds
+    parameter — so we loop over the images and warn (never fail the build)
+    per image.  Credentials come from the SAME env names as the build
+    itself ([cloud].secret_id_env / secret_key_env / security_token_env)
     so custom env-name configs work consistently with verify-image.
     """
     if not image_ids or not accounts:
@@ -477,18 +571,23 @@ def _share_images(r: ResolvedConfig, image_ids: list[str], accounts: list[str]) 
         warn(f"{r.secret_id_env} / {r.secret_key_env} not set — "
              "cannot share images")
         return
-    try:
-        resp = ohbs_image._tc3_api("cvm", "ModifyImageSharePermission", "2017-03-12",
-                        r.region,
-                        {"ImageIds": image_ids, "AccountIds": accounts},
-                        sid, skey, tok or None)
-        if "Error" in resp.get("Response", {}):
-            raise ConfigError(
-                f"ModifyImageSharePermission failed: "
-                f"{resp['Response']['Error']}")
-        ok(f"Shared {len(image_ids)} image(s) with {len(accounts)} account(s) "
+    shared = 0
+    for image_id in image_ids:
+        try:
+            resp = ohbs_image._tc3_api("cvm", "ModifyImageSharePermission", "2017-03-12",
+                            r.region,
+                            {"ImageId": image_id, "AccountIds": accounts,
+                             "Permission": "SHARE"},
+                            sid, skey, tok or None)
+            if "Error" in resp.get("Response", {}):
+                raise ConfigError(
+                    f"ModifyImageSharePermission failed: "
+                    f"{resp['Response']['Error']}")
+            shared += 1
+        except ConfigError as exc:
+            warn(str(exc))
+        except Exception as exc:
+            warn(f"ModifyImageSharePermission failed for {image_id}: {exc}")
+    if shared:
+        ok(f"Shared {shared}/{len(image_ids)} image(s) with {len(accounts)} account(s) "
            f"({', '.join(accounts)})")
-    except ConfigError as exc:
-        warn(str(exc))
-    except Exception as exc:
-        warn(f"ModifyImageSharePermission failed: {exc}")

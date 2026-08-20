@@ -58,6 +58,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Suppress packer output (show only the ohbs-image summary)")
     p_val.add_argument("--debug", action="store_true",
                        help="Enable Packer debug logging (PACKER_LOG=1)")
+    p_val.add_argument("-v", "--verbose", action="store_true", default=argparse.SUPPRESS,
+                       help="Enable debug logging (same as the global -v)")
     p_val.set_defaults(func=cmd_validate)
 
     p_bld = sub.add_parser("build", parents=[common], help="Render + packer build (produce image)")
@@ -65,6 +67,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Suppress packer output (show only the ohbs-image summary)")
     p_bld.add_argument("--debug", action="store_true",
                        help="Enable Packer debug logging (PACKER_LOG=1)")
+    p_bld.add_argument("-v", "--verbose", action="store_true", default=argparse.SUPPRESS,
+                       help="Enable debug logging (same as the global -v)")
     p_bld.add_argument("-y", "--yes", action="store_true", help="Skip confirmation prompt")
     p_bld.add_argument("--log-file", default=None,
                        help="Write full build log to file (in addition to stderr)")
@@ -100,6 +104,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Suppress packer output (show only the ohbs-image summary)")
     p_scn.add_argument("--debug", action="store_true",
                        help="Enable Packer debug logging (PACKER_LOG=1)")
+    p_scn.add_argument("-v", "--verbose", action="store_true", default=argparse.SUPPRESS,
+                       help="Enable debug logging (same as the global -v)")
     p_scn.add_argument("--min-score", type=float, default=85.0,
                        help="Gate threshold in percent (default 85)")
     p_scn.add_argument("--sarif", default=None,
@@ -172,6 +178,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Suppress packer output (show only the ohbs-image summary)")
     p_tst.add_argument("--debug", action="store_true",
                        help="Enable Packer debug logging (PACKER_LOG=1)")
+    p_tst.add_argument("-v", "--verbose", action="store_true", default=argparse.SUPPRESS,
+                       help="Enable debug logging (same as the global -v)")
     p_tst.add_argument("--idempotency", action="store_true",
                        help="Re-run apply and fail if the second pass makes changes")
     p_tst.set_defaults(func=cmd_test)
@@ -199,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not getattr(args, "func", None):
         parser.print_help()
-        return 0
+        return 2
     _setup_logging(verbose=args.verbose)
     try:
         return int(args.func(args))
@@ -207,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
         print(file=sys.stderr)
         fail("interrupted")
         return 130
-    except Exception as exc:  # never leak a raw traceback to end users
+    except Exception as exc:  # unexpected internal error: print the traceback for diagnosis, then exit 70
         import traceback as _tb
         _tb.print_exc(file=sys.stderr)
         fail(f"internal error: {type(exc).__name__}: {exc}")

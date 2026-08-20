@@ -26,14 +26,10 @@ from ._packer import (
     run_preflight,
 )
 from ._profiles import DEFAULT_WORKDIR, PROFILE_NAMES_HELP, PROFILES, SAMPLE_CONFIG
-from ._render import _image_name
 from ._reports import (
     _find_provenance,
     _save_build_report,
     _send_notification,
-)
-from ._tc_cloud import (
-    _fetch_baseline,
 )
 
 
@@ -148,13 +144,17 @@ def cmd_build(args: argparse.Namespace) -> int:
     if args.skip_if_unchanged:
         prev_fp, prev_images = ohbs_image._last_successful_fingerprint(r)
         if prev_fp is not None and prev_fp == ohbs_image._build_fingerprint(r):
-            if ohbs_image._image_ids_still_exist(r.region, prev_images):
+            if ohbs_image._image_ids_still_exist(r.region, prev_images, r=r):
                 ok(f"inputs unchanged since last build — skipping rebuild "
                    f"(images {', '.join(prev_images) or 'n/a'} still exist)")
                 return 0
             warn("inputs unchanged but no prior image still exists — rebuilding")
 
-    ohbs_image.render_all(workdir, r)
+    # render_all computes the image name once and bakes it into pkrvars and
+    # the in-image report — reuse it for lineage/provenance/reports so the
+    # records match the actual image (recomputing _image_name() here would
+    # roll the timestamp forward).
+    image_name = ohbs_image.render_all(workdir, r)
 
     # Confirmation prompt (skip with -y or in non-interactive mode)
     if not args.yes:
@@ -195,7 +195,6 @@ def cmd_build(args: argparse.Namespace) -> int:
     score = _extract_score(result.stdout_lines)
     sbom_sha = _extract_sbom_sha(result.stdout_lines)
     sbom_count = _extract_sbom_count(result.stdout_lines)
-    image_name = _image_name(r)
     success = result.exit_code == 0
 
     if success:
@@ -221,12 +220,15 @@ def cmd_build(args: argparse.Namespace) -> int:
         if rep:
             info(f"Audit report archived -> {rep}")
         # P2#9 — cross-account image sharing (never fails the build).
-        # [image].share_org_units (#17) merges into the same call — org
-        # sharing uses the identical ModifyImageSharePermission API.
-        share_targets = list(dict.fromkeys(
-            r.image_share_accounts + r.image_share_org_units))
-        if share_targets and image_ids:
-            ohbs_image._share_images(r, image_ids, share_targets)
+        if r.image_share_accounts and image_ids:
+            ohbs_image._share_images(r, image_ids, r.image_share_accounts)
+        # [image].share_org_units (#17): NOT supported — ModifyImageSharePermission
+        # accepts account IDs only; org-unit strings in AccountIds are rejected
+        # by the cloud.  Warn and skip rather than failing the share call.
+        if r.image_share_org_units:
+            warn("[image].share_org_units is not supported by "
+                 "ModifyImageSharePermission (account IDs only) — skipped: "
+                 + ", ".join(r.image_share_org_units))
         # P0#3 — clean-boot verification (build → test → distribute).
         # Boot a probe from the produced image and re-audit on fresh boot.
         if r.verify_boot and image_ids:
@@ -281,13 +283,22 @@ def cmd_images(args: argparse.Namespace) -> int:
         info("No records.")
         return 0
     for rec in records:
-        imgs = ", ".join(rec.get("image_ids") or [])
+        # Hand-edited lineage files can carry null/wrong-typed fields —
+        # coerce defensively instead of crashing the whole listing.
+        if not isinstance(rec, dict):
+            warn("skipping malformed lineage record (not a JSON object)")
+            continue
+        ids = rec.get("image_ids")
+        imgs = ", ".join(str(i) for i in ids if i) if isinstance(ids, list) else ""
         score = rec.get("score")
-        score_s = f"{score:g}%" if score is not None else "-"
-        status = rec.get("status", "?")
-        print(f"{rec.get('ts', '?'):s}  {status:6s}  L{rec.get('cis_level', '?')}  "
-              f"score={score_s:>6s}  {rec.get('image_name', ''):s}  "
-              f"src={rec.get('source_image_id', ''):s}  ->  {imgs}")
+        score_s = f"{score:g}%" if isinstance(score, (int, float)) else "-"
+        status = str(rec.get("status") or "?")
+        ts = str(rec.get("ts") or "?")
+        level = rec.get("cis_level")
+        name = str(rec.get("image_name") or "")
+        src = str(rec.get("source_image_id") or "")
+        print(f"{ts:s}  {status:6s}  L{level if level is not None else '?'}  "
+              f"score={score_s:>6s}  {name:s}  src={src:s}  ->  {imgs}")
     return 0
 
 def cmd_check_source(args: argparse.Namespace) -> int:
@@ -322,6 +333,7 @@ def cmd_check_source(args: argparse.Namespace) -> int:
                 except json.JSONDecodeError:
                     continue
                 if (rec.get("status") == "ok"
+                        and rec.get("mode", "build") == "build"
                         and rec.get("profile") == r.profile_name
                         and rec.get("region") == r.region):
                     prev = rec.get("source_image_created") or None
@@ -354,9 +366,12 @@ def cmd_verify_image(args: argparse.Namespace, image_id: str | None = None) -> i
     r, _workdir = prep
     image_id = image_id or getattr(args, "image", "") or ""
     # When driven by 'build --verify-boot', args carries no --min-score —
-    # fall back to the config's [cis].min_score, not a hardcoded 85, so the
-    # auto-verification gate matches the configured audit gate.
-    min_score = float(getattr(args, "min_score", r.min_score or 85))
+    # fall back to the config's [ohbs].min_score (0 disables the gate;
+    # default 85), not a hardcoded 85, so the auto-verification gate matches
+    # the configured audit gate.  getattr's default must NOT use
+    # `r.min_score or 85` — that would map an explicit 0 back to 85.
+    _ms = getattr(args, "min_score", None)
+    min_score = float(r.min_score if _ms is None else _ms)
     if not image_id:
         fail("--image <img-xxx> is required")
         return 1
@@ -367,32 +382,57 @@ def cmd_verify_image(args: argparse.Namespace, image_id: str | None = None) -> i
     info(f"Launching verification instance from {image_id} "
          f"({r.profile_name} L{r.level}, {r.region}) …")
     instance_id = None
+    key_id = ""
+    key_path = ""
     try:
         try:
-            instance_id = ohbs_image._probe_launch(r, image_id, f"ohbs-image-verify-{image_id}")
+            # Throwaway SSH key pair for the probe (CIS hardening disables
+            # password/root login, so the BatchMode probe needs -i).
+            key_id, key_path, pub_key = ohbs_image._probe_setup_keypair(r)
+            instance_id = ohbs_image._probe_launch(
+                r, image_id, f"ohbs-image-verify-{image_id}",
+                key_ids=[key_id], pub_key=pub_key)
         except ConfigError as exc:
             fail(str(exc))
             return 1
         ok(f"Probe instance: {instance_id}")
-        ip = ohbs_image._probe_public_ip(r, instance_id)
+        try:
+            ip = ohbs_image._probe_public_ip(r, instance_id)
+        except ConfigError as exc:
+            fail(str(exc))
+            return 1
         if not ip:
             fail("Could not get a public IP for the probe instance (timeout)")
             return 1
         ok(f"Probe public IP: {ip}")
-        ssh_user = r.ssh_username or "root"
+        # The probe logs in as 'ohbsimage' (the image's built-in build user):
+        # CIS hardening sets PermitRootLogin no, and _probe_launch's UserData
+        # installs the throwaway probe key ONLY into ohbsimage's
+        # authorized_keys — r.ssh_username (root for the build itself) has no
+        # usable credential on the fresh boot.
+        ssh_user = "ohbsimage"
         ssh_port = r.ssh_port or 22
-        if not ohbs_image._probe_ssh_ready(ip, ssh_port, ssh_user):
+        if not ohbs_image._probe_ssh_ready(ip, ssh_port, ssh_user, key_path=key_path):
             fail("SSH did not come up on the probe instance (timeout) — "
                  "clean-boot verification failed")
             return 1
         ok("SSH ready on fresh boot")
-        doc = ohbs_image._probe_scan(r, ip, ssh_port, ssh_user, r.level)
+        doc = ohbs_image._probe_scan(r, ip, ssh_port, ssh_user, r.level, key_path=key_path)
         if "error" in doc and "summary" not in doc:
             fail(f"Fresh-boot scan failed: {doc.get('error', 'unknown error')}")
             return 1
         score = (doc.get("summary") or {}).get("all", {}).get("score")
         fails = (doc.get("summary") or {}).get("all", {}).get("fail", 0)
         banner("verify-image")
+        if min_score <= 0:
+            # [ohbs].min_score = 0 disables the gate — a completed fresh-boot
+            # scan is enough, whatever the score.
+            info("min-score gate disabled (0) — fresh-boot scan result not gated")
+            if score is not None:
+                info(f"Fresh-boot scan score: {score:g}% (no gate)")
+            info(f"Fresh-boot failing rules: {fails}")
+            ok("clean-boot verification PASSED")
+            return 0
         if score is not None:
             info(f"Fresh-boot scan score: {score:g}% (gate >= {min_score:g}%)")
         info(f"Fresh-boot failing rules: {fails}")
@@ -406,6 +446,8 @@ def cmd_verify_image(args: argparse.Namespace, image_id: str | None = None) -> i
     finally:
         if instance_id:
             ohbs_image._probe_terminate(r, instance_id)
+        if key_id or key_path:
+            ohbs_image._probe_teardown_keypair(r, key_id, key_path)
 
 def _drift_resolve_baseline(args: argparse.Namespace, r: ResolvedConfig,
                             host: str, ssh_port: int, ssh_user: str) -> dict[str, Any] | None:
@@ -416,9 +458,26 @@ def _drift_resolve_baseline(args: argparse.Namespace, r: ResolvedConfig,
     Returns None when no baseline could be obtained.
     """
     baseline: dict[str, Any] | None = None
+
+    # --baseline <file> overrides everything — validate it FIRST, before any
+    # cloud probing, so a bad explicit file fails fast and can never silently
+    # wipe a baseline fetched via --image.
+    bl_path = getattr(args, "baseline", "") or ""
+    if bl_path:
+        bl_file = Path(bl_path)
+        if not bl_file.is_file():
+            fail(f"--baseline file not found: {bl_path}")
+            return None
+        try:
+            return cast("dict[str, Any]",
+                        json.loads(bl_file.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError) as exc:
+            fail(f"Could not parse baseline file {bl_path}: {exc}")
+            return None
+
     image_id = getattr(args, "image", "") or ""
     if image_id:
-        baseline = _fetch_baseline(r, image_id)
+        baseline = ohbs_image._fetch_baseline(r, image_id)
         if baseline is None:
             info("Fetching baseline from the instance's shipped audit "
                  "(/opt/ohbs-image-AUDIT-RESULT.json, written at build time) …")
@@ -443,15 +502,6 @@ def _drift_resolve_baseline(args: argparse.Namespace, r: ResolvedConfig,
             warn("No baseline found — try saving one with "
                  "'ohbs-image drift --save-baseline' or pass --baseline <file>")
 
-    # --baseline <file> overrides everything.
-    bl_path = getattr(args, "baseline", "") or ""
-    if bl_path and Path(bl_path).exists():
-        try:
-            baseline = cast("dict[str, Any]",
-                            json.loads(Path(bl_path).read_text(encoding="utf-8")))
-        except json.JSONDecodeError:
-            warn(f"Could not parse baseline file {bl_path}")
-            baseline = None
     return baseline
 
 
@@ -599,7 +649,9 @@ def cmd_cleanup_images(args: argparse.Namespace) -> int:
     *--unused-since N* (#16): additionally require the image to be
     UNshared (cvm:DescribeImageSharePermission returns no shares) — an
     image shared with other accounts is presumed in use downstream and is
-    skipped, so cleanup never breaks a running consumer.  Fails open
+    skipped, so cleanup never breaks a running consumer.  The guard expires
+    after N days: a shared image whose build record is older than N days is
+    presumed unused since then and is retired anyway.  Fails open
     (keeps the image) when the share query errors.
     """
     path = ohbs_image._lineage_path()
@@ -639,16 +691,29 @@ def cmd_cleanup_images(args: argparse.Namespace) -> int:
         for img in rec.get("image_ids", []):
             candidates.append((rec, img))
 
-    # --unused-since: drop candidates whose image is still shared (in use).
+    # --unused-since N: drop candidates whose image is still shared (in use)
+    # — but only while the record is newer than N days.  A shared image older
+    # than N days is presumed unused since then and is retired anyway.
     if unused_since:
+        guard_cutoff = datetime.now(UTC).timestamp() - unused_since * 86400
         kept_shared = 0
         filtered: list[tuple[dict[str, Any], str]] = []
         for rec, img in candidates:
-            if ohbs_image._image_is_shared(rec.get("region", ""), img):
+            if not ohbs_image._image_is_shared(rec.get("region", ""), img):
+                filtered.append((rec, img))
+                continue
+            try:
+                rec_ts = datetime.strptime(rec.get("ts", ""),
+                                           "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC).timestamp()
+            except ValueError:
+                rec_ts = 0.0  # undated record: treat as ancient, don't guard
+            if rec_ts >= guard_cutoff:
                 kept_shared += 1
                 info(f"  {rec.get('region', '?')}: {img} is still shared "
-                     "(in use downstream) — kept")
+                     f"(in use downstream, built within {unused_since}d) — kept")
             else:
+                info(f"  {rec.get('region', '?')}: {img} is shared but older "
+                     f"than --unused-since {unused_since}d — retiring anyway")
                 filtered.append((rec, img))
         candidates = filtered
         if kept_shared:
@@ -716,7 +781,7 @@ def cmd_test(args: argparse.Namespace) -> int:
         warn("Idempotency check is Linux-only — nothing to do for Windows.")
         return 0
 
-    ohbs_image.render_all(workdir, r, idempotency=args.idempotency)
+    image_name = ohbs_image.render_all(workdir, r, idempotency=args.idempotency)
     banner("test")
     info(f"Idempotency — re-running apply must make 0 changes "
          f"({r.profile_name} L{r.level}, region {r.region})")
@@ -725,6 +790,16 @@ def cmd_test(args: argparse.Namespace) -> int:
     if result.exit_code != 0:
         fail("build failed during idempotency test")
         return result.exit_code
+
+    # The test run produces a real cloud image — record it in lineage with
+    # mode="test" so 'cleanup-images' can retire it later (it is otherwise
+    # untracked and leaks).
+    image_ids = _extract_image_ids(result.stdout_lines)
+    if image_ids:
+        lin = ohbs_image._record_lineage(r, image_ids, image_name, None, ok=True, mode="test")
+        if lin:
+            info(f"Test image(s) recorded in lineage: {', '.join(image_ids)} "
+                 "— clean up with 'ohbs-image cleanup-images'")
 
     applied = _last_num(result.stdout_lines, r"Applied:\s+(\d+)")
     pending = _last_num(result.stdout_lines, r"Pending:\s+(\d+)")
@@ -808,7 +883,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
         return 1
     r, workdir = prep
 
-    ohbs_image.render_all(workdir, r, scan=True)
+    # See cmd_build: reuse the image name render_all baked into the build.
+    image_name = ohbs_image.render_all(workdir, r, scan=True)
     banner("scan")
     info(f"Audit-only (no remediation) — {r.profile_name} L{r.level}, region {r.region}")
     info(f"Gate: score >= {args.min_score:g}%")
@@ -816,7 +892,6 @@ def cmd_scan(args: argparse.Namespace) -> int:
     result = ohbs_image.run_packer(workdir, "build", quiet=args.quiet, capture=True, debug=args.debug)
     image_ids = _extract_image_ids(result.stdout_lines)
     score = _extract_score(result.stdout_lines)
-    image_name = _image_name(r)
 
     # SARIF report (if requested) — written regardless of gate outcome so CI
     # can archive failures.  P0#2: carry the benchmark reference so rule IDs
@@ -832,11 +907,11 @@ def cmd_scan(args: argparse.Namespace) -> int:
         if score is not None and score < args.min_score:
             fail(f"scan gate FAILED: score {score:g}% < {args.min_score:g}% "
                  f"(audit-only, nothing remediated)")
-            ohbs_image._record_lineage(r, image_ids, image_name, score, ok=False)
+            ohbs_image._record_lineage(r, image_ids, image_name, score, ok=False, mode="scan")
             _send_notification(r, False, image_ids, score, image_name)
             return 1
         fail("packer build failed during scan")
-        ohbs_image._record_lineage(r, image_ids, image_name, score, ok=False)
+        ohbs_image._record_lineage(r, image_ids, image_name, score, ok=False, mode="scan")
         _send_notification(r, False, image_ids, score, image_name)
         return result.exit_code
 
@@ -848,13 +923,13 @@ def cmd_scan(args: argparse.Namespace) -> int:
     if not gate_ok:
         shown = f"{score:g}%" if score is not None else "unknown"
         fail(f"scan gate FAILED: score {shown} < {args.min_score:g}%")
-        ohbs_image._record_lineage(r, image_ids, image_name, score, ok=False)
+        ohbs_image._record_lineage(r, image_ids, image_name, score, ok=False, mode="scan")
         _send_notification(r, False, image_ids, score, image_name)
         return 1
 
     if image_ids:
         ok(f"Output image ID(s): {', '.join(image_ids)}")
-    ohbs_image._record_lineage(r, image_ids, image_name, score, ok=True)
+    ohbs_image._record_lineage(r, image_ids, image_name, score, ok=True, mode="scan")
     ohbs_image._write_provenance(r, image_ids, image_name, score)
     rep = _save_build_report(r, image_name, result.stdout_lines, workdir)
     if rep:

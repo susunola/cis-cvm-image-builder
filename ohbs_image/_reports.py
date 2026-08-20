@@ -64,8 +64,14 @@ def _save_build_report(r: ResolvedConfig, image_name: str,
 def _record_lineage(r: ResolvedConfig, image_ids: list[str], image_name: str,
                     score: float | None, ok: bool,
                     sbom_sha: str | None = None,
-                    sbom_count: int | None = None) -> Path | None:
-    """Append one lineage record. Returns the file path, or None on failure."""
+                    sbom_count: int | None = None,
+                    mode: str = "build") -> Path | None:
+    """Append one lineage record. Returns the file path, or None on failure.
+
+    *mode* — "build" (real hardening build), "scan" (audit-only) or "test"
+    (idempotency run).  Readers that must only see real builds filter on it;
+    records written before this field existed are treated as "build".
+    """
     if not isinstance(r, ResolvedConfig):
         return None  # defensive: only real resolved configs are recorded
     try:
@@ -75,6 +81,7 @@ def _record_lineage(r: ResolvedConfig, image_ids: list[str], image_name: str,
         rec = {
             "ts": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "status": "ok" if ok else "failed",
+            "mode": mode,
             "ohbs_image_version": VERSION,
             "profile": r.profile_name,
             "cis_level": r.level,
@@ -151,10 +158,14 @@ def _build_fingerprint(r: ResolvedConfig) -> str:
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
 
 def _last_successful_fingerprint(r: ResolvedConfig) -> tuple[str | None, list[str]]:
-    """Most recent 'ok' lineage record matching profile/level/region.
+    """Most recent 'ok' BUILD lineage record matching profile/level/region.
 
     Returns (fingerprint, image_ids) — None fingerprint when no match.
     Used by change detection to skip rebuilds with identical inputs.
+    Only real builds count: audit-only scans and idempotency-test runs
+    (mode "scan"/"test") produce images that are NOT hardened, so they must
+    never satisfy 'build --skip-if-unchanged'.  Records written before the
+    mode field existed (no "mode" key) are treated as builds.
     """
     path = ohbs_image._lineage_path()
     if not path.exists():
@@ -170,6 +181,7 @@ def _last_successful_fingerprint(r: ResolvedConfig) -> tuple[str | None, list[st
             except json.JSONDecodeError:
                 continue
             if (rec.get("status") == "ok"
+                    and rec.get("mode", "build") == "build"
                     and rec.get("profile") == r.profile_name
                     and rec.get("cis_level") == r.level
                     and rec.get("region") == r.region
