@@ -5337,11 +5337,19 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 763
+  "family": "kv_conf",
+  "params": {
+   "files": [
+    "/etc/audit/auditd.conf"
+   ],
+   "key": "max_log_file_action",
+   "sep": "=",
+   "value": "keep_logs",
+   "op": "eq"
+  },
+  "risk": "safe",
+  "page": 763,
+  "assessment": "Automated"
  },
  {
   "id": "6.3.2.3",
@@ -5468,7 +5476,7 @@
   "params": {
    "rules": [
     "-a always,exit -F arch=b64 -S adjtimex -S settimeofday -k time-change",
-    "-a always,exit -F arch=b32 -S adjtimex -S settimeofday -S stime -k time-change",
+    "-a always,exit -F arch=b32 -S adjtimex -S settimeofday -k time-change",
     "-a always,exit -F arch=b64 -S clock_settime -k time-change"
    ],
    "name": "Ensure events that modify date and time information are collected"
@@ -5886,11 +5894,14 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 843
+  "family": "audit_perm",
+  "params": {
+   "kind": "logfiles",
+   "owner": "root"
+  },
+  "risk": "safe",
+  "page": 843,
+  "assessment": "Automated"
  },
  {
   "id": "6.3.4.3",
@@ -5903,11 +5914,14 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 845
+  "family": "audit_perm",
+  "params": {
+   "kind": "logfiles",
+   "group": "root"
+  },
+  "risk": "safe",
+  "page": 845,
+  "assessment": "Automated"
  },
  {
   "id": "6.3.4.4",
@@ -5920,11 +5934,14 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 847
+  "family": "audit_perm",
+  "params": {
+   "kind": "logdir",
+   "mode": "750"
+  },
+  "risk": "safe",
+  "page": 847,
+  "assessment": "Automated"
  },
  {
   "id": "6.3.4.5",
@@ -6003,11 +6020,14 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 855
+  "family": "audit_perm",
+  "params": {
+   "kind": "tools",
+   "mode": "755"
+  },
+  "risk": "safe",
+  "page": 855,
+  "assessment": "Automated"
  },
  {
   "id": "6.3.4.9",
@@ -6020,11 +6040,14 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 857
+  "family": "audit_perm",
+  "params": {
+   "kind": "tools",
+   "owner": "root"
+  },
+  "risk": "safe",
+  "page": 857,
+  "assessment": "Automated"
  },
  {
   "id": "6.3.4.10",
@@ -6037,11 +6060,14 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 859
+  "family": "audit_perm",
+  "params": {
+   "kind": "tools",
+   "group": "root"
+  },
+  "risk": "safe",
+  "page": 859,
+  "assessment": "Automated"
  },
  {
   "id": "7.1.1",
@@ -6054,11 +6080,17 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 863
+  "family": "file_perm",
+  "params": {
+   "path": "/etc/passwd",
+   "mode": "644",
+   "owner": "root",
+   "group": "root",
+   "kind": "file"
+  },
+  "risk": "safe",
+  "page": 863,
+  "assessment": "Automated"
  },
  {
   "id": "7.1.2",
@@ -6071,11 +6103,17 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 865
+  "family": "file_perm",
+  "params": {
+   "path": "/etc/passwd-",
+   "mode": "644",
+   "owner": "root",
+   "group": "root",
+   "kind": "file"
+  },
+  "risk": "safe",
+  "page": 865,
+  "assessment": "Automated"
  },
  {
   "id": "7.1.3",
@@ -6088,11 +6126,17 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 867
+  "family": "file_perm",
+  "params": {
+   "path": "/etc/group",
+   "mode": "644",
+   "owner": "root",
+   "group": "root",
+   "kind": "file"
+  },
+  "risk": "safe",
+  "page": 867,
+  "assessment": "Automated"
  },
  {
   "id": "7.1.4",
@@ -6105,11 +6149,17 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 869
+  "family": "file_perm",
+  "params": {
+   "path": "/etc/group-",
+   "mode": "644",
+   "owner": "root",
+   "group": "root",
+   "kind": "file"
+  },
+  "risk": "safe",
+  "page": 869,
+  "assessment": "Automated"
  },
  {
   "id": "7.1.5",
@@ -6122,11 +6172,17 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 871
+  "family": "file_perm",
+  "params": {
+   "path": "/etc/shadow",
+   "mode": "640",
+   "owner": "root",
+   "group": "shadow",
+   "kind": "file"
+  },
+  "risk": "safe",
+  "page": 871,
+  "assessment": "Automated"
  },
  {
   "id": "7.1.6",
@@ -6139,11 +6195,17 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 873
+  "family": "file_perm",
+  "params": {
+   "path": "/etc/shadow-",
+   "mode": "640",
+   "owner": "root",
+   "group": "shadow",
+   "kind": "file"
+  },
+  "risk": "safe",
+  "page": 873,
+  "assessment": "Automated"
  },
  {
   "id": "7.1.7",
@@ -6156,11 +6218,17 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 875
+  "family": "file_perm",
+  "params": {
+   "path": "/etc/gshadow",
+   "mode": "640",
+   "owner": "root",
+   "group": "shadow",
+   "kind": "file"
+  },
+  "risk": "safe",
+  "page": 875,
+  "assessment": "Automated"
  },
  {
   "id": "7.1.8",
@@ -6173,11 +6241,17 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 877
+  "family": "file_perm",
+  "params": {
+   "path": "/etc/gshadow-",
+   "mode": "640",
+   "owner": "root",
+   "group": "shadow",
+   "kind": "file"
+  },
+  "risk": "safe",
+  "page": 877,
+  "assessment": "Automated"
  },
  {
   "id": "7.1.9",
@@ -6190,11 +6264,17 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 879
+  "family": "file_perm",
+  "params": {
+   "path": "/etc/shells",
+   "mode": "644",
+   "owner": "root",
+   "group": "root",
+   "kind": "file"
+  },
+  "risk": "safe",
+  "page": 879,
+  "assessment": "Automated"
  },
  {
   "id": "7.1.10",
@@ -6207,11 +6287,17 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 881
+  "family": "file_perm",
+  "params": {
+   "path": "/etc/security/opasswd",
+   "mode": "600",
+   "owner": "root",
+   "group": "root",
+   "kind": "file"
+  },
+  "risk": "safe",
+  "page": 881,
+  "assessment": "Automated"
  },
  {
   "id": "7.1.11",

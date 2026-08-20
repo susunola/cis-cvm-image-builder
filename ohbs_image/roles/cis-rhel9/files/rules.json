@@ -856,7 +856,7 @@
    "kind": "mode_not_disabled",
    "value": ""
   },
-  "risk": "disruptive",
+  "risk": "safe",
   "page": 154
  },
  {
@@ -1077,7 +1077,7 @@
   ],
   "family": "crypto_policy",
   "params": {
-   "kind": "default"
+   "kind": "not_legacy"
   },
   "risk": "safe",
   "page": 191,
@@ -5048,11 +5048,19 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 807
+  "family": "kv_conf",
+  "params": {
+   "files": [
+    "/etc/audit/auditd.conf"
+   ],
+   "key": "max_log_file_action",
+   "sep": "=",
+   "value": "keep_logs",
+   "op": "eq"
+  },
+  "risk": "safe",
+  "page": 807,
+  "assessment": "Automated"
  },
  {
   "id": "6.3.2.3",
@@ -5179,7 +5187,7 @@
   "params": {
    "rules": [
     "-a always,exit -F arch=b64 -S adjtimex -S settimeofday -k time-change",
-    "-a always,exit -F arch=b32 -S adjtimex -S settimeofday -S stime -k time-change",
+    "-a always,exit -F arch=b32 -S adjtimex -S settimeofday -k time-change",
     "-a always,exit -F arch=b64 -S clock_settime -k time-change"
    ],
    "name": "Ensure events that modify date and time information are collected"
@@ -5575,11 +5583,14 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 896
+  "family": "audit_perm",
+  "params": {
+   "kind": "logdir",
+   "mode": "750"
+  },
+  "risk": "safe",
+  "page": 896,
+  "assessment": "Automated"
  },
  {
   "id": "6.3.4.2",
@@ -5614,11 +5625,14 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 902
+  "family": "audit_perm",
+  "params": {
+   "kind": "logfiles",
+   "owner": "root"
+  },
+  "risk": "safe",
+  "page": 902,
+  "assessment": "Automated"
  },
  {
   "id": "6.3.4.4",
@@ -5631,11 +5645,14 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 905
+  "family": "audit_perm",
+  "params": {
+   "kind": "logfiles",
+   "group": "root"
+  },
+  "risk": "safe",
+  "page": 905,
+  "assessment": "Automated"
  },
  {
   "id": "6.3.4.5",
@@ -5714,11 +5731,14 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 914
+  "family": "audit_perm",
+  "params": {
+   "kind": "tools",
+   "mode": "755"
+  },
+  "risk": "safe",
+  "page": 914,
+  "assessment": "Automated"
  },
  {
   "id": "6.3.4.9",
@@ -5731,11 +5751,14 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 917
+  "family": "audit_perm",
+  "params": {
+   "kind": "tools",
+   "owner": "root"
+  },
+  "risk": "safe",
+  "page": 917,
+  "assessment": "Automated"
  },
  {
   "id": "6.3.4.10",
@@ -5748,11 +5771,14 @@
    "Server",
    "Workstation"
   ],
-  "assessment": "Automated",
-  "family": "manual",
-  "params": {},
-  "risk": "none",
-  "page": 919
+  "family": "audit_perm",
+  "params": {
+   "kind": "tools",
+   "group": "root"
+  },
+  "risk": "safe",
+  "page": 919,
+  "assessment": "Automated"
  },
  {
   "id": "7.1.1",

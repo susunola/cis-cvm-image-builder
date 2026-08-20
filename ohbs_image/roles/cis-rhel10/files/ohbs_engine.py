@@ -1937,7 +1937,6 @@ def _kv_current(p):
 @check("kv_conf")
 def c_kv_conf(ctx, p):
     op = p.get("op", "eq")
-    key, want = p["key"], str(p.get("value", ""))
 
     if op == "limits_core":
         hits = []
@@ -1955,6 +1954,7 @@ def c_kv_conf(ctx, p):
             why.append("non-zero soft core limit: " + soft_bad.splitlines()[0])
         return "fail", "; ".join(why)
 
+    key, want = p["key"], str(p.get("value", ""))
     vals = _kv_current(p)
     if not vals:
         return "fail", "%s is not configured in %s" % (
