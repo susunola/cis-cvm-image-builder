@@ -161,22 +161,41 @@ def run_packer(
             try:
                 proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
+                # SIGTERM first so Packer can run its own cleanup (deleting
+                # the temporary build CVM); SIGKILL only as a last resort.
+                proc.terminate()
+                try:
+                    proc.wait(timeout=60)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
                 reader.join(timeout=10)
                 fail(f"packer {subcmd} timed out after {timeout // 60} minutes; "
-                     "process killed.")
+                     "process terminated.")
                 return PackerResult(exit_code=1, stdout_lines=lines)
             reader.join(timeout=30)
             return PackerResult(exit_code=proc.returncode, stdout_lines=lines)
         else:
             # Inherit stdout/stderr from parent (live output, no capture).
-            # subprocess.run kills the child itself on TimeoutExpired.
-            cp = subprocess.run(cmd, cwd=workdir, timeout=timeout, env=env)
-            return PackerResult(exit_code=cp.returncode)
-    except subprocess.TimeoutExpired:
-        fail(f"packer {subcmd} timed out after {timeout // 60} minutes.")
-        return PackerResult(exit_code=1)
+            # Popen + communicate (not subprocess.run) so the timeout path
+            # controls the signal sequence: SIGTERM first to let Packer
+            # clean up the temporary build CVM, SIGKILL after a 60s grace
+            # period if it is still alive.  (Distinct variable from the
+            # capture branch: without text=True this is Popen[bytes].)
+            live = subprocess.Popen(cmd, cwd=str(workdir), env=env)
+            try:
+                live.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                live.terminate()
+                try:
+                    live.communicate(timeout=60)
+                except subprocess.TimeoutExpired:
+                    live.kill()
+                    live.communicate()
+                fail(f"packer {subcmd} timed out after {timeout // 60} minutes; "
+                     "process terminated.")
+                return PackerResult(exit_code=1)
+            return PackerResult(exit_code=live.returncode)
     except FileNotFoundError:
         fail("packer not found in PATH.")
         return PackerResult(exit_code=1)
@@ -308,23 +327,36 @@ def _extract_image_ids(stdout_lines: list[str]) -> list[str]:
     """
     image_ids: list[str] = []
     collecting = False
+    scanned = 0  # lines scanned since the 'Tencentcloud images(' marker
     for line in stdout_lines:
         if m := re.search(r"Created image ID:\s*(\S+)", line):
             image_ids.append(m.group(1))
         if "Tencentcloud images(" in line:
             collecting = True
+            scanned = 0
         if collecting:
             image_ids += re.findall(r"img-[A-Za-z0-9]+", line)
             if ") were created" in line:
                 break
+            scanned += 1
+            if scanned > 20:
+                # Terminator never arrived (truncated/interleaved log) —
+                # stop or unrelated img- ids later in the log get scooped up.
+                collecting = False
     return list(dict.fromkeys(image_ids))
 
 def _extract_score(stdout_lines: list[str]) -> float | None:
-    """Extract the re-audit score (e.g. 'Score: 91.5%') from packer output."""
+    """Extract the re-audit score (e.g. 'Score: 91.5%') from packer output.
+
+    A Linux build logs the line twice (apply pass, then post-reboot
+    re-audit); the re-audit score is the authoritative one, so return the
+    LAST match (mirrors _last_num).
+    """
+    score: float | None = None
     for line in stdout_lines:
         if m := re.search(r"Score:\s*(\d+(?:\.\d+)?)\s*%", line):
-            return float(m.group(1))
-    return None
+            score = float(m.group(1))
+    return score
 
 def _extract_sbom_sha(stdout_lines: list[str]) -> str | None:
     """Extract the SBOM sha256 echoed by the SBOM provisioner (P2#10)."""

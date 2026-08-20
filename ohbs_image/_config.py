@@ -44,7 +44,7 @@ class ResolvedConfig:
     instance_name: str                  # [build].instance_name — build CVM instance name ("" = plugin auto)
     image_copy_regions: list[str]
     image_share_accounts: list[str]     # [image].share_accounts — share built image with other uins
-    image_share_org_units: list[str]    # [image].share_org_units — org-level sharing (same API as share_accounts)
+    image_share_org_units: list[str]    # [image].share_org_units — parsed but skipped at build time (no org-unit share API)
     spot: bool                          # [build].spot — use a spot instance for the build VM (default false)
     cis_level_tag: str
     secret_id_env: str
@@ -83,15 +83,44 @@ def _validate_value_present(label: str, value: Any) -> str | None:
     return None
 
 
+def _get_table(data: dict[str, Any], section: str) -> dict[str, Any]:
+    """Return a config section, requiring it to be a TOML table."""
+    value = data.get(section, {})
+    if not isinstance(value, dict):
+        raise ConfigError(
+            f"[{section}] must be a table, got {type(value).__name__}.")
+    return value
+
+
 def _read_bool(data: dict[str, Any], section: str, key: str, default: bool) -> bool:
     """Read a TOML boolean without silently coercing strings or integers."""
-    value = data.get(section, {}).get(key, default)
+    value = _get_table(data, section).get(key, default)
     if not isinstance(value, bool):
         raise ConfigError(
             f"[{section}].{key} must be a boolean, got "
             f"{type(value).__name__}. Use true/false without quotes."
         )
     return value
+
+
+def _read_int(data: dict[str, Any], section: str, key: str, default: int) -> int:
+    """Read a TOML integer without silently truncating floats or accepting bools."""
+    value = _get_table(data, section).get(key, default)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ConfigError(
+            f"[{section}].{key} must be an integer, got "
+            f"{type(value).__name__}. Use a plain number without quotes or decimals."
+        )
+    return value
+
+
+def _read_str_list(data: dict[str, Any], section: str, key: str) -> list[str]:
+    """Read a TOML list of strings; a bare string would iterate char-by-char."""
+    raw = _get_table(data, section).get(key, [])
+    if not isinstance(raw, list):
+        raise ConfigError(
+            f"[{section}].{key} must be a list, got {type(raw).__name__}.")
+    return [str(x).strip() for x in raw if str(x).strip()]
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -113,6 +142,9 @@ def load_config(path: Path) -> dict[str, Any]:
         data["cis"] = data["ohbs"]
     elif "cis" in data and "ohbs" not in data:
         data["ohbs"] = data["cis"]
+    elif "ohbs" in data and "cis" in data:
+        warn("Both [ohbs] and [cis] sections are present; "
+             "[ohbs] takes precedence and [cis] is ignored.")
 
     required: dict[str, list[str]] = {
         "build": [
@@ -127,6 +159,9 @@ def load_config(path: Path) -> dict[str, Any]:
     for section, keys in required.items():
         if section not in data:
             raise ConfigError(f"Missing [{section}] section in configuration")
+        if not isinstance(data[section], dict):
+            raise ConfigError(
+                f"[{section}] must be a table, got {type(data[section]).__name__}.")
         for key in keys:
             if key not in data[section]:
                 raise ConfigError(f"Missing field: [{section}].{key}")
@@ -139,7 +174,7 @@ def load_config(path: Path) -> dict[str, Any]:
         )
 
     level = data["ohbs"]["level"]
-    if level not in (1, 2):
+    if not isinstance(level, int) or isinstance(level, bool) or level not in (1, 2):
         raise ConfigError(f"[ohbs].level must be 1 or 2, got: {level}")
 
     itype = str(data["build"]["instance_type"])
@@ -207,9 +242,12 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         data["cis"] = data["ohbs"]
     elif "cis" in data and "ohbs" not in data:
         data["ohbs"] = data["cis"]
+    elif "ohbs" in data and "cis" in data:
+        warn("Both [ohbs] and [cis] sections are present; "
+             "[ohbs] takes precedence and [cis] is ignored.")
     profile_name: str = data["build"]["profile"]
     p = PROFILES[profile_name]
-    meta: dict[str, Any] = data.get("meta", {})
+    meta: dict[str, Any] = _get_table(data, "meta")
     level: int = int(data["ohbs"]["level"])
     family: str = str(p.get("family", ""))
 
@@ -227,7 +265,10 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
     _ssh_port_raw = meta.get("ssh_port")
     if _ssh_port_raw in (None, ""):
         _ssh_port_raw = p.get("ssh_port", 22)
-    ssh_port = int(_ssh_port_raw)
+    if not isinstance(_ssh_port_raw, int) or isinstance(_ssh_port_raw, bool):
+        raise ConfigError(
+            f"[meta].ssh_port must be an integer, got {type(_ssh_port_raw).__name__}.")
+    ssh_port = _ssh_port_raw
     if not (1 <= ssh_port <= 65535):
         raise ConfigError(f"[meta].ssh_port must be 1-65535, got {ssh_port}")
     ssh_timeout = str(meta.get("ssh_timeout") or p.get("ssh_timeout") or "15m")
@@ -280,7 +321,11 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
     # The user's own toml is trusted; value legality is enforced at render time
     # by _format_hcl_value. This lets ohbs-image inherit the full packer
     # capability set without hardcoding each argument.
-    packer_extra = dict(data.get("build", {}).get("packer", {}) or {})
+    _packer_raw = _get_table(data, "build").get("packer", {})
+    if not isinstance(_packer_raw, dict):
+        raise ConfigError(
+            f"[build.packer] must be a table, got {type(_packer_raw).__name__}.")
+    packer_extra = dict(_packer_raw)
     for k in packer_extra:
         if not isinstance(k, str):
             raise ConfigError("[build.packer] keys must be strings")
@@ -306,7 +351,7 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
     if not re.fullmatch(r"[A-Za-z0-9_=,.@-]+", assume_role_session):
         raise ConfigError(
             f"[cloud].assume_role_session contains invalid characters: {assume_role_session!r}")
-    assume_role_duration = int(data.get("cloud", {}).get("assume_role_duration", 7200))
+    assume_role_duration = _read_int(data, "cloud", "assume_role_duration", 7200)
     if not (0 <= assume_role_duration <= 43200):
         raise ConfigError(
             f"[cloud].assume_role_duration must be 0-43200, got {assume_role_duration}")
@@ -315,18 +360,19 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
     smoke_test = _read_bool(data, "meta", "smoke_test", True)
 
     # [notify] — WeCom group-robot webhook; empty webhook disables notifications.
-    notify_webhook = str(data.get("notify", {}).get("webhook", "")).strip()
-    notify_on = str(data.get("notify", {}).get("on", "failure")).strip().lower()
+    notify = _get_table(data, "notify")
+    notify_webhook = str(notify.get("webhook", "")).strip()
+    notify_on = str(notify.get("on", "failure")).strip().lower()
     if notify_on not in ("always", "success", "failure"):
         raise ConfigError(
             f"[notify].on must be one of always|success|failure, got {notify_on!r}")
 
     # [sign] — GPG key for SLSA-style provenance signing ("" = off).
-    sign_key = str(data.get("sign", {}).get("gpg_key", "")).strip()
+    sign_key = str(_get_table(data, "sign").get("gpg_key", "")).strip()
 
     # [ohbs].rules_include / rules_exclude — optional rule-id filters.
-    rules_include = [str(x).strip() for x in data.get("ohbs", {}).get("rules_include", []) if str(x).strip()]
-    rules_exclude = [str(x).strip() for x in data.get("ohbs", {}).get("rules_exclude", []) if str(x).strip()]
+    rules_include = _read_str_list(data, "ohbs", "rules_include")
+    rules_exclude = _read_str_list(data, "ohbs", "rules_exclude")
     if rules_include and rules_exclude:
         overlap = sorted(set(rules_include) & set(rules_exclude))
         if overlap:
@@ -359,15 +405,17 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
     sbom = _read_bool(data, "meta", "sbom", False)
 
     # [image].share_accounts — cross-account image sharing (empty = off).
-    share_accounts = [str(x).strip() for x in data.get("image", {}).get("share_accounts", []) if str(x).strip()]
+    share_accounts = _read_str_list(data, "image", "share_accounts")
     for acc in share_accounts:
         if not re.fullmatch(r"uin/[0-9]+", acc):
             raise ConfigError(
                 f"[image].share_accounts entry {acc!r} is not a valid "
                 "Tencent Cloud account ID (expected \"uin/1234567890\").")
 
-    # [image].share_org_units — org-level sharing (same API as share_accounts).
-    share_org_units = [str(x).strip() for x in data.get("image", {}).get("share_org_units", []) if str(x).strip()]
+    # [image].share_org_units — parsed for forward compatibility, but
+    # ModifyImageSharePermission accepts account IDs only, so cmd_build warns
+    # and skips these (no org-unit sharing API is wired up).
+    share_org_units = _read_str_list(data, "image", "share_org_units")
     for acc in share_org_units:
         if not re.fullmatch(r"uin/[0-9]+", acc):
             raise ConfigError(
@@ -378,13 +426,13 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
     spot = _read_bool(data, "build", "spot", False)
 
     # [meta].test_components — user-defined test scripts run before snapshot.
-    test_components = [str(x).strip() for x in data.get("meta", {}).get("test_components", []) if str(x).strip()]
+    test_components = _read_str_list(data, "meta", "test_components")
 
     # [meta].verify_boot — clean-boot verification after the snapshot.
     verify_boot = _read_bool(data, "meta", "verify_boot", False)
 
     # [ohbs].min_score — post-reboot audit gate (0 disables; default 85).
-    min_score = int(data.get("ohbs", {}).get("min_score", 85))
+    min_score = _read_int(data, "ohbs", "min_score", 85)
     if not (0 <= min_score <= 100):
         raise ConfigError(
             f"[ohbs].min_score must be 0-100, got {min_score}. "

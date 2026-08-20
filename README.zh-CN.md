@@ -136,7 +136,7 @@ ohbs-image clean
 | `ohbs-image preflight` | 校验配置、凭据和前置条件 |
 | `ohbs-image validate` | 渲染模板并执行 `packer validate` |
 | `ohbs-image build` | 渲染 + `packer build`（产出镜像） |
-| `ohbs-image build --skip-if-unchanged` | 输入未变化时跳过重建（变更检测） |
+| `ohbs-image build --skip-if-unchanged` | 输入未变化时跳过重建（变更检测，只对比 build 模式的血缘记录） |
 | `ohbs-image scan [--min-score 85]` | 仅审计（不修复）+ 分数闸门 |
 | `ohbs-image scan --sarif out.sarif` | 另输出 SARIF 2.1.0 失败报告 |
 | `ohbs-image scan --xccdf out.xml` | 另输出 XCCDF 1.2 结果（GRC 平台接入） |
@@ -146,7 +146,7 @@ ohbs-image clean
 | `ohbs-image pending` | 变更检测：是否需要重建（退出码 0/1） |
 | `ohbs-image cleanup-images [--older-than 30]` | 按血缘年龄退役旧镜像 |
 | `ohbs-image cleanup-images --apply` | 实际删除（默认仅演练） |
-| `ohbs-image cleanup-images --unused-since 60` | 只删除未共享（无下游引用）的镜像 |
+| `ohbs-image cleanup-images --unused-since 60` | 只删除未共享（无下游引用）的镜像；共享镜像的血缘记录满 N 天后视为闲置，照样退役（0 = 关闭此保护） |
 | `ohbs-image verify --provenance <file>` | 校验 SLSA 来源签名 |
 | `ohbs-image verify --image <img-id>` | 按镜像 ID 定位来源记录 |
 | `ohbs-image verify-image --image <img-id>` | 对产出镜像做干净启动验收 |
@@ -184,6 +184,12 @@ ohbs-image clean
 
 `ohbs-image.toml` 是唯一事实来源，无需手写 Packer 模板。
 
+配置校验是严格的：`rules_include` / `rules_exclude` / `share_accounts` /
+`share_org_units` / `test_components` 必须是 TOML 数组；`level` / `min_score` /
+`assume_role_duration` / `ssh_port` 必须是整数（拒绝浮点和布尔值）。加固配置节
+名为 `[ohbs]`（`ohbs-image init` 生成的名字），旧的 `[cis]` 仍然兼容 — 两者
+同时存在时 `[ohbs]` 生效并打印警告。
+
 ```toml
 [build]
 profile             = "tencentos3"
@@ -205,15 +211,16 @@ associate_public_ip = true
 name_prefix  = "tencentos3-cis"
 copy_regions = ["ap-shanghai"]            # 留空 [] 不跨地域
 # share_accounts = ["uin/1234567890"]    # 可选：构建后与其它账号共享镜像
-# share_org_units = ["uin/1234567890"]   # 可选：组织级共享（同一 API）
+# share_org_units = ["ou-xxxx"]          # 不支持：ModifyImageSharePermission 只接受账号
+                                        # ID，工具会告警并跳过该选项（请用 share_accounts）
 
-[cis]
+[ohbs]
 level = 1                                 # 1 或 2
 # min_score = 85                          # 重启后审计闸门（0 关闭；默认 85）
 # rules_include = ["1.5.6"]               # 只运行这些规则
 # rules_exclude = ["1.1.2.2.4"]           # 优先级高于 rules_include
 # 单条规则参数覆写（渲染时深度合并进规则目录）：
-# [cis.overrides."5.2.2"]
+# [ohbs.overrides."5.2.2"]
 # ssh_max_auth_tries = 4
 
 [cloud]
@@ -252,7 +259,7 @@ benchmark = "CIS-v1.0.0"
 | | `associate_public_ip` | bool | 为构建实例分配公网 IP |
 | `[image]` | `name_prefix` | string | 产出镜像名称前缀 |
 | | `copy_regions` | []string | 跨地域复制目标（空 = 跳过） |
-| `[cis]` | `level` | int | 1（Level 1）或 2（Level 2） |
+| `[ohbs]` | `level` | int | 1（Level 1）或 2（Level 2） |
 | `[cloud]` | `secret_id_env` | string | Secret ID 环境变量名 |
 | | `secret_key_env` | string | Secret Key 环境变量名 |
 | | `winrm_password_env` | string | Windows Admin 密码环境变量名（仅 Windows） |
@@ -296,7 +303,7 @@ CIS 规则会禁用 root 的 SSH 登录（`PermitRootLogin no` —— TencentOS 
 重启后会被锁在外面。ohbs-image 因此在编排层增加两道每次构建都会重新生成的
 保障（不会因安装旧包而过期）：
 
-1. **专用构建用户 `ohbs-image`** —— 由 `install-ansible.sh` 创建，具备免密
+1. **专用构建用户 `ohbsimage`** —— 由 `install-ansible.sh` 创建，具备免密
    sudo，并继承当前 SSH 用户的 `authorized_keys`；即使 root 登录被完全
    禁用也能重连。
 2. **SSH guard** —— 在 firewalld / nftables / iptables 中放行实际 SSH
@@ -304,7 +311,7 @@ CIS 规则会禁用 root 的 SSH 登录（`PermitRootLogin no` —— TencentOS 
    root 登录，保证 Packer 能重连。
 
 **最终镜像交付时仍为加固态**：cleanup 阶段在快照前重新应用
-`PermitRootLogin no`。管理构建出的镜像请使用 `ohbs-image` 用户（`sudo -i`
+`PermitRootLogin no`。管理构建出的镜像请使用 `ohbsimage` 用户（`sudo -i`
 获取 root），或自行创建用户 —— 按 CIS 要求，root 密码登录默认关闭。
 
 ### Windows 构建流水线（WinRM × 控制器侧 ansible）
@@ -440,7 +447,7 @@ ohbs-image build --log-file build.log
 - [x] 独立审计工具（`ohbs-image audit` — oscap / inspec / kitty）
 - [x] 基准锚定的规则 ID（引擎输出 + SARIF，可与 CIS-CAT 交叉核对）
 - [x] 干净启动验收（`ohbs-image verify-image` / `[meta].verify_boot`）
-- [x] 单条规则参数覆写（`[cis].overrides`）
+- [x] 单条规则参数覆写（`[ohbs].overrides`）
 - [x] CVE 扫描闸门 + SBOM 输出（`[meta].cve_scan` / `[meta].sbom`）
 - [x] 变更检测（`ohbs-image pending` / `build --skip-if-unchanged`）
 - [x] XCCDF 1.2 报告导出（`scan --xccdf`、audit `--xccdf`）
@@ -451,8 +458,8 @@ ohbs-image build --log-file build.log
 - [x] 用户自定义测试组件（`[meta].test_components`）
 - [x] 构建成功触发下游（`[notify].deploy_webhook`）
 - [x] 竞价实例构建机（`[build].spot`，最高省 ~90%）
-- [x] 安全清理（`cleanup-images --unused-since`，共享中的镜像保留）
-- [x] 组织级共享（`[image].share_org_units`）
+- [x] 安全清理（`cleanup-images --unused-since`，保护期内的共享镜像保留）
+- [x] 共享防护（`[image].share_org_units` 会被告警并跳过 —— API 仅接受账号 ID，请使用 `share_accounts`）
 - [x] 规则集版本化（`ohbs-image list --versions`）
 - [x] 源镜像刷新检测（`ohbs-image check-source`）
 - [ ] SLSA L2：完全可复现构建（锁定构建环境）

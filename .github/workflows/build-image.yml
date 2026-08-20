@@ -5,6 +5,12 @@ name: build-golden-image
 #   1. A CAM OIDC provider for GitHub (token.actions.githubusercontent.com)
 #   2. A CAM role trusted for this repo (see README "Group accounts")
 #   3. Repository secret TC_OIDC_ROLE_ARN (e.g. qcs::cam::uin/12345:roleName/ci-builder)
+#   4. Repository secrets TC_BUILD_REGION / TC_BUILD_ZONE /
+#      TC_BUILD_SOURCE_IMAGE_ID / TC_BUILD_VPC_ID / TC_BUILD_SUBNET_ID /
+#      TC_BUILD_SG_ID — placement for the temporary build CVM, used to
+#      generate the gitignored ohbs-image.toml from ohbs-image.toml.example.
+#      The security group must allow inbound TCP/22 from the public internet
+#      (a GitHub-hosted runner SSHes into the build CVM over its public IP).
 on:
   workflow_dispatch:          # manual trigger
   schedule:
@@ -32,12 +38,53 @@ jobs:
       - name: Install ohbs-image
         run: pip install .
 
+      # packer is required by `ohbs-image build` (same pin as ci.yml).
+      - name: Install packer
+        uses: hashicorp/setup-packer@main
+        with:
+          version: "1.16.0"
+
       - name: Authenticate to Tencent Cloud via OIDC
         uses: everpcpc/tencentcloud-oidc-auth@v1
         with:
           role-arn: ${{ secrets.TC_OIDC_ROLE_ARN }}
           oidc-provider-id: github
           region: ap-guangzhou
+
+      # ohbs-image.toml is gitignored (it holds account-specific IDs), so
+      # generate it from ohbs-image.toml.example + repository secrets. All
+      # TC_BUILD_* secrets must live in the OIDC step's region.
+      - name: Generate ohbs-image.toml from secrets
+        env:
+          TC_BUILD_REGION: ${{ secrets.TC_BUILD_REGION }}
+          TC_BUILD_ZONE: ${{ secrets.TC_BUILD_ZONE }}
+          TC_BUILD_SOURCE_IMAGE_ID: ${{ secrets.TC_BUILD_SOURCE_IMAGE_ID }}
+          TC_BUILD_VPC_ID: ${{ secrets.TC_BUILD_VPC_ID }}
+          TC_BUILD_SUBNET_ID: ${{ secrets.TC_BUILD_SUBNET_ID }}
+          TC_BUILD_SG_ID: ${{ secrets.TC_BUILD_SG_ID }}
+        run: |
+          missing=""
+          for v in TC_BUILD_REGION TC_BUILD_ZONE TC_BUILD_SOURCE_IMAGE_ID \
+                   TC_BUILD_VPC_ID TC_BUILD_SUBNET_ID TC_BUILD_SG_ID; do
+            if [ -z "${!v}" ]; then missing="$missing $v"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing." \
+              "Add them under Settings > Secrets and variables > Actions" \
+              "(region/zone/image/VPC/subnet/security-group for the build CVM)."
+            exit 1
+          fi
+          # associate_public_ip=true: a GitHub-hosted runner is outside the
+          # VPC, so packer reaches the build CVM over the public internet.
+          # The TC_BUILD_SG_ID security group must allow inbound TCP/22.
+          sed -e "s/region              = \"ap-guangzhou\"/region              = \"$TC_BUILD_REGION\"/" \
+              -e "s/zone                = \"ap-guangzhou-3\"/zone                = \"$TC_BUILD_ZONE\"/" \
+              -e "s/\"img-xxxxxxxx\"/\"$TC_BUILD_SOURCE_IMAGE_ID\"/" \
+              -e "s/\"vpc-xxxxxxxx\"/\"$TC_BUILD_VPC_ID\"/" \
+              -e "s/\"subnet-xxxxxxxx\"/\"$TC_BUILD_SUBNET_ID\"/" \
+              -e "s/\"sg-xxxxxxxx\"/\"$TC_BUILD_SG_ID\"/" \
+              -e "s/associate_public_ip = false/associate_public_ip = true/" \
+              ohbs-image.toml.example > ohbs-image.toml
 
       - name: Build golden image
         run: ohbs-image build --config ohbs-image.toml -y

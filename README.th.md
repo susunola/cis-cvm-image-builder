@@ -145,6 +145,12 @@ ohbs-image clean
 
 `ohbs-image.toml` เป็น single source of truth — ไม่ต้องแก้ไข Packer template เอง
 
+การตรวจ config เป็นแบบเข้มงวด: ตัวเลือกแบบ list (เช่น `rules_include`) ต้องเป็น
+TOML array และ `level` / `min_score` / `assume_role_duration` / `ssh_port`
+ต้องเป็นจำนวนเต็ม (ปฏิเสธ float และ boolean) section สำหรับ hardening ชื่อ
+`[ohbs]` (เป็นแบบที่ `ohbs-image init` สร้างให้) — ชื่อเดิม `[cis]` ยังใช้ได้
+แต่ถ้ามีทั้งสองอัน `[ohbs]` จะชนะพร้อมแสดง warning
+
 ```toml
 [build]
 profile             = "tencentos3"
@@ -165,7 +171,7 @@ associate_public_ip = true
 name_prefix  = "tencentos3-cis"
 copy_regions = ["ap-shanghai"]            # ใส่ [] เพื่อไม่ copy ข้าม region
 
-[cis]
+[ohbs]
 level = 1                                 # 1 หรือ 2
 
 [cloud]
@@ -193,7 +199,7 @@ benchmark = "CIS-v1.0.0"
 | | `associate_public_ip` | bool | กำหนด public IP ให้ instance build หรือไม่ |
 | `[image]` | `name_prefix` | string | prefix ของชื่อ image ที่ออกมา |
 | | `copy_regions` | []string | region ปลายทางที่จะ replicate (ว่าง = ข้าม) |
-| `[cis]` | `level` | int | 1 (Level 1) หรือ 2 (Level 2) |
+| `[ohbs]` | `level` | int | 1 (Level 1) หรือ 2 (Level 2) |
 | `[cloud]` | `secret_id_env` | string | ชื่อ env var สำหรับ Tencent Cloud Secret ID |
 | | `secret_key_env` | string | ชื่อ env var สำหรับ Tencent Cloud Secret Key |
 | | `winrm_password_env` | string | ชื่อ env var สำหรับรหัสผ่าน Windows Administrator (เฉพาะ Windows) |

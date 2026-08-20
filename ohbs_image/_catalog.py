@@ -22,6 +22,16 @@ from pathlib import Path
 _LEGACY_BENCHMARKS = frozenset({"", "cis", "cis benchmark"})
 
 
+def _is_legacy_benchmark(bm: str) -> bool:
+    """True for legacy/CIS benchmarks, which keep the historical ``rules.json``.
+
+    Real profile benchmark strings look like "CIS-v1.0.0", never the bare
+    tokens in ``_LEGACY_BENCHMARKS`` — match CIS by (lowercased) prefix so
+    those strings actually take the legacy branch.
+    """
+    return bm in _LEGACY_BENCHMARKS or bm.startswith("cis")
+
+
 def benchmark_slug(benchmark: str) -> str:
     """Normalize a benchmark string into a filesystem-safe slug.
 
@@ -67,7 +77,7 @@ def _catalog_path(role_dir: str, benchmark: str, workdir: Path | None = None) ->
             return (ws / "rules.json").resolve()
 
     bm = (benchmark or "").strip().lower()
-    if bm in _LEGACY_BENCHMARKS:
+    if _is_legacy_benchmark(bm):
         return (files_dir / "rules.json").resolve()
     specific = files_dir / f"rules_{benchmark_slug(benchmark)}.json"
     if specific.exists():
@@ -83,7 +93,7 @@ def _catalog_basename(role_dir: str, benchmark: str) -> str:
     than a full path, which is what the rendered HCL/templates need.
     """
     bm = (benchmark or "").strip().lower()
-    if bm in _LEGACY_BENCHMARKS:
+    if _is_legacy_benchmark(bm):
         return "rules.json"
     specific = _roles_dir() / role_dir / "files" / f"rules_{benchmark_slug(benchmark)}.json"
     if specific.exists():

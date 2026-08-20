@@ -2114,7 +2114,7 @@
         "ftp"
       ]
     },
-    "risk": "disruptive",
+    "risk": "safe",
     "page": 334
   },
   {
@@ -2156,7 +2156,7 @@
         "telnet"
       ]
     },
-    "risk": "disruptive",
+    "risk": "safe",
     "page": 338
   },
   {

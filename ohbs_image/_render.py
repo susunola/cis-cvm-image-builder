@@ -360,7 +360,7 @@ def _validate_shell_arg(value: str, field_label: str) -> None:
             "Use plain letters, digits, dot, dash, underscore only.")
 
 def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
-               idempotency: bool = False) -> None:
+               idempotency: bool = False) -> str:
     """Render the complete build directory.
 
     *scan* — audit-only mode: the engine runs with cis_mode=scan (no
@@ -368,6 +368,9 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
     image is not yet hardened, so hardening assertions would fail).
     *idempotency* — Linux only: re-run the apply playbook once more and
     fail the build if the second pass changes anything (Applied/Pending > 0).
+
+    Returns the image name baked into the rendered files, so callers can
+    reuse it for lineage/provenance/reports instead of recomputing it.
     """
     p = r.profile
     family: str = r.family
@@ -393,7 +396,9 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
         _apply_rule_overrides(workdir, r.role_dir, r.rules_overrides)
 
     # Computed once — pkrvars, HCL finalize args and the finalize script
-    # itself all share this exact image name.
+    # itself all share this exact image name.  Returned so callers can reuse
+    # the same name for lineage/provenance instead of recomputing it (the
+    # timestamp would differ).
     image_name = _image_name(r)
 
     # Credential env var names are user-configurable ([cloud].secret_id_env);
@@ -589,3 +594,5 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
         finalize_path = workdir / "packer" / "scripts" / "ohbs-image-finalize.sh"
         finalize_path.write_text(finalize, encoding="utf-8")
         finalize_path.chmod(0o755)
+
+    return image_name

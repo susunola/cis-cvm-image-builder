@@ -398,6 +398,25 @@ class TestExtractImageIds:
     def test_no_match(self):
         assert ohbs_image._extract_image_ids(["==> building...", "==> done"]) == []
 
+    def test_collecting_stops_after_20_lines(self):
+        """Regression: if the ') were created' terminator never arrives
+        (truncated/interleaved log), collection must stop after 20 lines —
+        otherwise unrelated img- ids later in the log get scooped up."""
+        lines = [
+            "--> tencentcloud-cvm.default: Tencentcloud images(ap-guangzhou: img-early",
+            *["==> still waiting for the image…" for _ in range(25)],
+            "unrelated later line mentions img-late which must be ignored",
+        ]
+        assert ohbs_image._extract_image_ids(lines) == ["img-early"]
+
+    def test_extract_score_takes_last_match(self):
+        """A Linux build logs 'Score:' twice (apply pass, then post-reboot
+        re-audit); the re-audit score is authoritative → LAST match wins."""
+        from ohbs_image import _extract_score
+        lines = ["Score: 71.5%", "some other output", "Score: 96.0%"]
+        assert _extract_score(lines) == 96.0
+        assert _extract_score(["no score here"]) is None
+
     def test_windows_profile(self):
         data = _make_win_toml("win2022")
         r = resolve(data)
@@ -1285,10 +1304,11 @@ class TestRunPacker:
             result = run_packer(wd, "validate", capture=True)
         assert result.exit_code == 1
 
-    def test_subcmd_timeout_kills_process(self, tmp_path):
-        """proc.wait(timeout=...) expiring must kill() the child, still
-        wait() for it to die, join the reader thread, and return exit_code=1
-        with whatever output had been captured before the kill."""
+    def test_subcmd_timeout_kills_process(self, tmp_path, caplog):
+        """proc.wait(timeout=...) expiring must terminate() (SIGTERM) first so
+        Packer can clean up its temporary build CVM, then kill() (SIGKILL)
+        after the 60s grace window if it is still alive, join the reader
+        thread, and return exit_code=1 with the output captured so far."""
         wd = tmp_path / "build"
         wd.mkdir()
         (wd / "packer").mkdir()
@@ -1303,19 +1323,51 @@ class TestRunPacker:
             mock_proc.returncode = -9
             mock_proc.stdout = ["partial output before hang\n"]
             mock_proc.__enter__.return_value = mock_proc
-            # First wait() call (with timeout=) expires; the second wait()
-            # call (bare, after kill()) succeeds immediately.
+            # wait(timeout=) expires; the post-SIGTERM grace wait(60) expires
+            # too; the bare wait() after kill() succeeds immediately.
             mock_proc.wait.side_effect = [
                 subprocess.TimeoutExpired(cmd="packer build", timeout=1),
+                subprocess.TimeoutExpired(cmd="packer build", timeout=60),
                 None,
             ]
             mock_popen.return_value = mock_proc
             result = run_packer(wd, "build", capture=True, timeout=1)
 
-        mock_proc.kill.assert_called_once()
-        assert mock_proc.wait.call_count == 2
+        mock_proc.terminate.assert_called_once()   # SIGTERM first…
+        mock_proc.kill.assert_called_once()        # …SIGKILL after the grace window
+        assert mock_proc.wait.call_count == 3
         assert result.exit_code == 1
         assert result.stdout_lines == ["partial output before hang"]
+        assert "process terminated." in caplog.text
+
+    def test_subcmd_timeout_sigterm_is_enough(self, tmp_path, caplog):
+        """When the child honours SIGTERM, the grace wait(60) succeeds and
+        kill() must NOT be called."""
+        wd = tmp_path / "build"
+        wd.mkdir()
+        (wd / "packer").mkdir()
+        (wd / "packer" / "main.pkr.hcl").write_text("")
+
+        with (
+            mock.patch("subprocess.run") as mock_run,
+            mock.patch("subprocess.Popen") as mock_popen,
+        ):
+            mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            mock_proc = mock.MagicMock()
+            mock_proc.returncode = -15
+            mock_proc.stdout = []
+            mock_proc.__enter__.return_value = mock_proc
+            mock_proc.wait.side_effect = [
+                subprocess.TimeoutExpired(cmd="packer build", timeout=1),
+                None,  # exits within the 60s grace window
+            ]
+            mock_popen.return_value = mock_proc
+            result = run_packer(wd, "build", capture=True, timeout=1)
+
+        mock_proc.terminate.assert_called_once()
+        mock_proc.kill.assert_not_called()
+        assert result.exit_code == 1
+        assert "process terminated." in caplog.text
 
     def _run_packer_with_init_results(self, tmp_path, init_results, subcmd="validate"):
         """Run run_packer with a patched subprocess.run that yields *init_results*
@@ -1456,60 +1508,81 @@ class TestRunPacker:
         assert "streamed and logged" in log_path.read_text()
 
     def test_capture_false_subcmd_success(self, tmp_path):
-        """The non-capture path's success return (line 2748) is a distinct
-        branch from the timeout/FileNotFoundError branches below it."""
+        """The non-capture path's success return is a distinct branch from
+        the timeout/FileNotFoundError branches below it.  The subcmd runs via
+        Popen+communicate (not subprocess.run) so the timeout path controls
+        the SIGTERM→SIGKILL sequence."""
         wd = tmp_path / "build"
         wd.mkdir()
         (wd / "packer").mkdir()
         (wd / "packer" / "main.pkr.hcl").write_text("")
 
-        with mock.patch("subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                subprocess.CompletedProcess([], 0, stdout="", stderr=""),  # init
-                subprocess.CompletedProcess([], 0, stdout="", stderr=""),  # subcmd
-            ]
+        with (
+            mock.patch("subprocess.run") as mock_run,
+            mock.patch("subprocess.Popen") as mock_popen,
+        ):
+            mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            mock_proc = mock.MagicMock()
+            mock_proc.returncode = 0
+            mock_proc.communicate.return_value = (None, None)
+            mock_popen.return_value = mock_proc
             result = run_packer(wd, "build", capture=False, quiet=False)
 
         assert result.exit_code == 0
-        assert mock_run.call_count == 2
+        assert mock_run.call_count == 1  # init only; subcmd went through Popen
+        mock_proc.communicate.assert_called_once()
 
-    def test_capture_false_subcmd_timeout(self, tmp_path):
-        """With capture/quiet/log_file all falsy, the subcmd runs via a bare
-        subprocess.run() that inherits stdio; its own TimeoutExpired (distinct
-        from the packer-init TimeoutExpired) must still be turned into a
-        clean exit_code=1 instead of propagating."""
+    def test_capture_false_subcmd_timeout(self, tmp_path, caplog):
+        """Non-capture path: a TimeoutExpired from communicate() (distinct
+        from the packer-init TimeoutExpired) must SIGTERM first, SIGKILL
+        after the 60s grace window, and become a clean exit_code=1 instead
+        of propagating."""
         wd = tmp_path / "build"
         wd.mkdir()
         (wd / "packer").mkdir()
         (wd / "packer" / "main.pkr.hcl").write_text("")
 
-        with mock.patch("subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                subprocess.CompletedProcess([], 0, stdout="", stderr=""),  # init
-                subprocess.TimeoutExpired(cmd="packer build", timeout=5),  # subcmd
+        with (
+            mock.patch("subprocess.run") as mock_run,
+            mock.patch("subprocess.Popen") as mock_popen,
+        ):
+            mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            mock_proc = mock.MagicMock()
+            mock_proc.returncode = -9
+            # communicate(timeout=) expires; the post-SIGTERM grace
+            # communicate(60) expires too; the bare one after kill() returns.
+            mock_proc.communicate.side_effect = [
+                subprocess.TimeoutExpired(cmd="packer build", timeout=5),
+                subprocess.TimeoutExpired(cmd="packer build", timeout=60),
+                (None, None),
             ]
+            mock_popen.return_value = mock_proc
             result = run_packer(wd, "build", capture=False, quiet=False, timeout=5)
 
         assert result.exit_code == 1
-        assert mock_run.call_count == 2
+        mock_proc.terminate.assert_called_once()
+        mock_proc.kill.assert_called_once()
+        assert "process terminated." in caplog.text
+        assert mock_run.call_count == 1  # init only; subcmd went through Popen
 
     def test_capture_false_subcmd_packer_not_found(self, tmp_path):
         """Same non-capture path, but packer disappears between `init` and
-        the subcmd invocation (e.g. PATH mutated mid-run) — must not crash."""
+        the subcmd invocation (e.g. PATH mutated mid-run) — Popen raises
+        FileNotFoundError, which must not crash."""
         wd = tmp_path / "build"
         wd.mkdir()
         (wd / "packer").mkdir()
         (wd / "packer" / "main.pkr.hcl").write_text("")
 
-        with mock.patch("subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                subprocess.CompletedProcess([], 0, stdout="", stderr=""),  # init
-                FileNotFoundError,  # subcmd
-            ]
+        with (
+            mock.patch("subprocess.run") as mock_run,
+            mock.patch("subprocess.Popen", side_effect=FileNotFoundError),
+        ):
+            mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
             result = run_packer(wd, "build", capture=False, quiet=False)
 
         assert result.exit_code == 1
-        assert mock_run.call_count == 2
+        assert mock_run.call_count == 1  # init only; subcmd went through Popen
 
 
 # ---------------------------------------------------------------------------
@@ -1867,6 +1940,18 @@ class TestBuildParser:
             parser.parse_args(["--version"])
         assert exc.value.code == 0
 
+    def test_verbose_before_and_after_subcommand(self):
+        """-v/--verbose must work both as a global option (before the
+        subcommand) and on the validate/build/scan/test subparsers (after
+        it) — the subparser copies use default=SUPPRESS so they never mask
+        a global -v."""
+        parser = build_parser()
+        for sub in ("validate", "build", "scan", "test"):
+            assert parser.parse_args(["-v", sub]).verbose is True
+            assert parser.parse_args([sub, "-v"]).verbose is True
+            assert parser.parse_args([sub, "--verbose"]).verbose is True
+            assert parser.parse_args([sub]).verbose is False
+
 
 # ---------------------------------------------------------------------------
 # main() entry point
@@ -1886,12 +1971,12 @@ class TestMain:
         rc = main(["preflight", "--config", "/nonexistent.toml"])
         assert rc == 1
 
-    def test_bare_command_shows_help_and_exits_0(self, capsys):
-        """Regression: argparse subparsers were `required=True`, so a bare
-        `ohbs-image` invocation raised an argparse error (exit 2) instead of
-        printing help — inconsistent with the README's documented behavior."""
+    def test_bare_command_shows_help_and_exits_2(self, capsys):
+        """A bare `ohbs-image` prints the help text and exits 2 (conventional
+        CLI usage-error code) — not 0, which would make a forgotten subcommand
+        look like success in scripts and CI."""
         rc = main([])
-        assert rc == 0
+        assert rc == 2
         out = capsys.readouterr().out
         assert "usage:" in out.lower()
 
@@ -2385,10 +2470,10 @@ class TestBuildGovernance:
 class TestVerify:
     """ohbs-image verify — SLSA provenance signature verification."""
 
-    def _make_prov(self, tmp_path, image_id="img-abc", signed=True, key="TESTKEY"):
-        import ohbs_image
+    def _make_prov(self, tmp_path, monkeypatch, image_id="img-abc", signed=True, key="TESTKEY"):
         from ohbs_image import SAMPLE_CONFIG, _write_provenance
-        ohbs_image._lineage_path = lambda: tmp_path / "lineage.jsonl"
+        monkeypatch.setattr("ohbs_image._lineage_path",
+                            lambda: tmp_path / "lineage.jsonl")
         data = tomllib.loads(SAMPLE_CONFIG)
         data["sign"] = {"gpg_key": key}
         r = resolve(data)
@@ -2403,9 +2488,9 @@ class TestVerify:
             sig.unlink(missing_ok=True)
         return p
 
-    def test_verify_valid_signature(self, valid_toml, tmp_path):
+    def test_verify_valid_signature(self, valid_toml, tmp_path, monkeypatch):
         from ohbs_image import cmd_verify
-        p = self._make_prov(tmp_path)
+        p = self._make_prov(tmp_path, monkeypatch)
         with mock.patch("subprocess.run") as sub:
             sub.return_value = mock.Mock(returncode=0, stderr="", stdout="")
             rc = cmd_verify(mock.MagicMock(provenance=str(p), image=None))
@@ -2413,23 +2498,23 @@ class TestVerify:
         cmd = sub.call_args.args[0]
         assert cmd[0] == "gpg" and "--verify" in cmd
 
-    def test_verify_invalid_signature(self, valid_toml, tmp_path):
+    def test_verify_invalid_signature(self, valid_toml, tmp_path, monkeypatch):
         from ohbs_image import cmd_verify
-        p = self._make_prov(tmp_path)
+        p = self._make_prov(tmp_path, monkeypatch)
         with mock.patch("subprocess.run") as sub:
             sub.return_value = mock.Mock(returncode=1, stderr="BAD signature", stdout="")
             rc = cmd_verify(mock.MagicMock(provenance=str(p), image=None))
         assert rc == 1
 
-    def test_verify_unsigned_warns_fails(self, valid_toml, tmp_path):
+    def test_verify_unsigned_warns_fails(self, valid_toml, tmp_path, monkeypatch):
         from ohbs_image import cmd_verify
-        p = self._make_prov(tmp_path, signed=False)
+        p = self._make_prov(tmp_path, monkeypatch, signed=False)
         rc = cmd_verify(mock.MagicMock(provenance=str(p), image=None))
         assert rc == 1  # unsigned provenance does not verify
 
-    def test_verify_by_image_id(self, valid_toml, tmp_path):
+    def test_verify_by_image_id(self, valid_toml, tmp_path, monkeypatch):
         from ohbs_image import cmd_verify
-        self._make_prov(tmp_path, image_id="img-target-1")
+        self._make_prov(tmp_path, monkeypatch, image_id="img-target-1")
         with (
             mock.patch("ohbs_image._lineage_path", return_value=tmp_path / "lineage.jsonl"),
             mock.patch("subprocess.run") as sub,
@@ -2438,9 +2523,9 @@ class TestVerify:
             rc = cmd_verify(mock.MagicMock(provenance=None, image="img-target-1"))
         assert rc == 0
 
-    def test_verify_image_not_found(self, valid_toml, tmp_path):
+    def test_verify_image_not_found(self, valid_toml, tmp_path, monkeypatch):
         from ohbs_image import cmd_verify
-        self._make_prov(tmp_path, image_id="img-other")
+        self._make_prov(tmp_path, monkeypatch, image_id="img-other")
         with mock.patch("ohbs_image._lineage_path", return_value=tmp_path / "lineage.jsonl"):
             rc = cmd_verify(mock.MagicMock(provenance=None, image="img-missing"))
         assert rc == 1
@@ -2530,11 +2615,11 @@ class TestScanListRules:
 class TestCleanupImages:
     """ohbs-image cleanup-images — retire old images by lineage age."""
 
-    def _seed_lineage(self, tmp_path, days_ago):
+    def _seed_lineage(self, tmp_path, monkeypatch, days_ago):
         from datetime import datetime, timedelta
 
-        import ohbs_image
-        ohbs_image._lineage_path = lambda: tmp_path / "lineage.jsonl"
+        monkeypatch.setattr("ohbs_image._lineage_path",
+                            lambda: tmp_path / "lineage.jsonl")
         path = tmp_path / "lineage.jsonl"
         def rec(ts, imgs, status="ok"):
             return json.dumps({"ts": ts, "status": status, "region": "ap-guangzhou",
@@ -2548,9 +2633,9 @@ class TestCleanupImages:
         path.write_text("\n".join(lines) + "\n")
         return path
 
-    def test_dry_run_no_delete(self, tmp_path):
+    def test_dry_run_no_delete(self, tmp_path, monkeypatch):
         from ohbs_image import cmd_cleanup_images
-        self._seed_lineage(tmp_path, days_ago=60)
+        self._seed_lineage(tmp_path, monkeypatch, days_ago=60)
         with mock.patch("ohbs_image._delete_images") as dele, \
              mock.patch("ohbs_image._images_exist") as exist:
             rc = cmd_cleanup_images(mock.MagicMock(older_than=30, keep_latest=1, unused_since=0, apply=False))
@@ -2558,9 +2643,9 @@ class TestCleanupImages:
         dele.assert_not_called()
         exist.assert_not_called()
 
-    def test_apply_deletes_and_marks_retired(self, tmp_path):
+    def test_apply_deletes_and_marks_retired(self, tmp_path, monkeypatch):
         from ohbs_image import cmd_cleanup_images
-        path = self._seed_lineage(tmp_path, days_ago=60)
+        path = self._seed_lineage(tmp_path, monkeypatch, days_ago=60)
         with mock.patch("ohbs_image._images_exist", return_value=["img-old1", "img-old2", "img-old3"]), \
              mock.patch("ohbs_image._delete_images") as dele:
             rc = cmd_cleanup_images(mock.MagicMock(older_than=30, keep_latest=1, unused_since=0, apply=True))
@@ -2571,9 +2656,9 @@ class TestCleanupImages:
         assert len(retired) == 2  # both old records retired
         assert all(not r.get("retired") for r in recs if "img-new" in (r.get("image_ids") or []))
 
-    def test_keep_latest_protects_newest(self, tmp_path):
+    def test_keep_latest_protects_newest(self, tmp_path, monkeypatch):
         from ohbs_image import cmd_cleanup_images
-        self._seed_lineage(tmp_path, days_ago=60)
+        self._seed_lineage(tmp_path, monkeypatch, days_ago=60)
         with mock.patch("ohbs_image._images_exist", return_value=["img-old1", "img-old2", "img-old3"]), \
              mock.patch("ohbs_image._delete_images") as dele:
             rc = cmd_cleanup_images(mock.MagicMock(older_than=30, keep_latest=2, unused_since=0, apply=True))
@@ -2581,9 +2666,9 @@ class TestCleanupImages:
         # keep_latest=2: img-new + one old record protected -> only 2 old deleted
         assert dele.call_count == 2
 
-    def test_nothing_to_clean(self, tmp_path):
+    def test_nothing_to_clean(self, tmp_path, monkeypatch):
         from ohbs_image import cmd_cleanup_images
-        self._seed_lineage(tmp_path, days_ago=1)
+        self._seed_lineage(tmp_path, monkeypatch, days_ago=1)
         with mock.patch("ohbs_image._delete_images") as dele:
             rc = cmd_cleanup_images(mock.MagicMock(older_than=30, keep_latest=1, unused_since=0, apply=True))
         assert rc == 0
@@ -3087,25 +3172,27 @@ class TestFingerprintAndChangeDetection:
         fp2 = _build_fingerprint(r)
         assert fp1 != fp2
 
-    def test_image_lookup_error_fails_open(self, valid_toml, monkeypatch):
-        # Change detection fails open (returns True) on API errors so a
-        # transient cloud hiccup never blocks a scheduled rebuild.
+    def test_image_lookup_error_fails_closed(self, valid_toml, monkeypatch):
+        # Change detection fails CLOSED (returns False) on API errors: a
+        # transient cloud hiccup must never *skip* a scheduled rebuild —
+        # skipping could leave users on a silently stale image.
         from ohbs_image import _image_ids_still_exist
         r = resolve(valid_toml)
         monkeypatch.setattr("ohbs_image._images_exist",
-                            lambda *args: (_ for _ in ()).throw(ConfigError("API unavailable")))
-        assert _image_ids_still_exist(r.region, ["img-old"]) is True
+                            lambda *args, **kwargs: (_ for _ in ()).throw(
+                                ConfigError("API unavailable")))
+        assert _image_ids_still_exist(r.region, ["img-old"]) is False
 
     def test_image_lookup_delegates_to_images_exist(self, valid_toml, monkeypatch):
         # _image_ids_still_exist must query the exact region + ids it was given.
         from ohbs_image import _image_ids_still_exist
         r = resolve(valid_toml)
         seen = {}
-        def images_exist(region, image_ids):
+        def images_exist(region, image_ids, **kwargs):
             seen["region"], seen["ids"] = region, image_ids
             return ["img-old"]
         monkeypatch.setattr("ohbs_image._images_exist", images_exist)
-        assert _image_ids_still_exist(r.region, ["img-old"]) is True
+        assert _image_ids_still_exist(r.region, ["img-old"], r=r) is True
         assert seen == {"region": r.region, "ids": ["img-old"]}
 
     def test_pending_skips_when_unchanged(self, valid_toml, tmp_path, monkeypatch):
@@ -3216,19 +3303,22 @@ class TestShareImages:
 
     def test_share_calls_api_with_accounts(self, valid_toml, monkeypatch):
         from ohbs_image import _share_images, resolve
-        calls = {}
+        calls = []
         def fake_tc3(service, action, version, region, params, sid, skey, token):
-            calls["action"] = action
-            calls["params"] = params
+            calls.append({"action": action, "params": params})
             return {"Response": {"RequestId": "x"}}
         monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
         monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
         monkeypatch.setattr("ohbs_image._tc3_api", fake_tc3)
         r = resolve(valid_toml)
-        _share_images(r, ["img-abc"], ["uin/1234567890"])
-        assert calls["action"] == "ModifyImageSharePermission"
-        assert calls["params"]["ImageIds"] == ["img-abc"]
-        assert calls["params"]["AccountIds"] == ["uin/1234567890"]
+        _share_images(r, ["img-abc", "img-def"], ["uin/1234567890"])
+        # One ModifyImageSharePermission call PER image: the API takes a
+        # single ImageId (no batch ImageIds) and an explicit Permission.
+        assert [c["action"] for c in calls] == [
+            "ModifyImageSharePermission", "ModifyImageSharePermission"]
+        assert [c["params"]["ImageId"] for c in calls] == ["img-abc", "img-def"]
+        assert all(c["params"]["AccountIds"] == ["uin/1234567890"] for c in calls)
+        assert all(c["params"]["Permission"] == "SHARE" for c in calls)
 
     def test_share_warns_without_creds(self, valid_toml, monkeypatch, caplog):
         from ohbs_image import _share_images, resolve
@@ -3799,23 +3889,48 @@ class TestVerifyImage:
         r = resolve(valid_toml)
         monkeypatch.setattr("ohbs_image._load_resolve_preflight",
                             lambda c, w: (r, tmp_path / "w"))
-        monkeypatch.setattr("ohbs_image._probe_launch", lambda *a, **k: "ins-probe")
+        monkeypatch.setattr("ohbs_image._probe_setup_keypair",
+                            lambda r_: ("key-probe", "/tmp/probe_key", "ssh-ed25519 AAAA"))
+        launched = {}
+        monkeypatch.setattr("ohbs_image._probe_launch",
+                            lambda *a, **k: launched.update(k) or "ins-probe")
         monkeypatch.setattr("ohbs_image._probe_public_ip", lambda *a, **k: "1.2.3.4")
-        monkeypatch.setattr("ohbs_image._probe_ssh_ready", lambda *a, **k: True)
+        ready = {}
+        monkeypatch.setattr("ohbs_image._probe_ssh_ready",
+                            lambda *a, **k: ready.update({"args": a, **k}) or True)
+        scanned = {}
         monkeypatch.setattr("ohbs_image._probe_scan",
-                            lambda *a, **k: {"summary": {"all": {"score": 96.0, "fail": 0}}})
+                            lambda *a, **k: scanned.update({"args": a, **k}) or
+                            {"summary": {"all": {"score": 96.0, "fail": 0}}})
         terminated = []
         monkeypatch.setattr("ohbs_image._probe_terminate",
                             lambda r_, i: terminated.append(i))
+        teardowns = []
+        monkeypatch.setattr("ohbs_image._probe_teardown_keypair",
+                            lambda *a: teardowns.append(a))
         args = mock.MagicMock(config="c", workdir="w", image="img-new", min_score=85.0)
         assert cmd_verify_image(args) == 0
         assert terminated == ["ins-probe"]  # always terminated
+        # The throwaway key pair is wired into launch (LoginSettings +
+        # UserData pubkey) and into every ssh call (-i key_path)…
+        assert launched["key_ids"] == ["key-probe"]
+        assert launched["pub_key"] == "ssh-ed25519 AAAA"
+        assert ready["key_path"] == "/tmp/probe_key"
+        assert scanned["key_path"] == "/tmp/probe_key"
+        # …the probe logs in as 'ohbsimage' (PermitRootLogin no on the
+        # hardened image; the pubkey is injected only for that user)…
+        assert ready["args"][2] == "ohbsimage"   # ssh_user
+        assert scanned["args"][3] == "ohbsimage"  # ssh_user
+        # …and the key pair is always torn down.
+        assert teardowns == [(r, "key-probe", "/tmp/probe_key")]
 
     def test_verify_image_gate_fail(self, valid_toml, monkeypatch, tmp_path):
         from ohbs_image import cmd_verify_image
         r = resolve(valid_toml)
         monkeypatch.setattr("ohbs_image._load_resolve_preflight",
                             lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("ohbs_image._probe_setup_keypair",
+                            lambda r_: ("key-probe", "/tmp/probe_key", "ssh-ed25519 AAAA"))
         monkeypatch.setattr("ohbs_image._probe_launch", lambda *a, **k: "ins-probe")
         monkeypatch.setattr("ohbs_image._probe_public_ip", lambda *a, **k: "1.2.3.4")
         monkeypatch.setattr("ohbs_image._probe_ssh_ready", lambda *a, **k: True)
@@ -3824,9 +3939,13 @@ class TestVerifyImage:
         terminated = []
         monkeypatch.setattr("ohbs_image._probe_terminate",
                             lambda r_, i: terminated.append(i))
+        teardowns = []
+        monkeypatch.setattr("ohbs_image._probe_teardown_keypair",
+                            lambda *a: teardowns.append(a))
         args = mock.MagicMock(config="c", workdir="w", image="img-new", min_score=85.0)
         assert cmd_verify_image(args) == 1
         assert terminated == ["ins-probe"]
+        assert teardowns == [(r, "key-probe", "/tmp/probe_key")]  # even on gate failure
 
 
 class TestBuildNewFeatures:
@@ -3856,7 +3975,7 @@ class TestBuildNewFeatures:
         monkeypatch.setattr("ohbs_image._build_fingerprint", lambda r_: "fp123")
         monkeypatch.setattr("ohbs_image._last_successful_fingerprint",
                             lambda r_: ("fp123", ["img-old"]))
-        monkeypatch.setattr("ohbs_image._image_ids_still_exist", lambda r_, ids: True)
+        monkeypatch.setattr("ohbs_image._image_ids_still_exist", lambda r_, ids, **k: True)
         rendered = []
         monkeypatch.setattr("ohbs_image.render_all", lambda w, r: rendered.append(1))
         run = []
@@ -4348,6 +4467,53 @@ class TestDrift:
                               save_baseline=False)
         assert cmd_drift(args) == 1
 
+    def test_cmd_drift_baseline_missing_file_fails_fast(
+        self, valid_toml, monkeypatch, tmp_path):
+        """--baseline <missing> must fail fast — before any cloud probing —
+        and must NOT fall through to the --image baseline fetch."""
+        from ohbs_image import cmd_drift
+        r = resolve(valid_toml)
+        r.ssh_username = "root"
+        r.ssh_port = 22
+        monkeypatch.setattr("ohbs_image._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("ohbs_image._probe_scan",
+                            lambda *a, **k: self._doc(100.0, {"1.1.1": "pass"}))
+        fetched = []
+        monkeypatch.setattr("ohbs_image._fetch_baseline",
+                            lambda r_, image_id: fetched.append(image_id) or
+                            self._doc(100.0, {"1.1.1": "pass"}))
+        args = mock.MagicMock(config="c", workdir="w", host="1.2.3.4",
+                              image="img-x", baseline=str(tmp_path / "nope.json"),
+                              ssh_user="", ssh_port=0, save_baseline=False)
+        assert cmd_drift(args) == 1
+        assert fetched == []  # --image baseline never consulted
+
+    def test_cmd_drift_bad_baseline_file_does_not_wipe_image_baseline(
+        self, valid_toml, monkeypatch, tmp_path):
+        """A corrupt --baseline <file> fails the run instead of silently
+        falling back to the (valid) --image baseline — the explicit file
+        overrides everything, so its failure must be final."""
+        from ohbs_image import cmd_drift
+        r = resolve(valid_toml)
+        r.ssh_username = "root"
+        r.ssh_port = 22
+        monkeypatch.setattr("ohbs_image._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("ohbs_image._probe_scan",
+                            lambda *a, **k: self._doc(100.0, {"1.1.1": "pass"}))
+        fetched = []
+        monkeypatch.setattr("ohbs_image._fetch_baseline",
+                            lambda r_, image_id: fetched.append(image_id) or
+                            self._doc(100.0, {"1.1.1": "pass"}))
+        bl = tmp_path / "bl.json"
+        bl.write_text("{not valid json", encoding="utf-8")
+        args = mock.MagicMock(config="c", workdir="w", host="1.2.3.4",
+                              image="img-x", baseline=str(bl), ssh_user="", ssh_port=0,
+                              save_baseline=False)
+        assert cmd_drift(args) == 1
+        assert fetched == []  # valid image baseline must not be used
+
     def test_save_baseline(self, valid_toml, monkeypatch, tmp_path):
         from ohbs_image import cmd_save_baseline
         r = resolve(valid_toml)
@@ -4516,6 +4682,27 @@ class TestCheckSource:
                             lambda c, w: (r, tmp_path / "w"))
         assert cmd_check_source(mock.MagicMock(config="c", workdir="w")) == 1
 
+    def test_check_source_ignores_scan_records(self, valid_toml, tmp_path, monkeypatch):
+        """Lineage records with mode="scan" are NOT builds — they must not
+        satisfy check-source even when the source_image_created matches."""
+        from ohbs_image import cmd_check_source, resolve
+        r = resolve(valid_toml)
+        home = tmp_path / "home"
+        (home / ".ohbs-image").mkdir(parents=True)
+        (home / ".ohbs-image" / "lineage.jsonl").write_text(
+            json.dumps({"ts": "2026-08-01T00:00:00Z", "status": "ok",
+                        "mode": "scan",
+                        "profile": r.profile_name, "region": r.region,
+                        "source_image_created": "2026-08-01T00:00:00Z"}) + "\n",
+            encoding="utf-8")
+        monkeypatch.setattr("ohbs_image._lineage_path",
+                            lambda: home / ".ohbs-image" / "lineage.jsonl")
+        monkeypatch.setattr("ohbs_image._source_image_created",
+                            lambda r_: "2026-08-01T00:00:00Z")
+        monkeypatch.setattr("ohbs_image._load_resolve_preflight",
+                            lambda c, w: (r, tmp_path / "w"))
+        assert cmd_check_source(mock.MagicMock(config="c", workdir="w")) == 1
+
 
 class TestSourceImageCreated:
     """_source_image_created — direct coverage of the DescribeImages response
@@ -4646,6 +4833,9 @@ class TestVerifyImageMinScoreFallback:
         valid_toml.setdefault("ohbs", {})["min_score"] = 92
         r = resolve(valid_toml)
         monkeypatch.setattr("ohbs_image._load_resolve_preflight", lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("ohbs_image._probe_setup_keypair",
+                            lambda r_: ("key-probe", "/tmp/probe_key", "ssh-ed25519 AAAA"))
+        monkeypatch.setattr("ohbs_image._probe_teardown_keypair", lambda *a, **k: None)
         monkeypatch.setattr("ohbs_image._probe_launch", lambda *a, **k: "ins-probe")
         monkeypatch.setattr("ohbs_image._probe_public_ip", lambda *a, **k: "1.2.3.4")
         monkeypatch.setattr("ohbs_image._probe_ssh_ready", lambda *a, **k: True)
@@ -4661,6 +4851,11 @@ class TestVerifyImageMinScoreFallback:
         from ohbs_image import cmd_verify_image
         r = resolve(valid_toml)
         monkeypatch.setattr("ohbs_image._load_resolve_preflight", lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("ohbs_image._probe_setup_keypair",
+                            lambda r_: ("key-probe", "/tmp/probe_key", "ssh-ed25519 AAAA"))
+        teardowns = []
+        monkeypatch.setattr("ohbs_image._probe_teardown_keypair",
+                            lambda *a: teardowns.append(a))
         monkeypatch.setattr("ohbs_image._probe_launch",
                             lambda *a, **k: (_ for _ in ()).throw(ConfigError("no creds")))
         terminated = []
@@ -4668,6 +4863,26 @@ class TestVerifyImageMinScoreFallback:
         args = mock.MagicMock(config="c", workdir="w", image="img-new", min_score=85.0)
         assert cmd_verify_image(args) == 1  # graceful fail, not a traceback
         assert terminated == []  # instance never launched
+        assert teardowns == [(r, "key-probe", "/tmp/probe_key")]  # key pair still cleaned up
+
+    def test_min_score_zero_disables_gate(self, valid_toml, monkeypatch, tmp_path):
+        """min_score=0 explicitly disables the verify-boot gate: a completed
+        fresh-boot scan passes whatever the score (an explicit 0 must NOT be
+        coerced back to the 85 default)."""
+        from ohbs_image import cmd_verify_image
+        r = resolve(valid_toml)
+        monkeypatch.setattr("ohbs_image._load_resolve_preflight", lambda c, w: (r, tmp_path / "w"))
+        monkeypatch.setattr("ohbs_image._probe_setup_keypair",
+                            lambda r_: ("key-probe", "/tmp/probe_key", "ssh-ed25519 AAAA"))
+        monkeypatch.setattr("ohbs_image._probe_teardown_keypair", lambda *a, **k: None)
+        monkeypatch.setattr("ohbs_image._probe_launch", lambda *a, **k: "ins-probe")
+        monkeypatch.setattr("ohbs_image._probe_public_ip", lambda *a, **k: "1.2.3.4")
+        monkeypatch.setattr("ohbs_image._probe_ssh_ready", lambda *a, **k: True)
+        monkeypatch.setattr("ohbs_image._probe_scan",
+                            lambda *a, **k: {"summary": {"all": {"score": 40.0, "fail": 9}}})
+        monkeypatch.setattr("ohbs_image._probe_terminate", lambda *a, **k: None)
+        args = mock.MagicMock(config="c", workdir="w", image="img-new", min_score=0)
+        assert cmd_verify_image(args) == 0  # 40 < 85, but the gate is disabled
 
 
 class TestProbeScanTimeout:
@@ -4700,11 +4915,17 @@ class TestCleanupRetiredGranularity:
     """P1 — retiring one image of a multi-image record must not retire the rest."""
 
     def _lineage_with_multi(self, tmp_path):
+        # Dynamic timestamps: --unused-since expires the shared-image guard
+        # for records older than N days, so a hardcoded ts would silently
+        # change this test's meaning as the calendar moves.
+        from datetime import datetime, timedelta
+        old_ts = (datetime.now(UTC) - timedelta(days=49)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        new_ts = (datetime.now(UTC) - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
         recs = [
-            {"ts": "2026-07-01T00:00:00Z", "status": "ok",
+            {"ts": old_ts, "status": "ok",
              "profile": "tencentos3", "cis_level": 1, "region": "ap-guangzhou",
              "image_ids": ["img-old-a", "img-old-b"]},  # cross-region copy pair
-            {"ts": "2026-08-01T00:00:00Z", "status": "ok",
+            {"ts": new_ts, "status": "ok",
              "profile": "tencentos3", "cis_level": 1, "region": "ap-guangzhou",
              "image_ids": ["img-new"]},
         ]
@@ -4722,8 +4943,9 @@ class TestCleanupRetiredGranularity:
         monkeypatch.setattr("ohbs_image._images_exist", lambda region, ids: ids)
         deleted = []
         monkeypatch.setattr("ohbs_image._delete_images", lambda r, ids: deleted.extend(ids))
-        # --unused-since keeps img-old-b (shared), deletes only img-old-a
-        args2 = mock.MagicMock(older_than=30, keep_latest=1, unused_since=1, apply=True)
+        # --unused-since 90 keeps img-old-b (shared, record is 49d old < 90d),
+        # deletes only img-old-a
+        args2 = mock.MagicMock(older_than=30, keep_latest=1, unused_since=90, apply=True)
         monkeypatch.setattr(
             "ohbs_image._image_is_shared",
             lambda region, img: img == "img-old-b")
@@ -4751,13 +4973,13 @@ class TestShareImagesCustomEnv:
         monkeypatch.setenv("MY_SECRET_KEY", "key")
         monkeypatch.delenv("TENCENTCLOUD_SECRET_ID", raising=False)
         monkeypatch.delenv("TENCENTCLOUD_SECRET_KEY", raising=False)
-        called = {}
+        called = []
         monkeypatch.setattr(
             "ohbs_image._tc3_api",
-            lambda *a, **k: called.setdefault("params", a[4]) or
-            {"Response": {"RequestId": "x"}})
+            lambda *a, **k: called.append(a[4]) or {"Response": {"RequestId": "x"}})
         _share_images(r, ["img-1"], ["uin/1"])
-        assert called["params"]["ImageIds"] == ["img-1"]
+        assert called[0]["ImageId"] == "img-1"
+        assert called[0]["Permission"] == "SHARE"
 
     def test_warns_when_custom_env_missing(self, valid_toml, monkeypatch, caplog):
         from ohbs_image import _share_images, resolve
@@ -4952,8 +5174,12 @@ class TestLinuxRulePolicyConsistency:
     SELinux enforcing (first-boot autorelabel stall -> CREATEFAILED) and
     kept scoring PermitRootLogin (guard deliberately restores
     prohibit-password, so the gate could never see it pass).
-    These decisions are platform-wide, not TOS4-specific: assert every
-    Linux role honours them so the catalogs cannot drift again."""
+
+    The engine's family remap (dedicated 'selinux' / 'sshd_param' families
+    with build-safe fix logic) later automated both rules in EVERY catalog;
+    the invariant that remains platform-wide is that each catalog uses those
+    dedicated families and keeps the note documenting the deviation, so the
+    catalogs cannot drift again."""
 
     CATALOGS = sorted(glob.glob("ohbs_image/roles/cis-*/files/rules.json"))
 
@@ -4961,34 +5187,34 @@ class TestLinuxRulePolicyConsistency:
         with open(path, encoding="utf-8") as fh:
             return json.load(fh)
 
-    def test_selinux_enforcing_is_manual(self):
-        """First-boot enforcing triggers a full autorelabel before sshd;
-        the ssh-guard only deletes a STALE /.autorelabel and assumes a
-        permissive boot.  Enforcing must stay a manual, unscored rule."""
+    def test_selinux_enforcing_uses_dedicated_family(self):
+        """First-boot enforcing triggers a full autorelabel before sshd.
+        The dedicated 'selinux' engine family handles this safely (L1 writes
+        permissive — no relabel; enforcing is only written at L2), so the
+        rule is automated via that family everywhere, and every catalog must
+        keep the note documenting the design decision."""
         for path in self.CATALOGS:
             for rule in self._rules(path):
                 if rule.get("title") == "Ensure the SELinux mode is enforcing":
-                    assert rule["family"] == "manual", (
-                        f"{path}: {rule['id']} SELinux enforcing must be "
-                        f"manual, got {rule['family']}")
-                    assert rule["risk"] == "none", (
-                        f"{path}: {rule['id']} must be risk=none")
+                    assert rule["family"] == "selinux", (
+                        f"{path}: {rule['id']} SELinux enforcing must use the "
+                        f"dedicated 'selinux' family, got {rule['family']}")
                     assert rule.get("note"), (
                         f"{path}: {rule['id']} must document the deviation")
 
-    def test_permit_root_login_is_manual(self):
+    def test_permit_root_login_uses_dedicated_family(self):
         """The ssh-guard restores PermitRootLogin prohibit-password so
-        Packer can reconnect, and only re-locks it after the audit gate —
-        the gate would always score this rule as fail.  Key-based root
-        login is the documented engineering decision."""
+        Packer can reconnect, and only re-locks it after the audit gate.
+        The dedicated 'sshd_param' family automates the rule; key-based
+        root login stays the documented engineering decision (note)."""
         for path in self.CATALOGS:
             for rule in self._rules(path):
                 if "PermitRootLogin" in rule.get("title", ""):
-                    assert rule["family"] == "manual", (
-                        f"{path}: {rule['id']} PermitRootLogin must be "
-                        f"manual, got {rule['family']}")
-                    assert rule["risk"] == "none", (
-                        f"{path}: {rule['id']} must be risk=none")
+                    assert rule["family"] == "sshd_param", (
+                        f"{path}: {rule['id']} PermitRootLogin must use the "
+                        f"dedicated 'sshd_param' family, got {rule['family']}")
+                    assert rule.get("note"), (
+                        f"{path}: {rule['id']} must document the deviation")
 
     def test_no_bare_trailing_dash_f(self):
         """v0.14.23 root cause: audit rule strings truncated with a bare
@@ -5479,3 +5705,227 @@ class TestPreflightRangeValidation:
             assert "cis_min_score | int >= 0 and cis_min_score | int <= 100" in content, p
             assert "Validate ohbs_engine_timeout" in content, p
             assert "ohbs_engine_timeout | int > 0" in content, p
+
+
+# ===========================================================================
+# Wave-2 regression (2026-08-19): config strict types · lineage mode ·
+# oscap score normalization · probe keypair wiring · final-state re-scan
+# ===========================================================================
+class TestConfigStrictTypes:
+    """Config values must not be silently coerced: a bare string where a
+    list is expected would iterate char-by-char, and bool/float where an
+    int is expected would silently truncate or alias 1/True."""
+
+    def test_list_keys_reject_bare_strings(self, valid_toml):
+        cases = [
+            ("ohbs", "rules_include"),
+            ("ohbs", "rules_exclude"),
+            ("image", "share_accounts"),
+            ("image", "share_org_units"),
+            ("meta", "test_components"),
+        ]
+        for section, key in cases:
+            data = json.loads(json.dumps(valid_toml))
+            data.setdefault(section, {})[key] = "a-bare-string"
+            with pytest.raises(ConfigError, match=f"\\[{section}\\]\\.{key} must be a list"):
+                resolve(data)
+
+    def test_min_score_rejects_float_and_bool(self, valid_toml):
+        for bad in (85.5, True):
+            data = json.loads(json.dumps(valid_toml))
+            data.setdefault("ohbs", {})["min_score"] = bad
+            with pytest.raises(ConfigError, match="min_score must be an integer"):
+                resolve(data)
+
+    def test_assume_role_duration_rejects_float_and_bool(self, valid_toml):
+        for bad in (7200.5, False):
+            data = json.loads(json.dumps(valid_toml))
+            data.setdefault("cloud", {})["assume_role_duration"] = bad
+            with pytest.raises(ConfigError,
+                               match="assume_role_duration must be an integer"):
+                resolve(data)
+
+    def test_ssh_port_rejects_float_and_bool(self, valid_toml):
+        for bad in (22.5, True):
+            data = json.loads(json.dumps(valid_toml))
+            data.setdefault("meta", {})["ssh_port"] = bad
+            with pytest.raises(ConfigError, match="ssh_port must be an integer"):
+                resolve(data)
+
+    def test_level_rejects_bool_and_float(self, valid_toml, tmp_path):
+        # level is validated in load_config (the TOML layer), not resolve().
+        for bad in (True, 1.0):
+            data = json.loads(json.dumps(valid_toml))
+            data["ohbs"]["level"] = bad
+            with pytest.raises(ConfigError, match="level must be 1 or 2"):
+                load_config(_write_config(tmp_path, data))
+
+    def test_both_ohbs_and_cis_sections_warn(self, valid_toml, caplog):
+        """[ohbs] + [cis] together: [ohbs] wins, and the user is warned
+        instead of silently wondering which section applied."""
+        valid_toml["cis"] = dict(valid_toml["ohbs"])
+        r = resolve(valid_toml)
+        assert "Both [ohbs] and [cis]" in caplog.text
+        assert r.level == valid_toml["ohbs"]["level"]
+
+    def test_non_table_section_rejected(self, valid_toml):
+        valid_toml["meta"] = "oops-not-a-table"
+        with pytest.raises(ConfigError, match="\\[meta\\] must be a table"):
+            resolve(valid_toml)
+
+
+class TestLineageMode:
+    """Lineage records carry a mode ("build"/"scan"/"test"); only real
+    builds may satisfy change detection.  Records written before the mode
+    field existed (no "mode" key) are treated as builds."""
+
+    def _seed(self, tmp_path, monkeypatch, recs):
+        home = tmp_path / "home"
+        (home / ".ohbs-image").mkdir(parents=True)
+        (home / ".ohbs-image" / "lineage.jsonl").write_text(
+            "\n".join(json.dumps(x) for x in recs) + "\n", encoding="utf-8")
+        monkeypatch.setattr("ohbs_image._lineage_path",
+                            lambda: home / ".ohbs-image" / "lineage.jsonl")
+
+    def test_scan_records_invisible_to_last_successful_fingerprint(
+        self, valid_toml, tmp_path, monkeypatch):
+        from ohbs_image import _last_successful_fingerprint
+        r = resolve(valid_toml)
+        self._seed(tmp_path, monkeypatch, [
+            {"ts": "2026-08-01T00:00:00Z", "status": "ok", "mode": "scan",
+             "profile": r.profile_name, "cis_level": r.level, "region": r.region,
+             "image_ids": ["img-scan"], "fingerprint": "fp-scan"},
+        ])
+        assert _last_successful_fingerprint(r) == (None, [])
+
+    def test_modeless_records_treated_as_build(
+        self, valid_toml, tmp_path, monkeypatch):
+        from ohbs_image import _last_successful_fingerprint
+        r = resolve(valid_toml)
+        self._seed(tmp_path, monkeypatch, [
+            {"ts": "2026-08-01T00:00:00Z", "status": "ok",  # no "mode" key
+             "profile": r.profile_name, "cis_level": r.level, "region": r.region,
+             "image_ids": ["img-old"], "fingerprint": "fp-old"},
+        ])
+        assert _last_successful_fingerprint(r) == ("fp-old", ["img-old"])
+
+
+class TestOscapScoreNormalization:
+    """_parse_oscap_arf normalizes the XCCDF score to a 0-100 percentage:
+    a `maximum` attribute scales score/maximum*100; a raw value <= 1.0 is
+    a fraction (x100); anything larger is already a percentage."""
+
+    def _arf(self, score_xml: str) -> str:
+        return f"""<?xml version="1.0"?>
+<arf xmlns="http://scap.nist.gov/schema/asset-reporting-format/1.1">
+  <report><content>
+    <TestResult xmlns="http://checklists.nist.gov/xccdf/1.2">
+      {score_xml}
+      <rule-result idref="r1"><result>pass</result></rule-result>
+    </TestResult>
+  </content></report>
+</arf>"""
+
+    def test_raw_percentage_passes_through(self):
+        from ohbs_image import _parse_oscap_arf
+        assert _parse_oscap_arf(self._arf("<score>87.5</score>"))["score"] == 87.5
+
+    def test_maximum_attribute_scales(self):
+        from ohbs_image import _parse_oscap_arf
+        a = _parse_oscap_arf(self._arf('<score maximum="150">75</score>'))
+        assert a["score"] == 50.0
+
+    def test_fraction_scaled_to_percentage(self):
+        from ohbs_image import _parse_oscap_arf
+        assert _parse_oscap_arf(self._arf("<score>0.75</score>"))["score"] == 75.0
+
+
+class TestProbeKeyWiring:
+    """The probe's throwaway key pair must reach every hop: RunInstances
+    LoginSettings + UserData (the 'ohbsimage' user's authorized_keys), and
+    every ssh invocation via -i."""
+
+    def test_probe_launch_wires_login_settings_and_userdata(
+        self, valid_toml, monkeypatch):
+        import base64
+
+        from ohbs_image import _probe_launch
+        r = resolve(valid_toml)
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
+        captured = {}
+        def fake_tc3(service, action, version, region, params, sid, skey, tok=None):
+            captured.update(params)
+            return {"Response": {"InstanceIdSet": ["ins-probe"]}}
+        monkeypatch.setattr("ohbs_image._tc3_api", fake_tc3)
+        _probe_launch(r, "img-new", "ohbs-image-verify",
+                      key_ids=["key-1"], pub_key="ssh-ed25519 AAAA probe")
+        assert captured["LoginSettings"] == {"KeyIds": ["key-1"]}
+        ud = base64.b64decode(captured["UserData"]).decode("utf-8")
+        assert "ssh-ed25519 AAAA probe" in ud
+        assert "ohbsimage" in ud  # injected for the build user, not root
+
+    def test_probe_launch_without_keypair_omits_settings(
+        self, valid_toml, monkeypatch):
+        from ohbs_image import _probe_launch
+        r = resolve(valid_toml)
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
+        captured = {}
+        def fake_tc3(service, action, version, region, params, sid, skey, tok=None):
+            captured.update(params)
+            return {"Response": {"InstanceIdSet": ["ins-probe"]}}
+        monkeypatch.setattr("ohbs_image._tc3_api", fake_tc3)
+        _probe_launch(r, "img-new", "ohbs-image-verify")
+        assert "LoginSettings" not in captured
+        assert "UserData" not in captured
+
+    def test_probe_ssh_ready_uses_identity_file(self, monkeypatch):
+        from ohbs_image import _probe_ssh_ready
+        cmds = []
+        monkeypatch.setattr(
+            "ohbs_image.subprocess.run",
+            lambda *a, **k: cmds.append(a[0]) or
+            subprocess.CompletedProcess([], 0, stdout="", stderr=""))
+        assert _probe_ssh_ready("1.2.3.4", 22, "ohbsimage",
+                                key_path="/tmp/probe_key") is True
+        assert "-i" in cmds[0]
+        assert cmds[0][cmds[0].index("-i") + 1] == "/tmp/probe_key"
+        cmds.clear()
+        assert _probe_ssh_ready("1.2.3.4", 22, "ohbsimage") is True
+        assert "-i" not in cmds[0]  # no dangling -i without a key
+
+    def test_probe_scan_uses_identity_file_and_dash_glob(
+        self, valid_toml, monkeypatch):
+        """The remote command must glob the dash-named role dirs
+        (cis-ubuntu2204, cis-rhel8, …) — the old underscore glob cis_*
+        never matched and made every fresh-boot scan a silent no-op."""
+        from ohbs_image import _probe_scan
+        r = resolve(valid_toml)
+        cmds = []
+        monkeypatch.setattr(
+            "ohbs_image.subprocess.run",
+            lambda *a, **k: cmds.append(a[0]) or
+            subprocess.CompletedProcess([], 0, stdout='{"summary": {}}', stderr=""))
+        doc = _probe_scan(r, "1.2.3.4", 22, "ohbsimage", 1, key_path="/tmp/probe_key")
+        assert doc == {"summary": {}}
+        cmd = cmds[0]
+        assert "-i" in cmd and cmd[cmd.index("-i") + 1] == "/tmp/probe_key"
+        remote = cmd[-1]
+        assert "cis-*" in remote
+        assert "cis_*" not in remote
+
+
+class TestFinalStateRescanWarning:
+    """The post-finalize re-scan (keeps /opt/ohbs-image-AUDIT-RESULT.json in
+    sync with the image's final banner/motd) must WARN loudly when the
+    engine directory is gone — never silently keep a stale audit."""
+
+    def test_finalize_rescan_warns_when_engine_missing(self, valid_toml, tmp_path):
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        hcl = (wd / "packer" / "main.pkr.hcl").read_text(encoding="utf-8")
+        assert ("WARNING: engine not found under "
+                "/opt/ohbs-image-ansible/roles/cis-*/files") in hcl
+        assert "WARNING: final-state re-scan failed; keeping pre-finalize audit" in hcl

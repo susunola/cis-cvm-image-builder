@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import json
 import re
+import shlex
 import subprocess
 from datetime import UTC
 from pathlib import Path
@@ -193,8 +194,8 @@ def _audit_ssh_args(host: str, ssh_user: str, ssh_port: int,
 def _audit_oscap(host: str, ssh_user: str, ssh_port: int, ssh_key: str | None,
                  profile: str, datastream: str, timeout: int = 900) -> str:
     """Run oscap over SSH, return the ARF XML document ("" on failure)."""
-    remote = (f"oscap xccdf eval --profile {profile} --results-arf - {datastream} 2>/dev/null"
-              )
+    remote = (f"oscap xccdf eval --profile {shlex.quote(profile)} --results-arf - "
+              f"{shlex.quote(datastream)} 2>/dev/null")
     try:
         cp = subprocess.run(_audit_ssh_args(host, ssh_user, ssh_port, ssh_key) + [remote],
                             capture_output=True, text=True, timeout=timeout)
@@ -232,6 +233,13 @@ def _parse_oscap_arf(xml_text: str) -> dict[str, Any]:
 
     ARF = OVAL + XCCDF results; the XCCDF TestResult holds the profile
     score and per-rule results.  stdlib xml.etree only.
+
+    Score normalization: when the <score> element carries a `maximum`
+    attribute the raw value is scaled as score/maximum*100; otherwise a
+    raw value <= 1.0 is treated as a fraction (x100) and anything larger
+    is already a 0-100 percentage (OpenSCAP's default scoring system,
+    urn:xccdf:scoring:default, emits 0-100).  The result is a 0-100
+    percentage rounded to one decimal.
     """
     import xml.etree.ElementTree as ET
     out: dict[str, Any] = {"score": None, "pass": 0, "fail": 0, "notselected": 0,
@@ -258,7 +266,14 @@ def _parse_oscap_arf(xml_text: str) -> dict[str, Any]:
     score_node = tr.find("x:score", ns)
     if score_node is not None and score_node.text:
         with contextlib.suppress(ValueError):
-            out["score"] = round(float(score_node.text) * 100, 1)
+            raw = float(score_node.text)
+            max_attr = score_node.get("maximum")
+            if max_attr is not None:
+                out["score"] = round(100.0 * raw / float(max_attr), 1)
+            elif raw <= 1.0:
+                out["score"] = round(raw * 100, 1)
+            else:
+                out["score"] = round(raw, 1)
     for rule in tr.findall("x:rule-result", ns):
         rid = rule.get("idref", "?")
         _res_node = rule.find("x:result", ns)

@@ -984,3 +984,86 @@ class TestDeleteBatchImages:
             mock.MagicMock(side_effect=RuntimeError("boom")))
         real_e2e_test.delete_batch_images("ap-guangzhou", "sid", "skey", None, ["img-1"])
         assert "please delete them manually" in caplog.text
+
+
+class TestMainReuseLastAndBatchCleanup:
+    """Wave-2 main()-flow regressions: --reuse-last must re-query the kept
+    jump box's public IP in the box's RECORDED region (which may differ from
+    --region), and the finally-block batch-image cleanup must delete in the
+    TARGET build region (target_placement), not the jump box's region."""
+
+    def _args(self, **over):
+        base = {
+            "image_id": "img-base", "region": "ap-guangzhou", "zone": "ap-guangzhou-3",
+            "instance_type": "S5.MEDIUM2", "vpc_id": "vpc-x", "subnet_id": "subnet-x",
+            "security_group_id": "sg-x", "ssh_user": "root", "branch": "main",
+            "yes": True, "keep_on_failure": False, "keep": False, "reuse_last": True,
+            "terminate_last": False, "timeout": 1, "ssh_timeout": 1,
+            "target_mode": "toolchain", "profile": None, "level": None,
+            "levels": (1, 2),
+            "max_parallel_builds": 4, "build_instance_type": "S5.MEDIUM2",
+        }
+        base.update(over)
+        return argparse.Namespace(**base)
+
+    def _mock_main_flow(self, monkeypatch, tmp_path, args, kept):
+        """Stub every cloud/SSH/file side effect of main(); returns the
+        capture dicts the assertions inspect."""
+        caps: dict = {"wait_ip": [], "delete_images": []}
+        monkeypatch.setattr(real_e2e_test, "REPO_ROOT", tmp_path)
+        monkeypatch.setattr(real_e2e_test, "parse_args", lambda: args)
+        monkeypatch.setattr(real_e2e_test, "creds", lambda: ("sid", "skey", None))
+        monkeypatch.setattr(real_e2e_test, "load_last_instance", lambda: kept)
+        jump_key = tmp_path / "e2e_key"
+        jump_key.write_text("fake", encoding="utf-8")
+        monkeypatch.setattr(real_e2e_test, "JUMP_KEY_FILE", jump_key)
+
+        def _wait_ip(region, sid, skey, tok, instance_id, timeout=0):
+            caps["wait_ip"].append({"region": region, "instance_id": instance_id})
+            return "1.2.3.4"
+        monkeypatch.setattr(real_e2e_test, "wait_for_public_ip", _wait_ip)
+        monkeypatch.setattr(real_e2e_test, "wait_for_ssh", lambda *a, **k: None)
+        monkeypatch.setattr(real_e2e_test, "run_remote_suite", lambda *a, **k: None)
+        monkeypatch.setattr(real_e2e_test, "run_remote_matrix", lambda *a, **k: None)
+        monkeypatch.setattr(real_e2e_test, "fetch_remote_reports", lambda *a, **k: {})
+        monkeypatch.setattr(real_e2e_test, "build_step_results", lambda *a, **k: [])
+        monkeypatch.setattr(real_e2e_test, "compute_overall_passed", lambda *a, **k: True)
+        monkeypatch.setattr(real_e2e_test, "render_html_report", lambda **k: "")
+        monkeypatch.setattr(
+            real_e2e_test, "delete_batch_images",
+            lambda region, sid, skey, tok, ids:
+            caps["delete_images"].append({"region": region, "ids": ids}))
+        return caps
+
+    def test_reuse_last_queries_ip_in_recorded_region(self, monkeypatch, tmp_path):
+        """The kept box lives in its recorded region; re-querying its IP in
+        --region would never find it when the two differ."""
+        kept = {"instance_id": "ins-kept", "key_id": "key-kept",
+                "region": "ap-seoul"}
+        args = self._args(region="ap-guangzhou")
+        caps = self._mock_main_flow(monkeypatch, tmp_path, args, kept)
+        rc = real_e2e_test.main()
+        assert rc == 0
+        assert caps["wait_ip"] == [{"region": "ap-seoul",
+                                    "instance_id": "ins-kept"}]
+
+    def test_batch_images_deleted_in_target_region(self, monkeypatch, tmp_path):
+        """Images were created in the TARGET build region (E2E_TARGET_REGION),
+        which may differ from the jump box's --region — the finally-block
+        cleanup must call delete_batch_images with target_placement's region."""
+        monkeypatch.setenv("E2E_TARGET_REGION", "ap-hongkong")
+        combo = real_e2e_test.ProfileCombo("rhel8", 1, "img-rhel8", "linux")
+        pbr = real_e2e_test.ProfileBuildResult(
+            "rhel8", 1, "passed", 0, 97.0, ["img-batch"], "ok")
+        args = self._args(target_mode="single", profile="rhel8", level=1)
+        kept = {"instance_id": "ins-kept", "key_id": "key-kept",
+                "region": "ap-guangzhou"}
+        caps = self._mock_main_flow(monkeypatch, tmp_path, args, kept)
+        monkeypatch.setattr(real_e2e_test, "resolve_combos",
+                            lambda a: ([combo], []))
+        monkeypatch.setattr(real_e2e_test, "build_profile_results",
+                            lambda *a, **k: [pbr])
+        rc = real_e2e_test.main()
+        assert rc == 0
+        assert caps["delete_images"] == [{"region": "ap-hongkong",
+                                          "ids": ["img-batch"]}]
