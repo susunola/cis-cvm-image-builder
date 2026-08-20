@@ -1158,7 +1158,20 @@ def c_logfile_perm(ctx, p):
 def f_logfile_perm(ctx, p):
     sh("find /var/log/ -type f -perm /g+wx,o+rwx -exec chmod g-wx,o-rwx {} + "
        "2>/dev/null", 300)
-    return True, "applied chmod g-wx,o-rwx under /var/log"
+    # v0.16.28: /var/log/{btmp,utmp,wtmp} are re-created by systemd-tmpfiles
+    # on every boot with looser perms (0660), so a one-shot chmod reverts.
+    # Persist the CIS perms via a tmpfiles.d drop-in that re-applies them at
+    # boot (rhel10-l1/2: 6.2.4.1 kept failing 'too permissive' on btmp).
+    tf = "/etc/tmpfiles.d/ohbs-cis-logperms.conf"
+    spec = "z /var/log/btmp 0640 root utmp -\n" \
+          "z /var/log/wtmp 0640 root utmp -\n" \
+          "z /var/log/utmp 0640 root utmp -\n"
+    if readlines(tf) if exists(tf) else [] != spec.splitlines():
+        write_file(ctx, tf, spec, 0o644)
+        ctx.add_changed_file(tf)
+    sh("systemd-tmpfiles --create /etc/tmpfiles.d/ohbs-cis-logperms.conf "
+       "2>/dev/null || true", 30)
+    return True, "applied chmod g-wx,o-rwx under /var/log (btmp/utmp/wtmp via tmpfiles drop-in)"
 
 
 @check("journald_fileperm")
