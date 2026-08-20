@@ -123,6 +123,9 @@ copy_regions = []                         # add regions (e.g. ["ap-shanghai"]) t
 [ohbs]
 level = 1                                 # 1 or 2
 # min_score = 85                          # post-reboot audit gate (0 disables; default 85)
+# allow_disruptive = true                 # apply disruptive remediations during the build
+#                                         # (mount options, service removals, …). Default true:
+#                                         # the build VM is ephemeral and rebooted before audit.
 # Rule selection (optional) — rule IDs to run / skip. Empty = all rules.
 # rules_include = ["1.5.6", "5.4.3.2"]    # when set, ONLY these run
 # rules_exclude = ["1.1.2.2.4"]           # always wins over rules_include

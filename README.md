@@ -255,6 +255,7 @@ copy_regions = ["ap-shanghai"]            # [] to disable cross-region copy
 [ohbs]
 level = 1                                 # 1 or 2
 # min_score = 85                          # post-reboot audit gate (0 disables; default 85)
+# allow_disruptive = true                 # apply disruptive remediations during the build (default true)
 # rules_include = ["1.5.6"]               # run only these rules
 # rules_exclude = ["1.1.2.2.4"]           # always wins over rules_include
 # Per-control parameter overrides (deep-merged into the catalog at render):
@@ -316,6 +317,7 @@ benchmark = "CIS-v1.0.0"
 | | `share_org_units` | []string | Not supported — `ModifyImageSharePermission` accepts account IDs only; the tool warns and skips this option (use `share_accounts`) |
 | `[ohbs]` | `level` | int | `1` (Level 1) or `2` (Level 2) |
 | | `min_score` | int | Post-reboot audit gate (default `85`; `0` disables) |
+| | `allow_disruptive` | bool | Apply disruptive remediations during the build — mount options, service removals, etc. (default `true`; the build VM is ephemeral and rebooted before the audit, so these are safe) |
 | | `rules_include` | []string | Rule-ID filter — when set, ONLY these rules run (empty = all) |
 | | `rules_exclude` | []string | Rule-ID filter — always wins over `rules_include` |
 | | `overrides` | table | Per-control parameter overrides, keyed by rule ID — deep-merged into the catalog at render time (e.g. `[ohbs.overrides."5.2.2"]`) |

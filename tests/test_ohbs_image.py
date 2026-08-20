@@ -43,6 +43,7 @@ from ohbs_image import (
     render_install,
     render_pkrvars,
     render_site,
+    render_site_audit,
     resolve,
     run_packer,
     run_preflight,
@@ -5442,6 +5443,39 @@ class TestMinScoreRange:
         valid_toml["ohbs"]["min_score"] = -10
         with pytest.raises(ConfigError, match="min_score"):
             resolve(valid_toml)
+
+
+class TestAllowDisruptive:
+    """[ohbs].allow_disruptive — disruptive remediations are safe on the
+    ephemeral build VM (it is rebooted before the audit), so the default
+    flips from the old hardcoded false to true; the config knob restores
+    the old behaviour."""
+
+    def test_default_true(self, valid_toml):
+        assert resolve(valid_toml).allow_disruptive is True
+
+    def test_explicit_false(self, valid_toml):
+        valid_toml["ohbs"]["allow_disruptive"] = False
+        assert resolve(valid_toml).allow_disruptive is False
+
+    def test_non_bool_rejected(self, valid_toml):
+        valid_toml["ohbs"]["allow_disruptive"] = "yes"
+        with pytest.raises(ConfigError, match="allow_disruptive"):
+            resolve(valid_toml)
+
+    def test_rendered_into_playbooks(self, valid_toml):
+        p = PROFILES["tencentos3"]
+        assert "cis_allow_disruptive: true" in render_site(p, level=1)
+        assert "cis_allow_disruptive: false" in render_site(
+            p, level=1, allow_disruptive=False)
+        assert "cis_allow_disruptive: false" in render_site_audit(
+            p, level=1, allow_disruptive=False)
+
+    def test_rendered_into_windows_playbook(self):
+        p = PROFILES["win2022"]
+        assert "cis_allow_disruptive: true" in render_site(p, level=1)
+        assert "cis_allow_disruptive: false" in render_site(
+            p, level=1, allow_disruptive=False)
 
 
 class TestWinRmPasswordQuoteCheck:

@@ -895,7 +895,7 @@ SITE_YML_TEMPLATE = r"""---
     cis_mode: __CIS_MODE__
     cis_profile: __CIS_LEVEL__
     cis_platform: server
-    cis_allow_disruptive: false
+    cis_allow_disruptive: __CIS_ALLOW_DISRUPTIVE__
     cis_fail_on_findings: false
     cis_min_score: 0
     cis_include: __CIS_INCLUDE__
@@ -917,7 +917,7 @@ SITE_AUDIT_TEMPLATE = r"""---
     cis_mode: scan
     cis_profile: __CIS_LEVEL__
     cis_platform: server
-    cis_allow_disruptive: false
+    cis_allow_disruptive: __CIS_ALLOW_DISRUPTIVE__
     cis_fail_on_findings: false
     cis_min_score: __MIN_SCORE__
     cis_org_name: ""
@@ -938,7 +938,7 @@ SITE_YML_WIN_TEMPLATE = r"""---
     cis_mode: __CIS_MODE__
     cis_profile: __CIS_LEVEL__
     cis_platform: server
-    cis_allow_disruptive: false
+    cis_allow_disruptive: __CIS_ALLOW_DISRUPTIVE__
     cis_fail_on_findings: false
     cis_min_score: __MIN_SCORE__
     cis_include: __CIS_INCLUDE__

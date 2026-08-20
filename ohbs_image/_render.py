@@ -278,7 +278,8 @@ def render_install(p: dict[str, Any]) -> str:
 def render_site(p: dict[str, Any], level: int, mode: str = "apply",
                 rules_include: list[str] | None = None,
                 rules_exclude: list[str] | None = None,
-                min_score: int = 85) -> str:
+                min_score: int = 85,
+                allow_disruptive: bool = True) -> str:
     """Generate ansible/site.yml.
 
     *mode* — "apply" (remediate) or "scan" (audit-only, no changes).
@@ -286,9 +287,12 @@ def render_site(p: dict[str, Any], level: int, mode: str = "apply",
     the engine's --include/--exclude (empty list = run all rules).
     *min_score* — gate threshold (Windows applies it in-role; Linux applies
     it in the post-reboot site-audit.yml via render_site_audit).
+    *allow_disruptive* — let the engine apply disruptive remediations
+    ([ohbs].allow_disruptive, default true for ephemeral build VMs).
     """
     cis_level = f"L{level}"
     family = str(p.get("family", ""))
+    disruptive = "true" if allow_disruptive else "false"
 
     if family == "windows":
         # Windows has no post-reboot re-audit — the gate lives in the single
@@ -302,6 +306,7 @@ def render_site(p: dict[str, Any], level: int, mode: str = "apply",
             .replace("__MIN_SCORE__", str(min_score))
             .replace("__CIS_INCLUDE__", _yaml_list(rules_include or []))
             .replace("__CIS_EXCLUDE__", _yaml_list(rules_exclude or []))
+            .replace("__CIS_ALLOW_DISRUPTIVE__", disruptive)
         )
     else:
         inc = rules_include or []
@@ -314,6 +319,7 @@ def render_site(p: dict[str, Any], level: int, mode: str = "apply",
             .replace("__CIS_MODE__", mode)
             .replace("__CIS_INCLUDE__", _yaml_list(inc))
             .replace("__CIS_EXCLUDE__", _yaml_list(exc))
+            .replace("__CIS_ALLOW_DISRUPTIVE__", disruptive)
         )
 
 def _yaml_list(items: list[str]) -> str:
@@ -322,7 +328,8 @@ def _yaml_list(items: list[str]) -> str:
         return "[]"
     return "[" + ", ".join(json.dumps(x, ensure_ascii=False) for x in items) + "]"
 
-def render_site_audit(p: dict[str, Any], level: int, min_score: int = 85) -> str:
+def render_site_audit(p: dict[str, Any], level: int, min_score: int = 85,
+                      allow_disruptive: bool = True) -> str:
     """Generate ansible/site-audit.yml for post-reboot re-evaluation."""
     cis_level = f"L{level}"
     return (
@@ -331,6 +338,7 @@ def render_site_audit(p: dict[str, Any], level: int, min_score: int = 85) -> str
         .replace("__CIS_LEVEL__", cis_level)
         .replace("__ROLE_DIR__", str(p["role_dir"]))
         .replace("__MIN_SCORE__", str(min_score))
+        .replace("__CIS_ALLOW_DISRUPTIVE__", "true" if allow_disruptive else "false")
     )
 
 def _assert_no_markers(content: str, filename: str) -> None:
@@ -570,12 +578,14 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
     # 4. Ansible playbooks
     site = render_site(p, r.level, mode="scan" if scan else "apply",
                        rules_include=r.rules_include, rules_exclude=r.rules_exclude,
-                       min_score=r.min_score)
+                       min_score=r.min_score,
+                       allow_disruptive=r.allow_disruptive)
     _assert_no_markers(site, "site.yml")
     (workdir / "ansible" / "site.yml").write_text(site, encoding="utf-8")
 
     if family != "windows":
-        site_audit = render_site_audit(p, r.level, r.min_score)
+        site_audit = render_site_audit(p, r.level, r.min_score,
+                                       allow_disruptive=r.allow_disruptive)
         _assert_no_markers(site_audit, "site-audit.yml")
         (workdir / "ansible" / "site-audit.yml").write_text(site_audit, encoding="utf-8")
 

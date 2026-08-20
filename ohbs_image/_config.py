@@ -58,6 +58,7 @@ class ResolvedConfig:
     catalog_basename: str              # rules.json or rules_<slug>.json — which catalog the build uses
     level: int
     min_score: int                      # [ohbs].min_score — post-reboot audit gate, 0 disables (default 85)
+    allow_disruptive: bool              # [ohbs].allow_disruptive — apply disruptive remediations during the build (default true)
     role_dir: str
     smoke_test: bool                    # [meta].smoke_test — run instance-level smoke checks before snapshot (default true)
     cve_scan: bool                      # [meta].cve_scan — trivy vulnerability scan gate before snapshot (default false)
@@ -438,6 +439,12 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
             f"[ohbs].min_score must be 0-100, got {min_score}. "
             "0 disables the gate; 85 is the default.")
 
+    # [ohbs].allow_disruptive — apply disruptive remediations during the
+    # build.  Default true: the build VM is ephemeral and rebooted before
+    # the audit, so disruptive fixes (mount options, service removals, …)
+    # are safe here and skipping them only lowers the image's score.
+    allow_disruptive = _read_bool(data, "ohbs", "allow_disruptive", True)
+
     return ResolvedConfig(
         profile_name=profile_name,
         profile=p,
@@ -484,6 +491,7 @@ def resolve(data: dict[str, Any]) -> ResolvedConfig:
         rules_exclude=rules_exclude,
         rules_overrides=rules_overrides,
         min_score=min_score,
+        allow_disruptive=allow_disruptive,
         notify_webhook=notify_webhook,
         notify_on=notify_on,
         deploy_webhook=str(data.get("notify", {}).get("deploy_webhook", "")).strip(),
