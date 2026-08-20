@@ -217,6 +217,7 @@ copy_regions = ["ap-shanghai"]            # 留空 [] 不跨地域
 [ohbs]
 level = 1                                 # 1 或 2
 # min_score = 85                          # 重启后审计闸门（0 关闭；默认 85）
+# allow_disruptive = true                 # 构建期间应用有破坏性的修复项（默认 true）
 # rules_include = ["1.5.6"]               # 只运行这些规则
 # rules_exclude = ["1.1.2.2.4"]           # 优先级高于 rules_include
 # 单条规则参数覆写（渲染时深度合并进规则目录）：

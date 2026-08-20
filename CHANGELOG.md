@@ -5,6 +5,17 @@ The format follows the ansible-lockdown convention: each release pins the
 CIS benchmark edition it targets and lists rule-catalog changes so audits
 can be traced across rebuilds.
 
+## [Unreleased]
+
+### Added
+- **`[ohbs].allow_disruptive` config option** (default `true`) — controls
+  whether the engine applies disruptive remediations (mount options,
+  service removals, SELinux enforcing, …) during the build. Previously
+  hardcoded to `false` in the rendered playbooks, which left ~40 rules
+  per profile permanently `skipped_disruptive`. The build VM is ephemeral
+  and rebooted before the post-boot audit, so disruptive fixes are safe
+  to apply here; set it to `false` to restore the old behaviour.
+
 ## [0.17.0] — 2026-08-20 — build-CVM naming, packer passthrough, API retries, real E2E
 
 ### Added (rule-catalog automation, rounds 2–4)
