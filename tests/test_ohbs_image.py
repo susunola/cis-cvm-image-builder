@@ -5927,7 +5927,10 @@ class TestProbeKeyWiring:
         _probe_setup_keypair(r)
         name = captured["KeyName"]
         assert len(name) <= 25, f"KeyName {name!r} is {len(name)} chars (>25)"
-        assert name.startswith("ohbsp-")
+        # TencentCloud rejects hyphens too — allow only [a-zA-Z0-9].
+        import re as _re
+        assert _re.fullmatch(r"[a-zA-Z0-9]+", name), f"KeyName {name!r} has illegal chars"
+        assert name.startswith("ohbsp")
 
     def test_probe_launch_without_keypair_omits_settings(
         self, valid_toml, monkeypatch):

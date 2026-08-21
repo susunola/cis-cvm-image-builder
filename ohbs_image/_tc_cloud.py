@@ -340,10 +340,11 @@ def _probe_setup_keypair(r: ResolvedConfig) -> tuple[str, str, str]:
     os.chmod(priv, 0o600)
     with open(priv + ".pub", encoding="utf-8") as fh:
         pub = fh.read().strip()
-    # TencentCloud ImportKeyPair caps KeyName at 25 chars — the long
-    # "ohbs-image-probe-<ts>-<hex>" form (>25) made every probe fail with
-    # InvalidParameterValue.  "ohbsp-<ts>-<hex>" = 6+10+1+4 = 21 chars.
-    key_name = f"ohbsp-{int(_time.time())}-{secrets.token_hex(2)}"
+    # TencentCloud ImportKeyPair KeyName rules (enforced, tightened 2026-08):
+    # max 25 chars AND no hyphen — "ohbs-image-probe-<ts>-<hex>" failed on
+    # both ("too long" then "include illegal character `-`").  Use letters +
+    # digits only: "ohbsp<ts><hex>" = 5+10+4 = 19 chars.
+    key_name = f"ohbsp{int(_time.time())}{secrets.token_hex(2)}"
     resp = ohbs_image._tc3_api("cvm", "ImportKeyPair", "2017-03-12", r.region,
                     {"KeyName": key_name, "ProjectId": 0, "PublicKey": pub},
                     sid, skey, tok or None)
