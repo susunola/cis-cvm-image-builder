@@ -448,6 +448,14 @@ build {
     remote_path  = "__REMOTE_DIR__/ohbs-image-cleanup.sh"
     inline = [
       "__CLEAN_CMD__",
+      "# Reset cloud-init state BEFORE the snapshot so every instance launched",
+      "# from this image boots as 'first boot': cloud-init re-runs the data",
+      "# sources and executes user-data scripts.  Without this the probe of",
+      "# `verify-image` (which injects its throwaway SSH key via user-data for",
+      "# the 'ohbsimage' user) can never come up — the stale per-instance state",
+      "# makes cloud-init skip user-data on the fresh boot (observed: clean-boot",
+      "# SSH timeout on every image).  Guarded so a non-cloud-init image no-ops.",
+      "sudo bash -c 'command -v cloud-init >/dev/null 2>&1 && cloud-init clean --logs --seed >/dev/null 2>&1 || rm -rf /var/lib/cloud/instances/* /var/lib/cloud/instance /var/lib/cloud/seed 2>/dev/null; true'",
       "# Re-lock root login for the final image (CIS 5.1.22/5.2.10).  Do NOT",
       "# reload sshd here: the running daemon keeps the current policy so",
       "# Packer can still reconnect for the remaining provisioners; the new",

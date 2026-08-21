@@ -404,16 +404,32 @@ def _probe_launch(r: ResolvedConfig, image_id: str, instance_name: str,
     if key_ids:
         params["LoginSettings"] = {"KeyIds": key_ids}
     if pub_key:
-        # Root SSH is disabled by CIS hardening; the 'ohbsimage' build user
-        # (sudo + authorized_keys, see the install-ansible provisioner) is
-        # the viable login, so install the probe key for it via cloud-init.
+        # Root SSH is disabled by CIS hardening (PermitRootLogin no); the
+        # 'ohbsimage' build user (sudo, same authorized_keys — see the
+        # install-ansible provisioner) is the viable login, so install the
+        # probe key for it via cloud-init user-data.  Log every step to
+        # /var/log/ohbs-probe-key.log so a failed clean-boot probe can be
+        # diagnosed from the instance console.  (The image finalize now runs
+        # `cloud-init clean` before snapshot so user-data scripts reliably
+        # re-run on the probe's first boot.)
         ud = ("#!/bin/bash\n"
+              "exec >> /var/log/ohbs-probe-key.log 2>&1\n"
+              "echo \"[ohbs-probe-key] $(date -Is) start\"\n"
               "h=$(getent passwd ohbsimage | cut -d: -f6)\n"
-              "[ -n \"$h\" ] || exit 0\n"
-              "mkdir -p \"$h/.ssh\"\n"
-              f"echo '{pub_key}' >> \"$h/.ssh/authorized_keys\"\n"
+              "echo \"[ohbs-probe-key] ohbsimage home=${h:-MISSING}\"\n"
+              "if [ -z \"$h\" ] || [ ! -d \"$h\" ]; then\n"
+              "  echo '[ohbs-probe-key] WARN: ohbsimage has no home dir - cannot inject key'\n"
+              "  exit 0\n"
+              "fi\n"
+              "install -d -m 700 -o ohbsimage -g ohbsimage \"$h/.ssh\"\n"
+              "umask 077\n"
+              f"if ! grep -qF '{pub_key}' \"$h/.ssh/authorized_keys\" 2>/dev/null; then\n"
+              f"  echo '{pub_key}' >> \"$h/.ssh/authorized_keys\"\n"
+              "fi\n"
               "chown -R ohbsimage:ohbsimage \"$h/.ssh\"\n"
-              "chmod 700 \"$h/.ssh\" && chmod 600 \"$h/.ssh/authorized_keys\"\n")
+              "chmod 700 \"$h/.ssh\" && chmod 600 \"$h/.ssh/authorized_keys\"\n"
+              "command -v restorecon >/dev/null 2>&1 && restorecon -R \"$h/.ssh\" 2>/dev/null || true\n"
+              "echo '[ohbs-probe-key] done'\n")
         params["UserData"] = base64.b64encode(ud.encode("utf-8")).decode("ascii")
     resp = ohbs_image._tc3_api("cvm", "RunInstances", "2017-03-12", r.region,
                     params, sid, skey, tok or None)
@@ -496,6 +512,49 @@ def _probe_ssh_ready(ip: str, ssh_port: int, ssh_user: str,
             pass
         _time.sleep(10)
     return False
+
+def _probe_ssh_ready_any(ip: str, ssh_port: int,
+                         candidates: list[tuple[str, str | None]],
+                         timeout_s: int = 600) -> tuple[bool, str]:
+    """Wait for SSH across a list of (ssh_user, key_path) candidates.
+
+    Returns (ok, winner_or_last_user).  Tries every candidate in each pass so
+    a probe can fall back (e.g. ohbsimage via the user-data key, then root via
+    the platform LoginSettings key) without burning the whole budget on one
+    dead user.  Keep it best-effort like _probe_ssh_ready: any transient
+    failure just means another pass.
+    """
+    import time as _time
+    deadline = _time.time() + timeout_s
+    while _time.time() < deadline:
+        for user, key_path in candidates:
+            key_args = ["-i", key_path] if key_path else []
+            try:
+                cp = subprocess.run(
+                    ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
+                     "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=8",
+                     *key_args, "-p", str(ssh_port), f"{user}@{ip}",
+                     "true"],
+                    capture_output=True, text=True, timeout=15)
+                if cp.returncode == 0:
+                    return True, user
+            except Exception:
+                pass
+        # Sleep adaptively so a short timeout_s (unit tests) doesn't stall.
+        _time.sleep(min(8.0, max(0.1, deadline - _time.time())))
+    return False, candidates[-1][0]
+
+def _probe_vnc_url(r: ResolvedConfig, instance_id: str) -> str:
+    """Best-effort VNC console URL for a probe instance (diagnostics only)."""
+    sid, skey, tok = _creds(r.secret_id_env, r.secret_key_env, r.security_token_env)
+    if not sid or not skey:
+        return ""
+    try:
+        resp = ohbs_image._tc3_api("cvm", "DescribeInstanceVncUrl", "2017-03-12",
+                        r.region, {"InstanceId": instance_id}, sid, skey, tok or None)
+        return str((resp.get("Response") or {}).get("InstanceVncUrl") or "")
+    except Exception:
+        return ""
 
 def _probe_scan(r: ResolvedConfig, ip: str, ssh_port: int, ssh_user: str,
                 level: int, key_path: str | None = None) -> dict[str, Any]:

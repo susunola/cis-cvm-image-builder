@@ -405,18 +405,33 @@ def cmd_verify_image(args: argparse.Namespace, image_id: str | None = None) -> i
             fail("Could not get a public IP for the probe instance (timeout)")
             return 1
         ok(f"Probe public IP: {ip}")
-        # The probe logs in as 'ohbsimage' (the image's built-in build user):
-        # CIS hardening sets PermitRootLogin no, and _probe_launch's UserData
-        # installs the throwaway probe key ONLY into ohbsimage's
-        # authorized_keys — r.ssh_username (root for the build itself) has no
-        # usable credential on the fresh boot.
-        ssh_user = "ohbsimage"
+        # Probe login candidates, in order:
+        #   1. 'ohbsimage' — the image's built-in build user; _probe_launch's
+        #      cloud-init user-data installs the throwaway probe key ONLY into
+        #      its authorized_keys (CIS hardening sets PermitRootLogin no, so
+        #      the platform LoginSettings key — injected for root — is dead on
+        #      a hardened image).
+        #   2. 'root' — fallback for images that did not re-lock root login
+        #      (e.g. builds shipped before the finalize re-lock, or where the
+        #      LoginSettings key is the only channel).
         ssh_port = r.ssh_port or 22
-        if not ohbs_image._probe_ssh_ready(ip, ssh_port, ssh_user, key_path=key_path):
+        ssh_ok, ssh_user = ohbs_image._probe_ssh_ready_any(
+            ip, ssh_port, [("ohbsimage", key_path), ("root", key_path)])
+        if not ssh_ok:
+            # Make the failure diagnosable: surface the VNC console URL (and
+            # the user-data key log the probe writes on boot) instead of a
+            # bare timeout line.  --keep-on-fail leaves the instance running
+            # for manual inspection.
+            vnc = ohbs_image._probe_vnc_url(r, instance_id)
+            if vnc:
+                ok(f"Probe VNC console: {vnc}")
             fail("SSH did not come up on the probe instance (timeout) — "
                  "clean-boot verification failed")
+            if getattr(args, "keep_on_fail", None) is True:
+                warn(f"Probe kept for diagnosis: ssh -i {key_path} "
+                     f"ohbsimage@{ip} (instance {instance_id})")
             return 1
-        ok("SSH ready on fresh boot")
+        ok(f"SSH ready on fresh boot (user={ssh_user})")
         doc = ohbs_image._probe_scan(r, ip, ssh_port, ssh_user, r.level, key_path=key_path)
         if "error" in doc and "summary" not in doc:
             fail(f"Fresh-boot scan failed: {doc.get('error', 'unknown error')}")
@@ -444,7 +459,7 @@ def cmd_verify_image(args: argparse.Namespace, image_id: str | None = None) -> i
         fail(f"clean-boot verification FAILED: score {shown} < {min_score:g}%")
         return 1
     finally:
-        if instance_id:
+        if instance_id and not (getattr(args, "keep_on_fail", None) is True):
             ohbs_image._probe_terminate(r, instance_id)
         if key_id or key_path:
             ohbs_image._probe_teardown_keypair(r, key_id, key_path)

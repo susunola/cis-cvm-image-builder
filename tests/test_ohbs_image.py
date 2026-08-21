@@ -3897,8 +3897,8 @@ class TestVerifyImage:
                             lambda *a, **k: launched.update(k) or "ins-probe")
         monkeypatch.setattr("ohbs_image._probe_public_ip", lambda *a, **k: "1.2.3.4")
         ready = {}
-        monkeypatch.setattr("ohbs_image._probe_ssh_ready",
-                            lambda *a, **k: ready.update({"args": a, **k}) or True)
+        monkeypatch.setattr("ohbs_image._probe_ssh_ready_any",
+                            lambda *a, **k: ready.update({"args": a, **k}) or (True, "ohbsimage"))
         scanned = {}
         monkeypatch.setattr("ohbs_image._probe_scan",
                             lambda *a, **k: scanned.update({"args": a, **k}) or
@@ -3916,12 +3916,13 @@ class TestVerifyImage:
         # UserData pubkey) and into every ssh call (-i key_path)…
         assert launched["key_ids"] == ["key-probe"]
         assert launched["pub_key"] == "ssh-ed25519 AAAA"
-        assert ready["key_path"] == "/tmp/probe_key"
+        assert ready["args"][0] == "1.2.3.4"  # ip
+        assert ("ohbsimage", "/tmp/probe_key") in ready["args"][2]  # candidate 1
+        assert ("root", "/tmp/probe_key") in ready["args"][2]       # candidate 2
         assert scanned["key_path"] == "/tmp/probe_key"
         # …the probe logs in as 'ohbsimage' (PermitRootLogin no on the
         # hardened image; the pubkey is injected only for that user)…
-        assert ready["args"][2] == "ohbsimage"   # ssh_user
-        assert scanned["args"][3] == "ohbsimage"  # ssh_user
+        assert scanned["args"][3] == "ohbsimage"  # ssh_user (winner)
         # …and the key pair is always torn down.
         assert teardowns == [(r, "key-probe", "/tmp/probe_key")]
 
@@ -3934,7 +3935,7 @@ class TestVerifyImage:
                             lambda r_: ("key-probe", "/tmp/probe_key", "ssh-ed25519 AAAA"))
         monkeypatch.setattr("ohbs_image._probe_launch", lambda *a, **k: "ins-probe")
         monkeypatch.setattr("ohbs_image._probe_public_ip", lambda *a, **k: "1.2.3.4")
-        monkeypatch.setattr("ohbs_image._probe_ssh_ready", lambda *a, **k: True)
+        monkeypatch.setattr("ohbs_image._probe_ssh_ready_any", lambda *a, **k: (True, "ohbsimage"))
         monkeypatch.setattr("ohbs_image._probe_scan",
                             lambda *a, **k: {"summary": {"all": {"score": 40.0, "fail": 9}}})
         terminated = []
@@ -4839,7 +4840,7 @@ class TestVerifyImageMinScoreFallback:
         monkeypatch.setattr("ohbs_image._probe_teardown_keypair", lambda *a, **k: None)
         monkeypatch.setattr("ohbs_image._probe_launch", lambda *a, **k: "ins-probe")
         monkeypatch.setattr("ohbs_image._probe_public_ip", lambda *a, **k: "1.2.3.4")
-        monkeypatch.setattr("ohbs_image._probe_ssh_ready", lambda *a, **k: True)
+        monkeypatch.setattr("ohbs_image._probe_ssh_ready_any", lambda *a, **k: (True, "ohbsimage"))
         monkeypatch.setattr("ohbs_image._probe_scan",
                             lambda *a, **k: {"summary": {"all": {"score": 90.0, "fail": 2}}})
         monkeypatch.setattr("ohbs_image._probe_terminate", lambda *a, **k: None)
@@ -4878,7 +4879,7 @@ class TestVerifyImageMinScoreFallback:
         monkeypatch.setattr("ohbs_image._probe_teardown_keypair", lambda *a, **k: None)
         monkeypatch.setattr("ohbs_image._probe_launch", lambda *a, **k: "ins-probe")
         monkeypatch.setattr("ohbs_image._probe_public_ip", lambda *a, **k: "1.2.3.4")
-        monkeypatch.setattr("ohbs_image._probe_ssh_ready", lambda *a, **k: True)
+        monkeypatch.setattr("ohbs_image._probe_ssh_ready_any", lambda *a, **k: (True, "ohbsimage"))
         monkeypatch.setattr("ohbs_image._probe_scan",
                             lambda *a, **k: {"summary": {"all": {"score": 40.0, "fail": 9}}})
         monkeypatch.setattr("ohbs_image._probe_terminate", lambda *a, **k: None)
@@ -5928,6 +5929,56 @@ class TestProbeKeyWiring:
         cmds.clear()
         assert _probe_ssh_ready("1.2.3.4", 22, "ohbsimage") is True
         assert "-i" not in cmds[0]  # no dangling -i without a key
+
+    def test_probe_ssh_ready_any_tries_candidates_in_order(self, monkeypatch):
+        """The multi-user probe must try every candidate each pass and report
+        the winner — ohbsimage (user-data key) first, root (LoginSettings key)
+        as fallback."""
+        from ohbs_image import _probe_ssh_ready_any
+        cmds = []
+        def fake_run(cmd, *a, **k):
+            cmds.append(cmd)
+            # First candidate (ohbsimage) is refused; second (root) succeeds.
+            rc = 0 if "root@" in cmd[-2] else 255
+            return subprocess.CompletedProcess(cmd, rc, stdout="", stderr="")
+        monkeypatch.setattr("ohbs_image.subprocess.run", fake_run)
+        ok, winner = _probe_ssh_ready_any(
+            "1.2.3.4", 22, [("ohbsimage", "/tmp/k1"), ("root", "/tmp/k2")],
+            timeout_s=30)
+        assert ok is True
+        assert winner == "root"
+        # Both candidates were tried (ohbsimage first), each with its -i key.
+        assert [c for c in cmds if "ohbsimage@" in c[-2]][0][-2] == "ohbsimage@1.2.3.4"
+        assert [c for c in cmds if "root@" in c[-2]][0][-2] == "root@1.2.3.4"
+
+    def test_probe_ssh_ready_any_returns_false_after_timeout(self, monkeypatch):
+        from ohbs_image import _probe_ssh_ready_any
+        monkeypatch.setattr(
+            "ohbs_image.subprocess.run",
+            lambda *a, **k: subprocess.CompletedProcess([], 255, stdout="", stderr=""))
+        ok, last = _probe_ssh_ready_any(
+            "1.2.3.4", 22, [("ohbsimage", "/tmp/k1"), ("root", "/tmp/k2")],
+            timeout_s=1)
+        assert ok is False
+        assert last == "root"  # last candidate reported for diagnostics
+
+    def test_probe_vnc_url_returns_url_or_empty(self, monkeypatch):
+        from ohbs_image import _probe_vnc_url
+        import types
+        r = types.SimpleNamespace(secret_id_env="TENCENTCLOUD_SECRET_ID",
+                                  secret_key_env="TENCENTCLOUD_SECRET_KEY",
+                                  security_token_env="",
+                                  region="ap-guangzhou")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
+        monkeypatch.setattr(
+            "ohbs_image._tc3_api",
+            lambda *a, **k: {"Response": {"InstanceVncUrl": "https://vnc/xyz"}})
+        assert _probe_vnc_url(r, "ins-probe") == "https://vnc/xyz"
+        monkeypatch.setattr(
+            "ohbs_image._tc3_api",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+        assert _probe_vnc_url(r, "ins-probe") == ""  # never raises
 
     def test_probe_scan_uses_identity_file_and_dash_glob(
         self, valid_toml, monkeypatch):
