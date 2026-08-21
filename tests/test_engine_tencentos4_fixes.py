@@ -8,7 +8,8 @@ Covers the four findings from the v0.17.0 tencentos4-l1 image build:
     _ensure_custom_profile must base the custom profile on sssd instead.
   - Vendor agents (barad_agent) re-create world-writable files under /run
     on every boot -> f_world_writable must persist the chmod via a
-    .path/.service unit pair.
+    boot-time retry-loop service covering both tmpfs sweeps and explicit
+    non-tmpfs paths (/etc/uuid, STARGATE logs).
 """
 
 import os
@@ -168,27 +169,34 @@ def test_world_writable_installs_volatile_units_for_run_files(eng, monkeypatch):
     svc = fakefs.read("/etc/systemd/system/ohbs-cis-volatile-perms.service")
     assert svc, "volatile-perms service was not written"
     # the service re-scans the offending tmpfs mount generically (barad's
-    # 0666 set varies boot to boot), retrying past the agents' late start;
-    # /etc/uuid survives on disk and needs no boot-time handling
+    # 0666 set varies boot to boot), retrying past the agents' late start
     assert "find /run -xdev -type f -perm -0002" in svc
     assert "chmod o-w" in svc
     assert "seq 1 180" in svc
     assert "Type=simple" in svc
     assert "RemainAfterExit" not in svc  # would suppress later activations
-    assert "/etc/uuid" not in svc
+    # non-tmpfs paths get an explicit chmod loop — barad recreates
+    # /etc/uuid mode 0666 on every boot, which a tmpfs sweep never sees
+    assert 'for f in /etc/uuid;' in svc
+    assert 'chmod o-w "$f"' in svc
     # no .path unit: PathExists re-triggers in a loop on persistent files
     assert fakefs.read("/etc/systemd/system/ohbs-cis-volatile-perms.path") is None
     assert ["systemctl", "enable",
             "ohbs-cis-volatile-perms.service"] in calls
 
 
-def test_world_writable_no_units_when_all_on_disk(eng, monkeypatch):
+def test_world_writable_disk_only_files_get_explicit_chmod_loop(eng, monkeypatch):
+    """Disk-resident 0666 files (barad /etc/uuid, STARGATE logs) are just as
+    boot-recreated as tmpfs ones — the service must cover them too."""
     fakefs = FakeFs()
     _ww_engine(monkeypatch, eng, fakefs, ["/etc/uuid"])
     ctx = make_ctx(eng)
     ok, msg = eng.f_world_writable(ctx, {})
     assert ok, msg
-    assert fakefs.read("/etc/systemd/system/ohbs-cis-volatile-perms.service") is None
+    svc = fakefs.read("/etc/systemd/system/ohbs-cis-volatile-perms.service")
+    assert svc, "service must also cover recreated non-tmpfs files"
+    assert 'for f in /etc/uuid;' in svc
+    assert "find " not in svc  # no tmpfs mount involved -> no sweep step
     assert fakefs.read("/etc/systemd/system/ohbs-cis-volatile-perms.path") is None
 
 
@@ -278,3 +286,151 @@ def test_mount_opt_tmpfs_records_late_boot_remount(eng, monkeypatch):
     assert "noexec" in unit
     assert unit.rstrip().endswith("WantedBy=multi-user.target")
     assert ["systemctl", "enable", "cis-mount-apply.service"] in calls
+
+
+# -- fw_stack_in_use ----------------------------------------------------------
+# Guard for the mutually exclusive CIS firewall-stack sections: rules for a
+# stack whose units are neither enabled nor active are notapplicable; a stack
+# in use drops the rule back to manual review.
+
+def _mock_units(monkeypatch, eng, db):
+    """Patch the engine's unit snapshot: {unit: (enabled_state, active_state)}."""
+    monkeypatch.setattr(eng, "_UNIT_DB", None)
+    monkeypatch.setattr(eng, "_unit_db", lambda: dict(db))
+
+
+def test_fw_stack_in_use_notapplicable_when_stack_absent(eng, monkeypatch):
+    _mock_units(monkeypatch, eng, {"firewalld.service": ("enabled", "active")})
+    ctx = make_ctx(eng)
+    st, detail = eng.c_fw_stack_in_use(ctx, {"units": ["nftables.service"]})
+    assert st == "notapplicable"
+    assert "nftables.service" in detail
+
+
+def test_fw_stack_in_use_notapplicable_when_unit_disabled(eng, monkeypatch):
+    # nftables package pulled in as a firewalld dependency: unit exists but
+    # is neither enabled nor active -> still not our stack.
+    _mock_units(monkeypatch, eng, {
+        "firewalld.service": ("enabled", "active"),
+        "nftables.service": ("disabled", "inactive"),
+    })
+    ctx = make_ctx(eng)
+    st, _ = eng.c_fw_stack_in_use(ctx, {"units": ["nftables.service"]})
+    assert st == "notapplicable"
+
+
+def test_fw_stack_in_use_manual_when_stack_active(eng, monkeypatch):
+    _mock_units(monkeypatch, eng, {"nftables.service": ("enabled", "active")})
+    ctx = make_ctx(eng)
+    st, detail = eng.c_fw_stack_in_use(ctx, {"units": ["nftables.service"]})
+    assert st == "manual"
+    assert "nftables.service" in detail
+
+
+def test_fw_stack_in_use_manual_when_only_enabled(eng, monkeypatch):
+    _mock_units(monkeypatch, eng, {"iptables.service": ("enabled", "inactive")})
+    ctx = make_ctx(eng)
+    st, _ = eng.c_fw_stack_in_use(
+        ctx, {"units": ["iptables.service", "ip6tables.service"]})
+    assert st == "manual"
+
+
+def test_fw_stack_in_use_errors_without_units(eng, monkeypatch):
+    ctx = make_ctx(eng)
+    st, _ = eng.c_fw_stack_in_use(ctx, {})
+    assert st == "error"
+
+
+# -- firewalld_cfg ------------------------------------------------------------
+
+def _mock_firewalld(monkeypatch, eng, *, zone="public", zones=None,
+                    ifaces=("eth0",), fw_state=("enabled", "active")):
+    _mock_units(monkeypatch, eng, {"firewalld.service": fw_state})
+    monkeypatch.setattr(eng, "_net_ifaces", lambda: sorted(ifaces))
+
+    def fake_sh(cmd, timeout=60):
+        if cmd == ["firewall-cmd", "--get-default-zone"]:
+            return (0, zone + "\n", "") if zone else (1, "", "no default zone")
+        if cmd == ["firewall-cmd", "--get-active-zones"]:
+            out = "".join(
+                "%s\n  interfaces: %s\n" % (z, " ".join(ifs))
+                for z, ifs in (zones or {}).items())
+            return 0, out, ""
+        return 0, "", ""
+
+    monkeypatch.setattr(eng, "sh", fake_sh)
+    return make_ctx(eng)
+
+
+def test_firewalld_cfg_default_zone_pass(eng, monkeypatch):
+    ctx = _mock_firewalld(monkeypatch, eng, zone="public")
+    st, detail = eng.c_firewalld_cfg(ctx, {"check": "default_zone"})
+    assert st == "pass"
+    assert "public" in detail
+
+
+def test_firewalld_cfg_default_zone_fail_and_fix(eng, monkeypatch):
+    ctx = _mock_firewalld(monkeypatch, eng, zone="")
+    st, _ = eng.c_firewalld_cfg(ctx, {"check": "default_zone"})
+    assert st == "fail"
+    calls = []
+
+    def fake_sh(cmd, timeout=60):
+        calls.append(cmd)
+        return 0, "", ""
+
+    monkeypatch.setattr(eng, "sh", fake_sh)
+    ok, msg = eng.f_firewalld_cfg(ctx, {"check": "default_zone", "zone": "public"})
+    assert ok, msg
+    assert ["firewall-cmd", "--permanent", "--set-default-zone", "public"] in calls
+    assert ["firewall-cmd", "--reload"] in calls
+
+
+def test_firewalld_cfg_interfaces_assigned_pass(eng, monkeypatch):
+    ctx = _mock_firewalld(monkeypatch, eng, zones={"public": ["eth0"]})
+    st, _ = eng.c_firewalld_cfg(ctx, {"check": "interfaces_assigned"})
+    assert st == "pass"
+
+
+def test_firewalld_cfg_interfaces_assigned_fail_and_fix(eng, monkeypatch):
+    ctx = _mock_firewalld(monkeypatch, eng, zones={"public": []},
+                          ifaces=("eth0", "eth1"))
+    st, detail = eng.c_firewalld_cfg(ctx, {"check": "interfaces_assigned"})
+    assert st == "fail"
+    assert "eth0" in detail and "eth1" in detail
+    calls = []
+
+    def fake_sh(cmd, timeout=60):
+        calls.append(cmd)
+        if cmd == ["firewall-cmd", "--get-default-zone"]:
+            return 0, "public\n", ""
+        return 0, "", ""
+
+    monkeypatch.setattr(eng, "sh", fake_sh)
+    ok, msg = eng.f_firewalld_cfg(ctx, {"check": "interfaces_assigned"})
+    assert ok, msg
+    assert ["firewall-cmd", "--zone=public", "--change-interface=eth0"] in calls
+    assert ["firewall-cmd", "--zone=public", "--change-interface=eth1"] in calls
+
+
+def test_firewalld_cfg_notapplicable_without_firewalld(eng, monkeypatch):
+    _mock_units(monkeypatch, eng, {})
+    monkeypatch.setattr(eng, "_net_ifaces", lambda: ["eth0"])
+    ctx = make_ctx(eng)
+    st, _ = eng.c_firewalld_cfg(ctx, {"check": "default_zone"})
+    assert st == "notapplicable"
+
+
+def test_firewalld_cfg_fails_when_firewalld_inactive(eng, monkeypatch):
+    ctx = _mock_firewalld(monkeypatch, eng, fw_state=("disabled", "inactive"))
+    st, detail = eng.c_firewalld_cfg(ctx, {"check": "default_zone"})
+    assert st == "fail"
+    assert "not active" in detail
+
+
+def test_firewalld_cfg_unknown_check_errors(eng, monkeypatch):
+    ctx = _mock_firewalld(monkeypatch, eng)
+    st, _ = eng.c_firewalld_cfg(ctx, {"check": "bogus"})
+    assert st == "error"
+    ok, _ = eng.f_firewalld_cfg(ctx, {"check": "bogus"})
+    assert not ok

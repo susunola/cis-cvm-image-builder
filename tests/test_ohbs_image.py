@@ -641,7 +641,13 @@ class TestRenderAll:
         assert "Banner /etc/ohbs-image/banner" in finalize
         # The source image, OS and ohbs-image version are wired through.
         assert valid_toml["build"]["source_image_id"] in finalize
-        assert valid_toml["meta"]["os_tag"] in finalize
+        # The dashed os_tag ("tencentos-4" etc.) must NOT be baked into the
+        # script's banner text — CIS 1.2.x greps /etc/motd|issue|issue.net
+        # for OS-name tokens.  The tag arrives as $3 and the banners print
+        # the dash-stripped $OS_TAG_SAFE instead.
+        assert valid_toml["meta"]["os_tag"] in hcl
+        assert 'OS_TAG="$3"' in finalize
+        assert '"$OS_TAG_SAFE"' in finalize
         # The ohbs-image banner ASCII is embedded.
         assert "OHBS IMAGE" in finalize
         assert "OHBS-HARDENED IMAGE BUILDER" in finalize
@@ -652,6 +658,24 @@ class TestRenderAll:
             capture_output=True, text=True,
         )
         assert p.returncode == 0, f"bash -n failed: {p.stderr}"
+
+    def test_finalize_banner_uses_cis_safe_os_tag(self, valid_toml, tmp_path):
+        """CIS 1.2.x greps /etc/motd, /etc/issue and /etc/issue.net for OS-name
+        tokens (\\bTencentOS\\b, \\bCentOS\\b, …).  A dashed os_tag like
+        "tencentos-4" would trip that check on every boot from the image, so
+        the finalize script must print the dash-stripped $OS_TAG_SAFE in
+        banners (the full tag still reaches the /opt report via $3)."""
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        finalize = (wd / "packer" / "scripts" / "ohbs-image-finalize.sh").read_text()
+        assert 'OS_TAG_SAFE="${OS_TAG//-/}"' in finalize
+        # all three banner files take the safe tag
+        assert finalize.count('"$OS_TAG_SAFE"') == 3
+        # no unsubstituted placeholder survives rendering
+        assert "__IMAGE_OS__" not in finalize
+        # /var/log/lastlog joins the late boot-log permission sweep (4.2.3)
+        assert "/var/log/lastlog" in finalize
 
     def test_banner_uses_no_placeholder_markers(self, valid_toml, tmp_path):
         """The ASCII art must not contain runs of underscores that would

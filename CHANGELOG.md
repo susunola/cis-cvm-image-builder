@@ -8,6 +8,21 @@ can be traced across rebuilds.
 ## [Unreleased]
 
 ### Added
+- **Firewall-stack guard + firewalld probes (engine + tencentos4 catalog)** —
+  the CIS 3.4 firewall sections are mutually exclusive alternatives
+  (firewalld 3.4.2.x / nftables 3.4.3.x / iptables 3.4.4.x), yet every
+  stack's detail rules were catalogued `manual`, inflating the manual
+  count by 18 on tencentos4-l1.  Two new families fix that:
+  - `fw_stack_in_use` — a section guard: when none of the stack's units
+    are enabled/active the rule is `notapplicable`; when the stack IS in
+    use the rule drops back to `manual` for auditor review.  Applied to
+    all nftables (3.4.3.x) and iptables (3.4.4.x) detail rules.
+  - `firewalld_cfg` — automates the chosen-stack rules 3.4.2.4
+    (`default_zone`) and 3.4.2.5 (`interfaces_assigned`) via firewall-cmd,
+    with fixers (set default zone / bind stray interfaces to it).
+  Also repairs three catalog entries (3.4.3.7, 3.4.4.1.2, 3.4.4.1.3) that
+  claimed `Automated` assessment but had `family: manual`.  tencentos4-l1
+  manual count drops 31 → 13.
 - **`[ohbs].allow_disruptive` config option** (default `true`) — controls
   whether the engine applies disruptive remediations (mount options,
   service removals, SELinux enforcing, …) during the build. Previously
@@ -38,11 +53,23 @@ can be traced across rebuilds.
   `/run/.barad_agent.pid` and `/run/barad_agent.lock` mode 0666 tens of
   seconds after every boot. `f_world_writable` now installs
   `ohbs-cis-volatile-perms.service` (Type=simple, non-blocking) which
-  polls the offending tmpfs mounts once a second for up to 3 minutes
-  after boot and re-applies `chmod o-w` as soon as the agents drop
-  their files; the fix-logperms provisioner additionally sweeps `/run`
-  right before the fresh-boot re-audit as a deterministic fallback
-  (6.1.13 kept failing the fresh-boot scan).
+  polls once a second for up to 3 minutes after boot: an explicit
+  `chmod o-w` loop over every path fixed at build time (covers
+  boot-recreated files on persistent filesystems too — barad recreates
+  `/etc/uuid` 0666 ~13s in, and its STARGATE logs can be baked into the
+  image as 0666) plus a `find` sweep of the offending tmpfs mounts; the
+  fix-logperms provisioner additionally sweeps `/run` right before the
+  fresh-boot re-audit as a deterministic fallback (6.1.13 kept failing
+  the fresh-boot scan).
+- **finalize: keep the CIS banner files OS-name-free** — the build banner
+  written to `/etc/motd`, `/etc/issue` and `/etc/issue.net` embedded the
+  dashed os_tag (`tencentos-4`), which the engine's own CIS 1.2.x banner
+  check flags as an OS reference on every boot from the image (the
+  fresh-boot gate ran before finalize, so it never saw the regression;
+  the post-finalize report audit recorded 1.2.1–3 as fail).  Banners now
+  print the dash-stripped tag (`tencentos4`); the full tag still lands in
+  the /opt report.  The finalize boot-log sweep also covers
+  `/var/log/lastlog` (baked into the image as 0664, failing 4.2.3).
 - **tencentos4 catalog: two more manual rules automated** — 4.2.1.6 now
   uses the existing `rsyslog_no_receive` family and 4.3 uses `pkg_present`
   (logrotate), matching the rhel9/ubuntu2404 catalogs.

@@ -459,7 +459,7 @@ def cmd_verify_image(args: argparse.Namespace, image_id: str | None = None) -> i
         fail(f"clean-boot verification FAILED: score {shown} < {min_score:g}%")
         return 1
     finally:
-        if instance_id and not (getattr(args, "keep_on_fail", None) is True):
+        if instance_id and getattr(args, "keep_on_fail", None) is not True:
             ohbs_image._probe_terminate(r, instance_id)
         if key_id or key_path:
             ohbs_image._probe_teardown_keypair(r, key_id, key_path)

@@ -1214,17 +1214,23 @@ def _tmpfs_path(ctx, path):
 
 
 def ensure_volatile_perms_service(ctx, paths):
-    """Re-apply world-writable fixes on tmpfs files that vendor agents
-    re-create on every boot (TencentCloud barad_agent re-drops
-    /run/.barad_agent.pid & friends mode 0666 ~30s after boot — and not
-    always the SAME set, so per-file chmods are not enough).
+    """Re-apply world-writable fixes on files that vendor agents re-create
+    on every boot (TencentCloud barad_agent re-drops /run/.barad_agent.pid
+    & friends mode 0666 tens of seconds after boot, recreates /etc/uuid
+    0666 ~13s in, and its STARGATE logs can get baked into the image as
+    0666 when it rewrites them after the build-time fix).
 
-    A chmod at apply time is wiped by the reboot, so this installs a
-    boot-time unit that re-scans the offending tmpfs mounts with find(1)
-    every second for ~3 minutes — the agents drop their files tens of
-    seconds after boot and the post-boot re-audit can run as early as
-    ~45s uptime.  Type=simple keeps the unit from blocking
-    multi-user.target; the bounded loop then exits cleanly.
+    A chmod at apply time is wiped by the reboot/recreation, so this
+    installs a boot-time unit that re-applies the fix every second for
+    ~3 minutes — the agents drop their files tens of seconds after boot
+    and the post-boot re-audit can run as early as ~45s uptime.
+    Type=simple keeps the unit from blocking multi-user.target; the
+    bounded loop then exits cleanly.  Two complementary steps per pass:
+      - an explicit chmod loop over every recorded path (covers files on
+        persistent filesystems, which a tmpfs find sweep never sees);
+      - a find(1) sweep of the offending tmpfs mounts (agents do not
+        always re-drop the SAME set there, so per-file chmods are not
+        enough).
 
     A .path trigger was tried first and rejected on a live TencentOS 4
     VM: PathExists re-triggers in a tight loop while the watched file
@@ -1236,20 +1242,27 @@ def ensure_volatile_perms_service(ctx, paths):
     svc = "/etc/systemd/system/ohbs-cis-volatile-perms.service"
     stale_pth = "/etc/systemd/system/ohbs-cis-volatile-perms.path"
     dirs = sorted({_tmpfs_path(ctx, p) for p in paths} - {None})
-    finds = "; ".join(
+    explicit = sorted(p for p in paths if _tmpfs_path(ctx, p) is None)
+    steps = []
+    if explicit:
+        steps.append(
+            'for f in %s; do [ -e "$f" ] && chmod o-w "$f"; done'
+            % " ".join(explicit))
+    steps += [
         "find %s -xdev -type f -perm -0002 -exec chmod o-w {} + 2>/dev/null"
-        % d for d in dirs)
+        % d for d in dirs]
     svc_body = (
         "[Unit]\n"
-        "Description=Re-apply CIS world-writable fixes on boot-recreated (tmpfs) files\n"
+        "Description=Re-apply CIS world-writable fixes on boot-recreated files\n"
         "\n"
         "[Service]\n"
         "# vendor agents drop their 0666 files tens of seconds after boot;\n"
-        "# re-scan every second for ~3 min so the fix lands within ~1s of\n"
+        "# re-apply every second for ~3 min so the fix lands within ~1s of\n"
         "# the file appearing (the post-boot re-audit can run as early as\n"
         "# ~45s uptime), then exit.  Type=simple never blocks the target.\n"
         "Type=simple\n"
-        "ExecStart=/bin/sh -c 'for i in $(seq 1 180); do " + finds + "; sleep 1; done'\n"
+        "ExecStart=/bin/sh -c 'for i in $(seq 1 180); do " + "; ".join(steps)
+        + "; sleep 1; done'\n"
         "\n"
         "[Install]\n"
         "WantedBy=multi-user.target\n"
@@ -1284,10 +1297,15 @@ def f_world_writable(ctx, p):
     for f in files:
         sh(["chmod", "o-w", f], 60)
     ctx.invalidate("fs_scan")
-    volatile = [f for f in files if _tmpfs_path(ctx, f)
-                and '"' not in f and "\n" not in f]
-    if volatile:
-        ensure_volatile_perms_service(ctx, volatile)
+    # Record every fixed path — tmpfs or not: vendor agents re-create
+    # 0666 files on persistent filesystems too (barad's /etc/uuid and
+    # STARGATE logs), and only the explicit path loop in the boot-time
+    # service covers those.  Paths with shell-hostile characters are
+    # dropped (the loop is whitespace-separated).
+    recorded = [f for f in files
+                if '"' not in f and not any(c.isspace() for c in f)]
+    if recorded:
+        ensure_volatile_perms_service(ctx, recorded)
     return True, "removed world-write bit from %d regular file(s)" % len(files)
 
 
@@ -1657,6 +1675,130 @@ def f_svc_enabled(ctx, p):
         return False, "no matching units present"
     _unit_db_invalidate()
     return True, "enabled and started: " + ", ".join(acts)
+
+
+@check("fw_stack_in_use")
+def c_fw_stack_in_use(ctx, p):
+    """Guard for the mutually exclusive CIS firewall-stack sections.
+
+    The benchmark splits host firewall guidance into alternatives —
+    firewalld (3.4.2.x), nftables (3.4.3.x), iptables (3.4.4.x) — of which
+    exactly ONE is meant to be configured.  Rules for a stack whose
+    service is neither enabled nor active on this host are notapplicable;
+    when the stack IS in use the rule drops back to "manual" so it is
+    still reviewed per the benchmark Audit procedure.
+    """
+    units = p.get("units") or []
+    if not units:
+        return "error", "rule has no units configured (incomplete catalog)"
+    in_use = []
+    for u in units:
+        if not unit_exists(u):
+            continue
+        en, ac = _unit_state(u)
+        if en in ("enabled", "enabled-runtime") or ac == "active":
+            in_use.append("%s(%s/%s)" % (u, en or "disabled", ac or "inactive"))
+    if in_use:
+        return ("manual",
+                "firewall stack in use (%s) — review per the benchmark Audit "
+                "procedure" % ", ".join(sorted(in_use)))
+    return ("notapplicable",
+            "firewall stack not in use (no enabled/active unit among: %s)"
+            % ", ".join(units))
+
+
+def _firewall_zones():
+    """{zone: [interfaces]} parsed from `firewall-cmd --get-active-zones`."""
+    rc, o, _ = sh(["firewall-cmd", "--get-active-zones"], 30)
+    zones = {}
+    cur = None
+    if rc != 0:
+        return zones
+    for ln in (o or "").splitlines():
+        if not ln.startswith((" ", "\t")):
+            cur = ln.strip()
+            zones.setdefault(cur, [])
+        elif cur and ln.strip().startswith("interfaces:"):
+            zones[cur] = ln.split(":", 1)[1].split()
+    return zones
+
+
+def _net_ifaces():
+    """Non-loopback interface names from /sys/class/net."""
+    return sorted(i for i in os.listdir("/sys/class/net") if i != "lo")
+
+
+@check("firewalld_cfg")
+def c_firewalld_cfg(ctx, p):
+    """firewalld chosen-stack checks (CIS 3.4.2.4 / 3.4.2.5).
+
+    params.check selects the probe:
+      default_zone        — a default zone is set (any non-empty zone
+                            passes; params.zone only feeds the fixer)
+      interfaces_assigned — every non-loopback interface is bound to a zone
+    """
+    kind = p.get("check")
+    if not unit_exists("firewalld.service"):
+        return "notapplicable", "firewalld.service not present on this host"
+    en, ac = _unit_state("firewalld.service")
+    if ac != "active":
+        return "fail", "firewalld.service is not active (%s/%s)" \
+                       % (en or "disabled", ac or "inactive")
+    if kind == "default_zone":
+        rc, o, e = sh(["firewall-cmd", "--get-default-zone"], 30)
+        zone = (o or "").strip()
+        if rc == 0 and zone:
+            return "pass", "default zone: %s" % zone
+        return "fail", "no default zone set (%s)" \
+                       % ((e or o or "").strip()[:120] or "empty output")
+    if kind == "interfaces_assigned":
+        bound = set()
+        for ifs in _firewall_zones().values():
+            bound.update(ifs)
+        try:
+            ifaces = _net_ifaces()
+        except OSError as exc:
+            return "error", "cannot list /sys/class/net: %s" % exc
+        stray = [i for i in ifaces if i not in bound]
+        if stray:
+            return "fail", "interface(s) not assigned to any zone: " + ", ".join(stray)
+        return "pass", "all interfaces assigned to a zone (%s)" \
+                       % (", ".join(ifaces) or "none besides lo")
+    return "error", "unknown firewalld_cfg check %r" % kind
+
+
+@fix("firewalld_cfg")
+def f_firewalld_cfg(ctx, p):
+    kind = p.get("check")
+    if kind == "default_zone":
+        zone = p.get("zone") or "public"
+        rc, o, e = sh(["firewall-cmd", "--permanent", "--set-default-zone", zone], 60)
+        if rc != 0:
+            return False, (e or o).strip()[:200]
+        sh(["firewall-cmd", "--reload"], 120)
+        return True, "default zone set to %s (permanent + reload)" % zone
+    if kind == "interfaces_assigned":
+        rc, o, _ = sh(["firewall-cmd", "--get-default-zone"], 30)
+        zone = (o or "").strip() or "public"
+        bound = set()
+        for ifs in _firewall_zones().values():
+            bound.update(ifs)
+        try:
+            ifaces = _net_ifaces()
+        except OSError as exc:
+            return False, "cannot list /sys/class/net: %s" % exc
+        moved = []
+        for i in ifaces:
+            if i in bound:
+                continue
+            rc, o, e = sh(["firewall-cmd", "--zone=" + zone,
+                           "--change-interface=" + i], 60)
+            if rc != 0:
+                return False, "cannot bind %s to zone %s: %s" \
+                              % (i, zone, (e or o).strip()[:120])
+            moved.append(i)
+        return True, "bound to zone %s: %s" % (zone, ", ".join(moved) or "none missing")
+    return False, "unknown firewalld_cfg check %r" % kind
 
 
 @check("dnf_flag")

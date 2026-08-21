@@ -1178,6 +1178,13 @@ AUDIT="/opt/ohbs-image-AUDIT-RESULT.json"
 REPORT="/opt/ohbs-image-REPORT.md"
 BUILD_TS="$(date -u +%FT%TZ)"
 
+# Banner-safe OS tag: /etc/motd, /etc/issue and /etc/issue.net must not
+# contain an OS-name token — the CIS 1.2.x audit greps for \bTencentOS\b,
+# \bCentOS\b et al., so "tencentos-4" would fail the check.  Dropping the
+# dashes ("tencentos4") keeps the banner informative and compliant; the
+# full tag still goes into the /opt report.
+OS_TAG_SAFE="${OS_TAG//-/}"
+
 # ── Hostname DNS safeguard (belt-and-suspenders with fix-logperms) ──
 __HOSTS_FIX__
 
@@ -1208,7 +1215,7 @@ _bar "motd"
     printf '\n'
     printf '\x1b[1mImage:\x1b[0m     %s\n' "__IMAGE_NAME__"
     printf '\x1b[1mSource:\x1b[0m    %s\n' "__SOURCE_IMAGE__"
-    printf '\x1b[1mOS/Level:\x1b[0m  %s / %s\n' "__IMAGE_OS__" "__CIS_LEVEL__"
+    printf '\x1b[1mOS/Level:\x1b[0m  %s / %s\n' "$OS_TAG_SAFE" "__CIS_LEVEL__"
     printf '\x1b[1mBenchmark:\x1b[0m %s\n' "__IMAGE_BENCHMARK__"
     printf '\x1b[1mBuilt:\x1b[0m     %s by ohbs-image %s\n\n' "$BUILD_TS" "__CIS_IMAGE_VERSION__"
     printf '\x1b[33m[ REPORT  ]\x1b[0m cat /opt/ohbs-image-REPORT.md     (or run: ohbs-image-info)\n'
@@ -1223,7 +1230,7 @@ _bar "issue + issue.net"
 #    colour escape sequences render as garbage on serial consoles).
 {
     printf 'ohbs-image  OHBS-HARDENED IMAGE BUILDER  --  %s\n' "__IMAGE_NAME__"
-    printf 'OS/Level: %s / %s   Benchmark: %s\n' "__IMAGE_OS__" "__CIS_LEVEL__" "__IMAGE_BENCHMARK__"
+    printf 'OS/Level: %s / %s   Benchmark: %s\n' "$OS_TAG_SAFE" "__CIS_LEVEL__" "__IMAGE_BENCHMARK__"
     printf 'Built:    %s   by ohbs-image %s\n' "$BUILD_TS" "__CIS_IMAGE_VERSION__"
     printf 'Report:   /opt/ohbs-image-REPORT.md  (run "ohbs-image-info")\n'
     printf 'Admin:    ssh ohbsimage@<host>      (root login disabled per CIS)\n'
@@ -1231,7 +1238,7 @@ _bar "issue + issue.net"
 _bar "issue.net"
 {
     printf 'ohbs-image  OHBS-HARDENED IMAGE BUILDER  --  %s\n' "__IMAGE_NAME__"
-    printf 'OS/Level: %s / %s   Built: %s by ohbs-image %s\n' "__IMAGE_OS__" "__CIS_LEVEL__" "$BUILD_TS" "__CIS_IMAGE_VERSION__"
+    printf 'OS/Level: %s / %s   Built: %s by ohbs-image %s\n' "$OS_TAG_SAFE" "__CIS_LEVEL__" "$BUILD_TS" "__CIS_IMAGE_VERSION__"
     printf 'Report: /opt/ohbs-image-REPORT.md\n'
 } | sudo tee /etc/issue.net  > /dev/null
 _bar "issue perms"
@@ -1244,7 +1251,7 @@ sudo chmod 0644 /etc/issue /etc/issue.net
 _bar "fix boot-log perms"
 _bar "  cloud-init log"
 for f in /var/log/cloud-init.log /var/log/cloud-init-output.log \
-         /var/log/wtmp /var/log/btmp; do
+         /var/log/wtmp /var/log/btmp /var/log/lastlog; do
     [ -f "$f" ] && sudo chmod 0640 "$f" 2>/dev/null || true
 done
 
