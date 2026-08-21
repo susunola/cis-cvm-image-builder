@@ -3417,10 +3417,10 @@
       1
     ],
     "platforms": [],
-    "assessment": "Manual",
-    "family": "manual",
+    "assessment": "Automated",
+    "family": "rsyslog_no_receive",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 475
   },
   {
@@ -3521,9 +3521,13 @@
     ],
     "platforms": [],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "pkg_present",
+    "params": {
+      "packages": [
+        "logrotate"
+      ]
+    },
+    "risk": "safe",
     "page": 486
   },
   {

@@ -16,6 +16,37 @@ can be traced across rebuilds.
   and rebooted before the post-boot audit, so disruptive fixes are safe
   to apply here; set it to `false` to restore the old behaviour.
 
+### Fixed (engine + tencentos4 catalog, 2026-08-21 re-audit round)
+- **`mount_opt`/`partition`: unmask the generated mount unit** — TencentOS 4
+  ships `tmp.mount` masked (`/etc/systemd/system/tmp.mount -> /dev/null`),
+  which silently nullified the CIS `/tmp` tmpfs fstab entry: the entry was
+  present but never mounted at boot (re-audit 1.1.2.2–4 `notapplicable`).
+  Both fixers now `systemctl unmask` the mount unit when it is masked.
+- **`mount_opt`: late-boot mount re-assert** — a new opt-in
+  `cis-mount-apply.service` (oneshot, `After=local-fs.target`) re-remounts
+  tmpfs mounts with their applied options on every boot. On the 2026-08-21
+  tencentos4-l1 build, `/dev/shm` came up after the post-hardening reboot
+  WITHOUT the `noexec` its fstab entry carried (systemd-remount-fs did not
+  apply it), failing the build smoke test. Follows the established
+  `cis-sysctl-apply.service` late-boot pattern.
+- **authselect: base the custom profile on `sssd`, not `minimal`** —
+  TencentOS 4 ships with the feature-less `minimal` profile selected, so
+  `authselect enable-feature with-faillock` failed with "Unknown profile
+  feature" and CIS 5.4.3/5.4.4 could never pass.
+- **`world_writable`: persist fixes for boot-recreated tmpfs files** —
+  vendor agents (TencentCloud barad_agent) re-create
+  `/run/.barad_agent.pid` and `/run/barad_agent.lock` mode 0666 tens of
+  seconds after every boot. `f_world_writable` now installs
+  `ohbs-cis-volatile-perms.service` (Type=simple, non-blocking) which
+  polls the offending tmpfs mounts once a second for up to 3 minutes
+  after boot and re-applies `chmod o-w` as soon as the agents drop
+  their files; the fix-logperms provisioner additionally sweeps `/run`
+  right before the fresh-boot re-audit as a deterministic fallback
+  (6.1.13 kept failing the fresh-boot scan).
+- **tencentos4 catalog: two more manual rules automated** — 4.2.1.6 now
+  uses the existing `rsyslog_no_receive` family and 4.3 uses `pkg_present`
+  (logrotate), matching the rhel9/ubuntu2404 catalogs.
+
 ## [0.17.0] — 2026-08-20 — build-CVM naming, packer passthrough, API retries, real E2E
 
 ### Added (rule-catalog automation, rounds 2–4)

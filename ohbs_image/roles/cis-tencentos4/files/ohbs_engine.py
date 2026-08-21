@@ -611,6 +611,75 @@ def _mounts(ctx):
     return ctx.cached("mounts", load)
 
 
+def _mount_unit_name(mp):
+    """systemd mount-unit name for a mount point (CIS paths contain no
+    dashes, so plain substitution is enough — no full systemd-escape)."""
+    if mp == "/":
+        return "-.mount"
+    return mp.strip("/").replace("/", "-") + ".mount"
+
+
+def _unmask_mount_unit(ctx, mp):
+    """Unmask the mount unit for mp so its fstab entry can take effect at
+    boot.  TencentOS 4 ships tmp.mount masked (/etc/systemd/system/
+    tmp.mount -> /dev/null), which silently nullifies a CIS /tmp tmpfs
+    fstab entry — the entry is present but the generator's unit can never
+    start, so /tmp stays on the root fs after reboot."""
+    if not systemd_present():
+        return
+    rc, o, _ = sh(["systemctl", "is-enabled", _mount_unit_name(mp)], 30)
+    if (o or "").strip() == "masked":
+        sh(["systemctl", "unmask", _mount_unit_name(mp)], 30)
+
+
+def ensure_cis_mount_service(ctx, mp):
+    """Re-assert mp's live mount options late in every boot.
+
+    fstab options for API/tmpfs mounts (/dev/shm) are applied at boot by
+    systemd-remount-fs, but that service is not guaranteed to win on every
+    boot — observed on a TencentOS 4 build (first post-hardening boot with
+    SELinux switching on): /dev/shm came up WITHOUT the noexec the fstab
+    entry carried, and the image-build smoke test failed the build.  A
+    one-shot ordered after local-fs re-remounts with the current options
+    as the final word — the same late-boot pattern as
+    cis-sysctl-apply.service.  One ExecStart per mount point; re-recording
+    a mount point replaces its earlier line.
+    """
+    if not systemd_present():
+        return
+    mounts = _mounts(ctx)
+    if mp not in mounts:
+        return
+    opts = ",".join(sorted(mounts[mp]["opts"]))
+    unit = "/etc/systemd/system/cis-mount-apply.service"
+    new_line = "ExecStart=/bin/mount -o remount,%s %s" % (opts, mp)
+    execs = []
+    if exists(unit):
+        execs = [l for l in readlines(unit)
+                 if l.startswith("ExecStart=/bin/mount -o remount,")
+                 and not l.rstrip().endswith(" " + mp)]
+    execs.append(new_line)
+    content = (
+        "[Unit]\n"
+        "Description=Re-assert CIS mount options after early-boot mount actors\n"
+        "After=local-fs.target systemd-remount-fs.service\n"
+        "\n"
+        "[Service]\n"
+        "Type=oneshot\n"
+        "RemainAfterExit=yes\n"
+        + "\n".join(execs) + "\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=multi-user.target\n"
+    )
+    if exists(unit) and read(unit) == content:
+        return
+    write_file(ctx, unit, content, 0o644)
+    ctx.add_changed_file(unit)
+    sh(["systemctl", "daemon-reload"], 30)
+    sh(["systemctl", "enable", "cis-mount-apply.service"], 30)
+
+
 @check("mount_opt")
 def c_mount_opt(ctx, p):
     mp, opt = p["mount"], p["option"]
@@ -709,6 +778,7 @@ def f_mount_opt(ctx, p):
                 atomic_write("/etc/fstab",
                              "\n".join(res).rstrip("\n") + "\n", mode=0o644)
                 ctx.add_changed_file("/etc/fstab")
+            _unmask_mount_unit(ctx, mp)
     # 2. apply live — carry the CURRENT options, or a remount with only the
     #    new option would silently drop everything else (nodev/nosuid/
     #    seclabel) and could break SELinux labelling on /dev/shm.
@@ -721,6 +791,11 @@ def f_mount_opt(ctx, p):
     ctx.invalidate("mounts")
     if rc != 0:
         return False, "fstab updated but live remount failed: %s" % err
+    # tmpfs options applied only via fstab (no live remount survives a
+    # reboot on their own) get a late-boot re-assert so a flaky
+    # systemd-remount-fs pass cannot silently drop them.
+    if mounts[mp]["fstype"] == "tmpfs":
+        ensure_cis_mount_service(ctx, mp)
     return True, "added %s to %s (fstab%s + remount)" % (
         opt, mp, "" if changed else " already ok")
 
@@ -774,6 +849,7 @@ def f_partition(ctx, p):
                     with open("/etc/fstab", "a", encoding="utf-8") as fh:
                         fh.write("\n" + fstab_line + "\n")
                     ctx.add_changed_file("/etc/fstab")
+        _unmask_mount_unit(ctx, mp)
         return True, "%s tmpfs entry written to /etc/fstab (effective at next boot)" % mp
     # Mount as tmpfs with CIS-recommended options (noexec,nosuid,nodev)
     if exists("/etc/fstab"):
@@ -785,6 +861,7 @@ def f_partition(ctx, p):
             with open("/etc/fstab", "a", encoding="utf-8") as fh:
                 fh.write("\n" + fstab_line + "\n")
             ctx.add_changed_file("/etc/fstab")
+    _unmask_mount_unit(ctx, mp)
     os.makedirs(mp, exist_ok=True)
     rc, _, err = sh(["mount", "-t", "tmpfs", "-o", "noexec,nosuid,nodev", "tmpfs", mp])
     ctx.invalidate("mounts")
@@ -1124,6 +1201,72 @@ def _fs_scan_legacy(res):
     return res
 
 
+def _tmpfs_path(ctx, path):
+    """The tmpfs mount point hosting path, or None (longest match wins)."""
+    best = None
+    for mp, m in _mounts(ctx).items():
+        if m["fstype"] != "tmpfs":
+            continue
+        if path == mp or path.startswith(mp.rstrip("/") + "/"):
+            if best is None or len(mp) > len(best):
+                best = mp
+    return best
+
+
+def ensure_volatile_perms_service(ctx, paths):
+    """Re-apply world-writable fixes on tmpfs files that vendor agents
+    re-create on every boot (TencentCloud barad_agent re-drops
+    /run/.barad_agent.pid & friends mode 0666 ~30s after boot — and not
+    always the SAME set, so per-file chmods are not enough).
+
+    A chmod at apply time is wiped by the reboot, so this installs a
+    boot-time unit that re-scans the offending tmpfs mounts with find(1)
+    every second for ~3 minutes — the agents drop their files tens of
+    seconds after boot and the post-boot re-audit can run as early as
+    ~45s uptime.  Type=simple keeps the unit from blocking
+    multi-user.target; the bounded loop then exits cleanly.
+
+    A .path trigger was tried first and rejected on a live TencentOS 4
+    VM: PathExists re-triggers in a tight loop while the watched file
+    keeps existing (start-limit-hit), while RemainAfterExit=yes on the
+    service suppressed the re-trigger entirely — both dead ends.
+    """
+    if not paths or not systemd_present():
+        return
+    svc = "/etc/systemd/system/ohbs-cis-volatile-perms.service"
+    stale_pth = "/etc/systemd/system/ohbs-cis-volatile-perms.path"
+    dirs = sorted({_tmpfs_path(ctx, p) for p in paths} - {None})
+    finds = "; ".join(
+        "find %s -xdev -type f -perm -0002 -exec chmod o-w {} + 2>/dev/null"
+        % d for d in dirs)
+    svc_body = (
+        "[Unit]\n"
+        "Description=Re-apply CIS world-writable fixes on boot-recreated (tmpfs) files\n"
+        "\n"
+        "[Service]\n"
+        "# vendor agents drop their 0666 files tens of seconds after boot;\n"
+        "# re-scan every second for ~3 min so the fix lands within ~1s of\n"
+        "# the file appearing (the post-boot re-audit can run as early as\n"
+        "# ~45s uptime), then exit.  Type=simple never blocks the target.\n"
+        "Type=simple\n"
+        "ExecStart=/bin/sh -c 'for i in $(seq 1 180); do " + finds + "; sleep 1; done'\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=multi-user.target\n"
+    )
+    if not (exists(svc) and read(svc) == svc_body):
+        write_file(ctx, svc, svc_body, 0o644)
+        ctx.add_changed_file(svc)
+        sh(["systemctl", "daemon-reload"], 30)
+        sh(["systemctl", "enable", "ohbs-cis-volatile-perms.service"], 30)
+    # Drop the superseded .path design if an older engine left it behind.
+    if exists(stale_pth):
+        sh(["systemctl", "disable", "--now",
+            "ohbs-cis-volatile-perms.path"], 30)
+        os.unlink(stale_pth)
+        sh(["systemctl", "daemon-reload"], 30)
+
+
 @check("world_writable")
 def c_world_writable(ctx, p):
     files = _fs_scan(ctx)["world_files"]
@@ -1141,6 +1284,10 @@ def f_world_writable(ctx, p):
     for f in files:
         sh(["chmod", "o-w", f], 60)
     ctx.invalidate("fs_scan")
+    volatile = [f for f in files if _tmpfs_path(ctx, f)
+                and '"' not in f and "\n" not in f]
+    if volatile:
+        ensure_volatile_perms_service(ctx, volatile)
     return True, "removed world-write bit from %d regular file(s)" % len(files)
 
 
@@ -4628,6 +4775,15 @@ def _ensure_custom_profile(ctx):
     if prof and prof.startswith("custom/"):
         return "/etc/authselect/%s" % prof
     base = prof or "sssd"
+    # TencentOS 4 ships with the 'minimal' profile selected, which carries
+    # NO feature files — a custom profile based on it can never enable
+    # with-faillock / with-pwhistory ("Unknown profile feature", then
+    # "Unable to activate profile"), so CIS 5.4.x fails forever.  Base the
+    # custom profile on sssd (full feature set) whenever it is available.
+    if base == "minimal":
+        rc, o, _ = sh(["authselect", "list"], 30)
+        if re.search(r"^-?\s*sssd\b", o or "", re.M):
+            base = "sssd"
     rc, o, e = sh(["authselect", "create-profile", CIS_AUTHSELECT_PROFILE,
                    "-b", base, "--symlink-meta"], 60)
     if rc != 0 and "already exists" not in (o + e):
