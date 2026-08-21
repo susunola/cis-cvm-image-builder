@@ -5900,6 +5900,35 @@ class TestProbeKeyWiring:
         assert "ssh-ed25519 AAAA probe" in ud
         assert "ohbsimage" in ud  # injected for the build user, not root
 
+    def test_probe_key_name_fits_tencentcloud_25_char_limit(
+        self, valid_toml, monkeypatch):
+        """ImportKeyPair rejects KeyName >25 chars (observed failure:
+        'ohbs-image-probe-<ts>-<hex>' = 32 chars -> InvalidParameterValue)."""
+        from ohbs_image import _probe_setup_keypair
+        r = resolve(valid_toml)
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
+        captured = {}
+        def fake_tc3(service, action, version, region, params, sid, skey, tok=None):
+            captured.update(params)
+            return {"Response": {"KeyId": "skey-probe"}}
+        monkeypatch.setattr("ohbs_image._tc3_api", fake_tc3)
+        monkeypatch.setattr("ohbs_image.subprocess.run",
+                            lambda *a, **k: subprocess.CompletedProcess([], 0))
+        # ssh-keygen writes priv + priv.pub; emulate both files.
+        import tempfile, os
+        tmpdir = tempfile.mkdtemp(prefix="ohbs-test-")
+        priv = os.path.join(tmpdir, "probe_key")
+        with open(priv, "w") as fh:
+            fh.write("PRIV")
+        with open(priv + ".pub", "w") as fh:
+            fh.write("ssh-ed25519 AAAA probe")
+        monkeypatch.setattr("tempfile.mkdtemp", lambda **k: tmpdir)
+        _probe_setup_keypair(r)
+        name = captured["KeyName"]
+        assert len(name) <= 25, f"KeyName {name!r} is {len(name)} chars (>25)"
+        assert name.startswith("ohbsp-")
+
     def test_probe_launch_without_keypair_omits_settings(
         self, valid_toml, monkeypatch):
         from ohbs_image import _probe_launch
