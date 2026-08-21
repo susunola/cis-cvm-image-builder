@@ -582,9 +582,8 @@ def _probe_scan(r: ResolvedConfig, ip: str, ssh_port: int, ssh_user: str,
         "CAT=\"$ENG/rules.json\"; "
         f"[ -f \"$ENG/{cat}\" ] && CAT=\"$ENG/{cat}\"; "
         "sudo /opt/ohbs-image-ansible/bin/python \"$ENG/ohbs_engine.py\" "
-        f"--catalog \"$CAT\" --mode scan --profile {profile} "
-        "--out /tmp/ohbs-image-verify.json >/dev/null 2>&1 && "
-        "cat /tmp/ohbs-image-verify.json; fi"
+        f"--catalog \"$CAT\" --mode scan --profile {profile} 2>/dev/null; "
+        "fi"
     )
     key_args = ["-i", key_path] if key_path else []
     try:
