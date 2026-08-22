@@ -192,9 +192,24 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "kmod_list",
+    "params": {
+      "modules": [
+        "kafs",
+        "ceph",
+        "cifs",
+        "exfat",
+        "ext",
+        "fat",
+        "fscache",
+        "fuse",
+        "gfs2",
+        "nfs_common",
+        "nfsd",
+        "smbfs_common"
+      ]
+    },
+    "risk": "disruptive",
     "page": 54
   },
   {
@@ -373,8 +388,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "partition",
+    "params": {
+      "mount": "/home"
+    },
     "risk": "none",
     "page": 80
   },
@@ -430,8 +447,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "partition",
+    "params": {
+      "mount": "/var"
+    },
     "risk": "none",
     "page": 87
   },
@@ -487,8 +506,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "partition",
+    "params": {
+      "mount": "/var/tmp"
+    },
     "risk": "none",
     "page": 94
   },
@@ -564,8 +585,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "partition",
+    "params": {
+      "mount": "/var/log"
+    },
     "risk": "none",
     "page": 103
   },
@@ -641,8 +664,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "partition",
+    "params": {
+      "mount": "/var/log/audit"
+    },
     "risk": "none",
     "page": 112
   },
@@ -718,7 +743,7 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
+    "family": "gpg_keys",
     "params": {},
     "risk": "none",
     "page": 122
@@ -735,7 +760,7 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
+    "family": "pkg_repos",
     "params": {},
     "risk": "none",
     "page": 124
@@ -752,9 +777,9 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
+    "family": "updates_applied",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 127
   },
   {
@@ -812,9 +837,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "apparmor",
+    "params": {
+      "kind": "not_disabled"
+    },
+    "risk": "safe",
     "page": 136
   },
   {
@@ -829,9 +856,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "apparmor",
+    "params": {
+      "kind": "enforcing"
+    },
+    "risk": "safe",
     "page": 138
   },
   {
@@ -846,7 +875,7 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "bootloader_password",
     "params": {},
     "risk": "none",
     "page": 141,
@@ -905,9 +934,16 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "kernel.yama.ptrace_scope",
+          "value": "(1|2|3)"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 150
   },
   {
@@ -1814,9 +1850,9 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "mta_local",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 258
   },
   {
@@ -1831,7 +1867,7 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
+    "family": "listening_ports",
     "params": {},
     "risk": "none",
     "page": 261
@@ -1974,8 +2010,16 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "exclusive_stack",
+    "params": {
+      "group": [
+        "systemd-timesyncd.service",
+        "chrony.service",
+        "chronyd.service",
+        "ntpd.service",
+        "ntpsec.service"
+      ]
+    },
     "risk": "none",
     "page": 279
   },
@@ -1991,11 +2035,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "timesync_cfg",
     "params": {
-      "note": "manual: authorized timeserver is site-specific"
+      "kind": "timesyncd"
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 285
   },
   {
@@ -2033,11 +2077,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "timesync_cfg",
     "params": {
-      "note": "manual: site-specific timeserver; timesyncd is the Ubuntu path"
+      "kind": "chrony"
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 292
   },
   {
@@ -2052,8 +2096,10 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "chrony_user",
+    "params": {
+      "user": "_chrony"
+    },
     "risk": "none",
     "page": 296
   },
@@ -2069,11 +2115,17 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "svc_enabled",
     "params": {
-      "note": "manual: chrony conflicts with systemd-timesyncd (Debian packaging removes it) — timesyncd is the Ubuntu 20.04 default path"
+      "units": [
+        "chrony.service"
+      ],
+      "packages": [
+        "chrony"
+      ],
+      "if_in_use": true
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 298
   },
   {
@@ -2307,8 +2359,10 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
+    "family": "info_only",
+    "params": {
+      "kind": "ipv6"
+    },
     "risk": "none",
     "page": 328
   },
@@ -2501,9 +2555,16 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv4.icmp_ignore_bogus_error_responses",
+          "value": "1"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 368
   },
   {
@@ -2518,9 +2579,16 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv4.icmp_echo_ignore_broadcasts",
+          "value": "1"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 373
   },
   {
@@ -2563,9 +2631,20 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv4.conf.all.secure_redirects",
+          "value": "0"
+        },
+        {
+          "key": "net.ipv4.conf.default.secure_redirects",
+          "value": "0"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 383
   },
   {
@@ -2608,9 +2687,28 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv4.conf.all.accept_source_route",
+          "value": "0"
+        },
+        {
+          "key": "net.ipv4.conf.default.accept_source_route",
+          "value": "0"
+        },
+        {
+          "key": "net.ipv6.conf.all.accept_source_route",
+          "value": "0"
+        },
+        {
+          "key": "net.ipv6.conf.default.accept_source_route",
+          "value": "0"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 393
   },
   {
@@ -2625,9 +2723,20 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv4.conf.all.log_martians",
+          "value": "1"
+        },
+        {
+          "key": "net.ipv4.conf.default.log_martians",
+          "value": "1"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 399
   },
   {
@@ -2666,9 +2775,20 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sysctl",
+    "params": {
+      "params": [
+        {
+          "key": "net.ipv6.conf.all.accept_ra",
+          "value": "0"
+        },
+        {
+          "key": "net.ipv6.conf.default.accept_ra",
+          "value": "0"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 409
   },
   {
@@ -2683,8 +2803,15 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
+    "family": "exclusive_stack",
+    "params": {
+      "group": [
+        "firewalld.service",
+        "nftables.service",
+        "iptables.service",
+        "ufw.service"
+      ]
+    },
     "risk": "none",
     "page": 416
   },
@@ -2790,9 +2917,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "ufw_rules",
+    "params": {
+      "kind": "loopback"
+    },
+    "risk": "safe",
     "page": 429
   },
   {
@@ -2807,9 +2936,11 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "ufw_rules",
+    "params": {
+      "kind": "outbound"
+    },
+    "risk": "safe",
     "page": 431
   },
   {
@@ -2824,9 +2955,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "ufw_rules",
+    "params": {
+      "kind": "open_ports"
+    },
+    "risk": "safe",
     "page": 433
   },
   {
@@ -2841,9 +2974,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "ufw_rules",
+    "params": {
+      "kind": "default_deny"
+    },
+    "risk": "safe",
     "page": 436
   },
   {
@@ -2903,9 +3038,11 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "nft_rules",
+    "params": {
+      "kind": "flushed"
+    },
+    "risk": "safe",
     "page": 444
   },
   {
@@ -2920,9 +3057,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "nft_rules",
+    "params": {
+      "kind": "table"
+    },
+    "risk": "safe",
     "page": 446
   },
   {
@@ -2937,9 +3076,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "nft_rules",
+    "params": {
+      "kind": "base_chains"
+    },
+    "risk": "safe",
     "page": 448
   },
   {
@@ -2954,9 +3095,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "nft_rules",
+    "params": {
+      "kind": "loopback"
+    },
+    "risk": "safe",
     "page": 450
   },
   {
@@ -2971,9 +3114,11 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "nft_rules",
+    "params": {
+      "kind": "established"
+    },
+    "risk": "safe",
     "page": 452
   },
   {
@@ -2988,9 +3133,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "nft_rules",
+    "params": {
+      "kind": "default_deny"
+    },
+    "risk": "safe",
     "page": 454
   },
   {
@@ -3027,9 +3174,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "nft_rules",
+    "params": {
+      "kind": "permanent"
+    },
+    "risk": "safe",
     "page": 458
   },
   {
@@ -3114,9 +3263,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "iptables_rules",
+    "params": {
+      "kind": "default_deny"
+    },
+    "risk": "safe",
     "page": 470
   },
   {
@@ -3131,9 +3282,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "iptables_rules",
+    "params": {
+      "kind": "loopback"
+    },
+    "risk": "safe",
     "page": 472
   },
   {
@@ -3148,9 +3301,11 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "iptables_rules",
+    "params": {
+      "kind": "established"
+    },
+    "risk": "safe",
     "page": 474
   },
   {
@@ -3165,9 +3320,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "iptables_rules",
+    "params": {
+      "kind": "open_ports"
+    },
+    "risk": "safe",
     "page": 476
   },
   {
@@ -3182,9 +3339,12 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "iptables_rules",
+    "params": {
+      "kind": "default_deny",
+      "ipv6": true
+    },
+    "risk": "safe",
     "page": 479
   },
   {
@@ -3199,9 +3359,12 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "iptables_rules",
+    "params": {
+      "kind": "loopback",
+      "ipv6": true
+    },
+    "risk": "safe",
     "page": 482
   },
   {
@@ -3216,9 +3379,12 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "iptables_rules",
+    "params": {
+      "kind": "established",
+      "ipv6": true
+    },
+    "risk": "safe",
     "page": 485
   },
   {
@@ -3233,9 +3399,12 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "iptables_rules",
+    "params": {
+      "kind": "open_ports",
+      "ipv6": true
+    },
+    "risk": "safe",
     "page": 487
   },
   {
@@ -3484,9 +3653,17 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sshd_param",
+    "params": {
+      "params": [
+        {
+          "key": "KexAlgorithms",
+          "op": "deny_list",
+          "value": "diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1"
+        }
+      ]
+    },
+    "risk": "safe",
     "page": 523
   },
   {
@@ -3809,9 +3986,12 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "sudo_defaults",
+    "params": {
+      "key": "NOPASSWD",
+      "op": "absent_tag"
+    },
+    "risk": "disruptive",
     "page": 554
   },
   {
@@ -4140,7 +4320,7 @@
       "Server",
       "Workstation"
     ],
-    "assessment": "Manual",
+    "assessment": "Automated",
     "family": "kv_conf",
     "params": {
       "files": [
@@ -4565,9 +4745,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "pw_change_past"
+    },
+    "risk": "safe",
     "page": 657
   },
   {
@@ -4582,9 +4764,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "uid0_root_only"
+    },
+    "risk": "safe",
     "page": 660
   },
   {
@@ -4599,9 +4783,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "gid0_root_only"
+    },
+    "risk": "safe",
     "page": 662
   },
   {
@@ -4650,9 +4836,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "root_path"
+    },
+    "risk": "safe",
     "page": 668
   },
   {
@@ -4692,9 +4880,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "system_shell"
+    },
+    "risk": "safe",
     "page": 673
   },
   {
@@ -4709,9 +4899,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "nologin_locked"
+    },
+    "risk": "safe",
     "page": 675
   },
   {
@@ -4815,9 +5007,16 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "svc_enabled",
+    "params": {
+      "units": [
+        "aidecheck.timer"
+      ],
+      "packages": [
+        "aide"
+      ]
+    },
+    "risk": "safe",
     "page": 693
   },
   {
@@ -4853,7 +5052,7 @@
       "Server",
       "Workstation"
     ],
-    "assessment": "Manual",
+    "assessment": "Automated",
     "family": "journald_fileperm",
     "params": {},
     "risk": "safe",
@@ -4870,7 +5069,7 @@
       "Server",
       "Workstation"
     ],
-    "assessment": "Manual",
+    "assessment": "Automated",
     "family": "kv_conf",
     "params": {
       "files": [
@@ -5163,9 +5362,9 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
+    "family": "rsyslog_actions",
     "params": {},
-    "risk": "safe",
+    "risk": "none",
     "page": 734
   },
   {
@@ -5213,7 +5412,7 @@
       "Server",
       "Workstation"
     ],
-    "assessment": "Manual",
+    "assessment": "Automated",
     "family": "pkg_present",
     "params": {
       "packages": [
@@ -5620,9 +5819,15 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "audit_rule",
+    "params": {
+      "rules": [
+        "-a always,exit -F arch=b64 -S chmod -S fchmod -S fchmodat -F auid>=1000 -F auid!=unset -k perm_mod",
+        "-a always,exit -F arch=b64 -S chown -S fchown -S fchownat -S lchown -F auid>=1000 -F auid!=unset -k perm_mod",
+        "-a always,exit -F arch=b64 -S setxattr -S lsetxattr -S fsetxattr -S removexattr -S lremovexattr -S fremovexattr -F auid>=1000 -F auid!=unset -k perm_mod"
+      ]
+    },
+    "risk": "safe",
     "page": 801
   },
   {
@@ -6354,9 +6559,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "unowned"
+    },
+    "risk": "safe",
     "page": 887
   },
   {
@@ -6371,9 +6578,11 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "suid_baseline",
+    "params": {
+      "baseline": "/etc/ohbs-image/suid-baseline.list"
+    },
+    "risk": "safe",
     "page": 890
   },
   {
@@ -6426,9 +6635,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "groups_exist"
+    },
+    "risk": "safe",
     "page": 899
   },
   {
@@ -6443,9 +6654,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "shadow_group_empty"
+    },
+    "risk": "safe",
     "page": 901
   },
   {
@@ -6536,9 +6749,11 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "user_audit",
+    "params": {
+      "kind": "home_dirs"
+    },
+    "risk": "safe",
     "page": 911
   },
   {

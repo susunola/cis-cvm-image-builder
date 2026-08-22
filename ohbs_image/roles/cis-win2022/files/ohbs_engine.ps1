@@ -428,6 +428,27 @@ function Invoke-Check {
             return @{status=if($ok){"pass"}else{"fail"}; detail="$path exists=$ok"}
         }
 
+        "reg-values-map" {
+            # Rules expressed as a SET of string values under one key —
+            # e.g. win2016 18.10.43.6.1.2 (ASR per-rule states: 15 REG_SZ
+            # GUID values = "1" under ...\Exploit Guard\ASR\Rules).
+            # params: {path, values: {name: expected-string, ...}}
+            $path = ConvertTo-RegistryPath $params.path
+            $entries = @($params.values.PSObject.Properties)
+            $bad = @()
+            foreach ($kv in $entries) {
+                $name = $kv.Name
+                $expected = "$($kv.Value)"
+                try {
+                    $val = Get-ItemProperty -Path $path -Name $name -ErrorAction Stop | Select-Object -ExpandProperty $name
+                    if ("$val" -ne $expected) { $bad += "$name='$val' (expected '$expected')" }
+                } catch { $bad += "$name not present (expected '$expected')" }
+            }
+            $ok = ($bad.Count -eq 0)
+            if ($ok) { return @{status="pass"; detail="${path}: all $($entries.Count) value(s) match"} }
+            return @{status="fail"; detail="${path}: $($bad -join '; ')"}
+        }
+
         # -- 6. Windows Firewall --
         "firewall-profile" {
             $fwProfile = $params.profile
@@ -814,6 +835,16 @@ function Invoke-Fix {
         }
 
         "reg-dword"  { return Set-RegValue $params.path $params.name $params.value "DWord" }
+        "reg-values-map" {
+            $regPath = ConvertTo-RegistryPath $params.path
+            try {
+                if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+                foreach ($kv in @($params.values.PSObject.Properties)) {
+                    Set-ItemProperty -Path $regPath -Name $kv.Name -Value "$($kv.Value)" -Type String -Force
+                }
+                return "applied"
+            } catch { return "failed: $($_.Exception.Message)" }
+        }
         "reg-string" { return Set-RegValue $params.path $params.name $params.value "String" }
         "uac"        { return Set-RegValue $params.path $params.name $params.value "DWord" }
         "wu-config"  { return Set-RegValue $params.path $params.name $params.value "DWord" }

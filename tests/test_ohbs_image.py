@@ -3707,23 +3707,37 @@ class TestRuleIdAndBenchmark:
             src = fh.read()
         assert "_remove_pkgs" in src
         assert 'DEBIAN_FRONTEND=noninteractive' in src
-        # Only _install_pkgs/_remove_pkgs may invoke dnf.
+        # Only _install_pkgs/_remove_pkgs may invoke dnf.  Read-only probes
+        # (the pkg_repos / updates_applied checks) call dnf directly — they
+        # mutate nothing, so the dnf/apt branch stays inside the check.
+        readonly = ('"repolist"', '"check-update"')
         direct = [ln for ln in src.splitlines()
-                  if 'sh(["dnf"' in ln]
+                  if 'sh(["dnf"' in ln
+                  and not any(ro in ln for ro in readonly)]
         assert not direct, f"direct dnf sh() calls remain: {direct}"
 
     def test_none_risk_partition_rules_are_manual(self):
-        """v0.16.15: partition/tmpfs decisions are site-specific — every
-        risk=none partition rule must carry family=manual so it is never
-        live-mounted at build time."""
+        """v0.16.15: partition/tmpfs decisions are site-specific — a
+        risk=none rule must never be live-mounted at build time.
+
+        Policy update (manual-rule automation wave): separate-partition
+        rules ARE now wired to family=partition as CHECK-ONLY — risk=none
+        already gates them out of apply in run_rule (see
+        test_none_risk_rules_never_applied), which turns the old
+        "risk=none => family=manual" convention into a score-lowering
+        no-op.  The invariant that still matters: a risk=none partition
+        rule must not carry allow_tmpfs, so even a future apply-path bug
+        cannot mount tmpfs over a live mountpoint mid-build."""
         import glob as _g
         for path in _g.glob("ohbs_image/roles/cis-*/files/rules.json"):
             with open(path, encoding="utf-8") as fh:
                 rules = json.load(fh)
             for r in rules:
-                if r.get("family") == "partition":
-                    assert r.get("risk") != "none", \
-                        f"{path}: {r['id']} partition rule still risk=none"
+                if r.get("family") != "partition":
+                    continue
+                if r.get("risk") == "none":
+                    assert "allow_tmpfs" not in (r.get("params") or {}), \
+                        f"{path}: {r['id']} risk=none partition rule carries allow_tmpfs"
 
     def test_sarif_carries_benchmark(self):
         from ohbs_image import _build_sarif

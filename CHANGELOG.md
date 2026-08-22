@@ -8,6 +8,60 @@ can be traced across rebuilds.
 ## [Unreleased]
 
 ### Added
+- **19 new/extended engine families automating ~130 `manual` Linux rules**
+  (all 8 Linux roles share the byte-identical engine; catalog wiring is a
+  separate change).  New check families:
+  - package/repo hygiene: `gpg_keys`, `pkg_repos`, `updates_applied`
+    (fixer runs a full `dnf -y update` / `apt-get -y upgrade` under
+    `_pkg_lock` with an 1800s budget), `pkg_verify` (rpm -Va / dpkg
+    --verify mode/owner drift), `suid_baseline` (SUID/SGID files vs an
+    explicit `params.allow` baseline with a bit-stripping fixer, OR
+    golden-image mode: `params.baseline` records the post-hardening set
+    at apply time and fails later scans on any addition — missing
+    recording is `fail` in apply mode so the fixer fires, `manual` in
+    scan mode), `apt_signed_by`;
+  - network: `listening_ports` (ss-based allowlist, default SSH+loopback;
+    deliberately no fixer), `nft_rules`, `iptables_rules` (+`ipv6` flag),
+    `firewalld_rules`, `ufw_rules` — the four firewall detail families
+    embed the `fw_stack_in_use` guard and return `notapplicable` when
+    their stack is not enabled/active;
+  - services/config: `kmod_list`, `exclusive_stack`, `exclusive_logging`,
+    `timesync_cfg`, `apparmor`, `perm_glob`, `rsyslog_actions`,
+    `audit_rules_valid` (literal "audit rules load" syntax check — see the
+    in-code ASSUMPTION note pending benchmark-PDF confirmation).
+  Extensions: `chrony_user` gains `params.user` (Ubuntu `_chrony`, checked
+  via the running process or the unit's `User=` directive);
+  `user_audit` gains the `shadow_group_empty` kind (fixer strips members
+  via `gpasswd -d`, refuses to move primary groups).
+- **All 8 Linux catalogs wired to the automation families** — every rule
+  previously evaluating as `manual` was mapped to an existing or new
+  family (separate-partition rules became check-only `partition` with
+  risk=none; SUID/SGID audit rules use the new baseline-recording mode).
+  Residual `manual` rules per catalog: tencentos4 **0**; rhel8/9/10,
+  tencentos3, ubuntu2004/2204 **2** each (journal-upload auth and the
+  remote rsyslog destination — both need site-specific endpoints);
+  ubuntu2404 **4** (plus sshd ListenAddress and rsyslog gtls/CA
+  material).  Catalog data bugs fixed along the way: tencentos4 1.11
+  (orphan params belonged to `crypto_policy`), ubuntu2404 1.3.1.3
+  (orphan apparmor params), the 5.3.3.2.3/6.2.x assessment-metadata lags
+  in every catalog, and the rhel9/ubuntu2004 3.3.x sysctl rules left at
+  family=manual while siblings automated them.
+- **Windows catalogs automated** (win2016/2019/2022/2025): ~234 rules
+  moved from `manual` to the existing registry/secedit families
+  (`reg-dword`, `reg-string`, `reg-multisz`, `user-right`,
+  `audit-policy`, …) — CIS 18.x/19.x Administrative-Template rules are
+  registry-backed, so this was mostly catalog data completion.  New
+  ps1-engine family `reg-values-map` (a SET of string values under one
+  key) covers win2016 18.10.43.6.1.2 (ASR per-rule states).  Residual
+  `manual`: 15–16 per catalog — rename-Administrator/Guest (would break
+  the build's own WinRM login), DC-only rules, IPv6 disable (too
+  disruptive on cloud images), and the HKCU-only 19.x policies a golden
+  image cannot enforce.  Data bugs fixed: win2016 2.3.1.1 params,
+  win2022 9.2.5 stray space in the registry path, and the
+  Guest-account-status rules that mapped to `SpecialAccounts\UserList`
+  (hides the account; does not disable it).  WinRM-listener rules are
+  marked `risk: medium` — applying `AllowAutoConfig=0` on a live host
+  can drop its management listener.
 - **Firewall-stack guard + firewalld probes (engine + tencentos4 catalog)** —
   the CIS 3.4 firewall sections are mutually exclusive alternatives
   (firewalld 3.4.2.x / nftables 3.4.3.x / iptables 3.4.4.x), yet every
