@@ -53,6 +53,15 @@ def _bundle_role(workdir: Path, role_dir: str) -> None:
             f"The package may be corrupted — reinstall ohbs_image."
         )
     dst = workdir / "ansible" / "roles" / role_dir
+    # A shared workdir accumulates roles from earlier builds; the whole
+    # roles/ tree is staged into the build VM, where a cis-* glob would
+    # then pick the wrong engine for the final-state re-scan.  Drop every
+    # role except the one this build bundles.
+    roles_dir = workdir / "ansible" / "roles"
+    if roles_dir.is_dir():
+        for stale in roles_dir.iterdir():
+            if stale.is_dir() and stale.name != role_dir:
+                shutil.rmtree(stale)
     if dst.exists():
         shutil.rmtree(dst)
     shutil.copytree(src, dst, ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
@@ -536,6 +545,7 @@ def render_all(workdir: Path, r: ResolvedConfig, scan: bool = False,
                .replace("__CIS_LEVEL__", r.cis_level_tag)
                .replace("__IMAGE_BENCHMARK__", r.image_benchmark)
                .replace("__IMAGE_CATALOG__", r.catalog_basename)
+               .replace("__ROLE_DIR__", r.role_dir)
                .replace("__CIS_IMAGE_VERSION__", VERSION)
                .replace("__CIS_PROFILE_SHORT__", f"L{r.level}")
                .replace("__HOSTS_FIX_HCL__", HOSTS_FIX_SNIPPET.replace('"', '\\"'))

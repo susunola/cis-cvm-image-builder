@@ -898,9 +898,9 @@
     "assessment": "Automated",
     "family": "bootloader_password",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 144,
-    "note": "Site-specific credential; GRUB/bootloader passwords are not set on cloud golden images by default. Exempt or set one out-of-band per site policy."
+    "note": "auto-remediated: ohbs-image sets a per-image random GRUB superuser password at build time (hash in grub config, plaintext root-only in /root/ohbs-image-grub-password)"
   },
   {
     "id": "1.4.2",
@@ -940,7 +940,7 @@
         }
       ]
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 150
   },
   {
@@ -988,7 +988,7 @@
         }
       ]
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 160
   },
   {
@@ -1914,7 +1914,7 @@
     "assessment": "Automated",
     "family": "mta_local",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 264
   },
   {
@@ -1932,7 +1932,8 @@
     "family": "listening_ports",
     "params": {
       "allow_ports": [
-        22
+        22,
+        "68/udp"
       ]
     },
     "risk": "none",
@@ -3253,7 +3254,7 @@
       "sep": "=",
       "value": "DROP"
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 471
   },
   {
@@ -3277,7 +3278,7 @@
       "sep": "=",
       "value": "ACCEPT"
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 473
   },
   {
@@ -3301,7 +3302,7 @@
       "sep": "=",
       "value": "DROP"
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 475
   },
   {
@@ -4933,34 +4934,6 @@
     "page": 674
   },
   {
-    "id": "6.1.1.1.4",
-    "title": "Ensure journald ForwardToSyslog is disabled",
-    "section": "6.1.1.1",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "kv_conf",
-    "params": {
-      "files": [
-        "/etc/systemd/journald.conf"
-      ],
-      "globs": [
-        "/etc/systemd/journald.conf.d/*.conf"
-      ],
-      "key": "ForwardToSyslog",
-      "sep": "=",
-      "value": "no",
-      "op": "eq"
-    },
-    "risk": "safe",
-    "page": 676
-  },
-  {
     "id": "6.1.1.1.5",
     "title": "Ensure journald Storage is configured",
     "section": "6.1.1.1",
@@ -6477,7 +6450,7 @@
     "params": {
       "kind": "unowned"
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 878
   },
   {

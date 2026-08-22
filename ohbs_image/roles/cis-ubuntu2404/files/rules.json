@@ -224,13 +224,12 @@
         "hfs",
         "hfsplus",
         "jffs2",
-        "overlay",
-        "squashfs",
         "udf"
       ]
     },
-    "risk": "none",
-    "page": 55
+    "risk": "safe",
+    "page": 55,
+    "note": "overlay/squashfs dropped: both are required by snapd on Ubuntu; blacklisting them would break snap confinement"
   },
   {
     "id": "1.1.2.1.1",
@@ -1076,9 +1075,9 @@
     "assessment": "Automated",
     "family": "bootloader_password",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 163,
-    "note": "Site-specific credential; GRUB/bootloader passwords are not set on cloud golden images by default. Exempt or set one out-of-band per site policy."
+    "note": "auto-remediated: ohbs-image sets a per-image random GRUB superuser password at build time (hash in grub config, plaintext root-only in /root/ohbs-image-grub-password)"
   },
   {
     "id": "1.4.2",
@@ -1756,7 +1755,7 @@
     "assessment": "Automated",
     "family": "mta_local",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 264
   },
   {
@@ -1799,7 +1798,12 @@
     ],
     "assessment": "Manual",
     "family": "listening_ports",
-    "params": {},
+    "params": {
+      "allow_ports": [
+        22,
+        "68/udp"
+      ]
+    },
     "risk": "none",
     "page": 270
   },
@@ -3633,7 +3637,7 @@
       "value": "DROP",
       "op": "eq"
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 523
   },
   {
@@ -3658,7 +3662,7 @@
       "value": "ACCEPT",
       "op": "eq"
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 525
   },
   {
@@ -3683,7 +3687,7 @@
       "value": "DROP",
       "op": "eq"
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 527
   },
   {
@@ -5175,7 +5179,7 @@
     "params": {
       "kind": "root_path"
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 705
   },
   {
@@ -7074,7 +7078,7 @@
     "params": {
       "kind": "unowned"
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 939
   },
   {

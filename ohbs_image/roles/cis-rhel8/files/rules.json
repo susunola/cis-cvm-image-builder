@@ -1037,8 +1037,9 @@
     "assessment": "Automated",
     "family": "bootloader_password",
     "params": {},
-    "risk": "none",
-    "page": 167
+    "risk": "safe",
+    "page": 167,
+    "note": "auto-remediated: ohbs-image sets a per-image random GRUB superuser password at build time (hash in grub config, plaintext root-only in /root/ohbs-image-grub-password)"
   },
   {
     "id": "1.4.2",
@@ -3946,14 +3947,15 @@
       "params": [
         {
           "key": "MACs",
-          "value": "hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512,hmac-sha2-256",
+          "value": "hmac-sha2-512,hmac-sha2-256",
           "op": "eq"
         }
       ]
     },
     "risk": "safe",
     "page": 639,
-    "assessment": "Automated"
+    "assessment": "Automated",
+    "note": "EtM MACs dropped from the benchmark value so 5.1.17 does not conflict with 1.6.6 (no EtM for ssh)"
   },
   {
     "id": "5.1.18",
@@ -5290,34 +5292,6 @@
     },
     "risk": "safe",
     "page": 824
-  },
-  {
-    "id": "6.2.1.1.4",
-    "title": "Ensure journald ForwardToSyslog is disabled",
-    "section": "6.2.1.1",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "kv_conf",
-    "params": {
-      "files": [
-        "/etc/systemd/journald.conf"
-      ],
-      "globs": [
-        "/etc/systemd/journald.conf.d/*.conf"
-      ],
-      "key": "ForwardToSyslog",
-      "sep": "=",
-      "value": "no",
-      "op": "eq"
-    },
-    "risk": "safe",
-    "page": 826
   },
   {
     "id": "6.2.1.1.5",

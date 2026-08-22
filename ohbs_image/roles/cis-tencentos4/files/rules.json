@@ -698,8 +698,9 @@
     "assessment": "Automated",
     "family": "bootloader_password",
     "params": {},
-    "risk": "none",
-    "page": 117
+    "risk": "safe",
+    "page": 117,
+    "note": "auto-remediated: ohbs-image sets a per-image random GRUB superuser password at build time (hash in grub config, plaintext root-only in /root/ohbs-image-grub-password)"
   },
   {
     "id": "1.5.2",

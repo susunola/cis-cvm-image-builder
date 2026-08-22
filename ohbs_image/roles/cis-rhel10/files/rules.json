@@ -217,7 +217,6 @@
     "params": {
       "modules": [
         "cramfs",
-        "fat",
         "freevxfs",
         "hfs",
         "hfsplus",
@@ -228,8 +227,9 @@
       ],
       "note": "check-only: 'fat' stays loaded on UEFI hosts (vfat ESP), so the modprobe.d fixer is not auto-applied"
     },
-    "risk": "none",
-    "page": 56
+    "risk": "safe",
+    "page": 56,
+    "note": "'fat' dropped from the combined list: /boot/efi is vfat (needs the fat module) — blacklisting it would break ESP mounts on UEFI hosts"
   },
   {
     "id": "1.1.2.1.1",
@@ -1040,8 +1040,9 @@
     "assessment": "Automated",
     "family": "bootloader_password",
     "params": {},
-    "risk": "none",
-    "page": 162
+    "risk": "safe",
+    "page": 162,
+    "note": "auto-remediated: ohbs-image sets a per-image random GRUB superuser password at build time (hash in grub config, plaintext root-only in /root/ohbs-image-grub-password)"
   },
   {
     "id": "1.4.2",
@@ -1683,6 +1684,7 @@
     "title": "Ensure cockpit web services are not in use",
     "section": "2.1",
     "levels": [
+      1,
       2
     ],
     "platforms": [
@@ -1701,7 +1703,8 @@
       ]
     },
     "risk": "disruptive",
-    "page": 278
+    "page": 278,
+    "note": "benchmark assigns L2; enforced at L1 here so the golden image has no cockpit listener on 9090/tcp (2.1.22 approved-ports policy)"
   },
   {
     "id": "2.1.4",
@@ -5177,31 +5180,6 @@
     },
     "risk": "disruptive",
     "page": 794
-  },
-  {
-    "id": "6.2.2.2",
-    "title": "Ensure journald ForwardToSyslog is disabled",
-    "section": "6.2.2",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "family": "kv_conf",
-    "params": {
-      "files": [
-        "/etc/systemd/journald.conf.d/99-cis.conf"
-      ],
-      "key": "ForwardToSyslog",
-      "sep": "=",
-      "value": "no",
-      "op": "eq"
-    },
-    "risk": "safe",
-    "page": 796,
-    "assessment": "Automated"
   },
   {
     "id": "6.2.2.3",

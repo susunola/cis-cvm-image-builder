@@ -20,6 +20,7 @@ reported in the JSON document written to stdout (or --out).
 import argparse
 import glob as globmod
 import grp
+import hashlib
 import json
 import os
 import pwd
@@ -1338,10 +1339,14 @@ def f_logfile_perm(ctx, p):
        "2>/dev/null || true", 30)
     # apt re-creates /var/log/apt/*.log* 0644 on every run (ubuntu2004
     # 6.2.4.1); hook DPkg so the CIS perms survive later apt activity.
+    # eipp.log.xz is written by `apt update` (no DPkg invoke), so hook the
+    # update path too (seen live on ubuntu2204: 6.1.3.1 stayed red).
     if os.path.isdir("/etc/apt/apt.conf.d"):
         hook = "/etc/apt/apt.conf.d/99cis-logperms"
         body = ('DPkg::Post-Invoke {"chmod g-wx,o-rwx /var/log/apt/*.log* '
-                '2>/dev/null || true";};\n')
+                '2>/dev/null || true";};\n'
+                'APT::Update::Post-Invoke-Success {"chmod g-wx,o-rwx '
+                '/var/log/apt/*.log* 2>/dev/null || true";};\n')
         if read(hook) != body:
             write_file(ctx, hook, body, 0o644)
             ctx.add_changed_file(hook)
@@ -1502,8 +1507,14 @@ def c_svc_enabled(ctx, p):
     # systemd-timesyncd): when neither the unit nor its provider package
     # exists, the service is simply not in use on this host — another time
     # sync daemon (chrony) may be covering the control.  That is
-    # notapplicable, not a failure.
-    if p.get("if_in_use") and not any(unit_exists(u) for u in units) \
+    # notapplicable, not a failure.  A MASKED unit (e.g. timesyncd after the
+    # single-daemon rule masked it) also counts as not in use.
+    def _in_use(u):
+        if not unit_exists(u):
+            return False
+        en, _ = _unit_state(u)
+        return en != "masked"
+    if p.get("if_in_use") and not any(_in_use(u) for u in units) \
             and not any(pkg_installed(x) for x in pkgs):
         return ("notapplicable",
                 "%s not present — service not in use on this host (conditional rule)"
@@ -1578,16 +1589,23 @@ def _bootstrap_journal_upload(ctx):
 
     This avoids needing an external log server while making the service
     genuinely active, and leaves a local archived copy of the journal in
-    /var/log/journal-remote/.  Pitfalls handled:
-      1. journal-upload.conf syntax differs by systemd version:
-         URL= (>= 245 / RHEL9) vs UploadServer= (< 245 / RHEL8).
-      2. the remote archive grows unbounded — a logrotate rule caps it.
-      3. no upload loop: remote stores into /var/log/journal-remote,
+    /var/log/journal-remote/.  Pitfalls handled (all seen live on RHEL8):
+      1. journal-upload.conf knows ONLY the URL= lvalue, on every systemd
+         version — the imagined legacy 'UploadServer=' is rejected by
+         RHEL8's systemd 239 ("Unknown lvalue") and kills the service.
+      2. the receiver must stay SOCKET-ACTIVATED: masking the socket makes
+         the service unstartable (Requires=systemd-journal-remote.socket,
+         and 'Sockets=' cannot be cleared from a drop-in — "Unknown
+         lvalue").  Instead the socket is pinned to loopback and the
+         service speaks plain HTTP on the activation fd (--listen-http=-3;
+         the stock unit uses --listen-https=-3 which demands TLS).
+      3. the remote archive grows unbounded — a logrotate rule caps it.
+      4. no upload loop: remote stores into /var/log/journal-remote,
          which journal-upload never reads.
-      4. the stock remote unit runs PrivateNetwork=yes — a 127.0.0.1
+      5. the stock remote unit runs PrivateNetwork=yes — a 127.0.0.1
          listener inside that netns is unreachable from journal-upload,
          so the drop-in turns it off.
-      5. after CIS hardening /var/log/journal is 2740 root:systemd-journal,
+      6. after CIS hardening /var/log/journal is 2740 root:systemd-journal,
          so the systemd-journal-remote user cannot traverse into
          /var/log/journal/remote and the service dies with "output must be
          a directory" — the archive lives in a top-level LogsDirectory
@@ -1601,31 +1619,26 @@ def _bootstrap_journal_upload(ctx):
             ctx.add_note("journal-upload: cannot install %s: %s"
                          % (", ".join(missing), err))
             return False, "cannot install systemd-journal-remote: %s" % err
-    # 1. Loopback receiver — drop-in override on the stock unit.
-    #    The stock socket unit is NOT used: socket activation would hold
-    #    127.0.0.1:19532 before the service binds it ("Address already in
-    #    use"), so the socket is masked and the service binds directly
-    #    (Requires= cleared so the socket is not pulled back in).
+    # 1. Loopback receiver: socket pinned to 127.0.0.1 + service speaking
+    #    plain HTTP on the activation fd.
     rem = out("command -v systemd-journal-remote 2>/dev/null || "
               "echo /usr/lib/systemd/systemd-journal-remote", 20).strip()
     os.makedirs("/var/log/journal-remote", exist_ok=True)
     write_file(ctx,
+               "/etc/systemd/system/systemd-journal-remote.socket.d/ohbs_image.conf",
+               "[Socket]\nListenStream=\nListenStream=127.0.0.1:19532\n", 0o644)
+    write_file(ctx,
                "/etc/systemd/system/systemd-journal-remote.service.d/ohbs_image.conf",
-               "[Unit]\nRequires=\n"
                "[Service]\nPrivateNetwork=no\nLogsDirectory=\n"
                "LogsDirectory=journal-remote\nExecStart=\n"
-               "ExecStart=%s --listen-http=127.0.0.1:19532 "
+               "ExecStart=%s --listen-http=-3 "
                "--output=/var/log/journal-remote/\n" % rem, 0o644)
     sh(["systemctl", "daemon-reload"], 30)
-    sh(["systemctl", "mask", "systemd-journal-remote.socket"], 60)
-    sh(["systemctl", "enable", "--now", "systemd-journal-remote.service"], 120)
-    # 2. journal-upload target — version-aware syntax.
-    ver = as_int((out("systemd --version 2>/dev/null | head -1 | "
-                      "awk '{print $2}'", 20) or "").strip()) or 0
-    if ver >= 245:
-        upload_cfg = "[Upload]\nURL=http://127.0.0.1:19532\n"
-    else:
-        upload_cfg = "[Upload]\nUploadServer=127.0.0.1:19532\n"
+    # Older images masked the socket (a dead end — see pitfall 2); undo it.
+    sh(["systemctl", "unmask", "systemd-journal-remote.socket"], 60)
+    sh(["systemctl", "enable", "--now", "systemd-journal-remote.socket"], 120)
+    # 2. journal-upload target (URL= is the only valid lvalue).
+    upload_cfg = "[Upload]\nURL=http://127.0.0.1:19532\n"
     # NB: world-readable on purpose — systemd-journal-upload runs as the
     # systemd-journal user and must be able to READ this file; 0600 made
     # the service fail with "Permission denied" on Ubuntu.
@@ -1648,12 +1661,28 @@ def _bootstrap_journal_upload(ctx):
 def f_svc_enabled(ctx, p):
     # Conditional rule not in use on this host (see c_svc_enabled): do NOT
     # install/enable anything — the control is covered by another daemon.
-    if p.get("if_in_use") and not any(unit_exists(u) for u in (p.get("units") or [])):
-        return True, "service not present (conditional rule not in use) — nothing to do"
+    # A masked unit (deliberately disabled by the single-daemon rule) counts
+    # as not in use too.
+    if p.get("if_in_use"):
+        def _present(u):
+            if not unit_exists(u):
+                return False
+            en, _ = _unit_state(u)
+            return en != "masked"
+        if not any(_present(u) for u in (p.get("units") or [])):
+            return True, "service not present (conditional rule not in use) — nothing to do"
     pkgs = p.get("packages") or []
     missing = [x for x in pkgs if not pkg_installed(x)]
     if missing:
         ok, err = _install_pkgs(ctx, missing)
+        if not ok and have("apt-get"):
+            # Debian/Ubuntu ship the journal-upload BINARY (and unit) in the
+            # systemd-journal-remote package — there is no standalone
+            # systemd-journal-upload package ("Unable to locate package").
+            alt = {"systemd-journal-upload": "systemd-journal-remote"}
+            mapped = [alt.get(x, x) for x in missing]
+            if mapped != missing:
+                ok, err = _install_pkgs(ctx, mapped)
         if not ok:
             return False, "cannot install %s: %s" % (", ".join(missing), err)
     # CIS 6.2.1.2.3 special case: journal-upload needs a receiver to be
@@ -2826,6 +2855,10 @@ def c_authselect_feature(ctx, p):
 def f_authselect_feature(ctx, p):
     if not have("authselect"):
         return False, "authselect is not installed"
+    # enable-feature only works on a custom profile — create/select ours
+    # first (idempotent) or the command fails on stock sssd/minimal.
+    if not _ensure_custom_profile(ctx):
+        return False, "unable to create a custom authselect profile"
     rc, o, e = sh(["authselect", "enable-feature", p["feature"]], 60)
     if rc != 0:
         return False, "authselect enable-feature failed: %s" % (e or o)[:200]
@@ -2875,7 +2908,7 @@ def c_sudo_defaults(ctx, p):
         m = re.search(re.escape(key) + r"\s*=\s*(\"?)([^\",]+)\1", l)
         if m:
             vals.append((f, m.group(2).strip()))
-    if op == "kv":
+    if op in ("kv", "eq"):
         if any(v == str(want) for _, v in vals):
             return "pass", "%s=%s" % (key, want)
         return "fail", "%s=%s (expected %s)" % (
@@ -3400,8 +3433,12 @@ def _fix_sshd_crypto(ctx, kind):
     comment_out(ctx, "/etc/ssh/sshd_config", r"^\s*Ciphers\s")
     # Validate BEFORE deferring a restart: a drop-in sshd rejects would
     # kill the daemon on the next restart (and on reboot).  Roll the file
-    # back so SSH can never be bricked by a bad algorithm name.
-    rc, _, err = sh(["sshd", "-t"], 30)
+    # back so SSH can never be bricked by a bad algorithm name.  sshd -t
+    # needs the privilege-separation dir — on Debian/Ubuntu it lives in
+    # /run and only exists while the service is up, so create it first.
+    os.makedirs("/run/sshd", exist_ok=True)
+    sshd_bin = out("command -v sshd 2>/dev/null || echo /usr/sbin/sshd", 20).strip()
+    rc, _, err = sh([sshd_bin, "-t"], 30)
     if rc != 0:
         try:
             os.unlink(SSH_CRYPTO_DROPIN)
@@ -3483,7 +3520,7 @@ def c_crypto_policy(ctx, p):
 
 
 CRYPTO_MODULES = {
-    "no_sha1": ("NO-SHA1", "hash = -SHA1\nsign = -*-SHA1\nsha1_in_certs = 0\n"),
+    "no_sha1": ("NO-SHA1", "hash = -SHA1\nmac = -HMAC-SHA1\nsign = -*-SHA1\nsha1_in_certs = 0\n"),
     "no_weak_mac": ("NO-WEAKMAC", "mac = -*-64* -HMAC-MD5 -HMAC-SHA1\n"),
     "no_cbc_ssh": ("NO-SSHCBC", "cipher@SSH = -*-CBC\n"),
     "no_chacha_ssh": ("NO-SSHCHACHA20", "cipher@SSH = -CHACHA20-POLY1305\n"),
@@ -3493,22 +3530,33 @@ CRYPTO_MODULES = {
 
 @fix("crypto_policy")
 def f_crypto_policy(ctx, p):
-    if not have("update-crypto-policies"):
-        return False, "crypto-policies is not installed"
     kind = p["kind"]
     if kind in ("no_weak_mac", "no_etm_ssh", "no_cbc_ssh", "no_chacha_ssh"):
-        # SSH-side only — no system-wide policy change, not disruptive.
+        # SSH-side only — no system-wide policy change, not disruptive, and
+        # does NOT need update-crypto-policies (Ubuntu has none; the fixer
+        # used to bail out here and never wrote the sshd drop-in).
         return _fix_sshd_crypto(ctx, kind)
+    if not have("update-crypto-policies"):
+        return False, "crypto-policies is not installed"
     if kind in ("not_legacy", "future_or_fips"):
         target = "DEFAULT" if kind == "not_legacy" else "FUTURE"
         rc, o, e = sh(["update-crypto-policies", "--set", target], 120)
         if rc != 0:
             return False, "update-crypto-policies failed: %s" % (e or o)[:200]
+        _post_crypto_policy_fixups(ctx)
         ctx.invalidate("crypto_policy")
         return True, "set the system-wide crypto policy to %s (reboot recommended)" % target
     name, body = CRYPTO_MODULES[kind]
     modpath = "/etc/crypto-policies/policies/modules/%s.pmod" % name
-    write_file(ctx, modpath, "# CIS hardening\n" + body)
+    vendor = "/usr/share/crypto-policies/policies/modules/%s.pmod" % name
+    if exists(vendor):
+        # The OS-shipped module is authoritative — a locally written shadow
+        # wins over /usr/share, and ours once lacked mac=-HMAC-SHA1, leaving
+        # SHA1 in the gnutls/java backends after --set (rhel9 1.6.3).
+        if exists(modpath):
+            os.unlink(modpath)
+    else:
+        write_file(ctx, modpath, "# CIS hardening\n" + body)
     cur = crypto_policy_now(ctx) or "DEFAULT"
     base = cur.split(":")[0]
     mods = [m for m in cur.split(":")[1:] if m]
@@ -3518,8 +3566,20 @@ def f_crypto_policy(ctx, p):
     rc, o, e = sh(["update-crypto-policies", "--set", newpol], 120)
     if rc != 0:
         return False, "update-crypto-policies --set %s failed: %s" % (newpol, (e or o)[:160])
+    _post_crypto_policy_fixups(ctx)
     ctx.invalidate("crypto_policy")
     return True, "applied crypto policy %s (reboot recommended)" % newpol
+
+
+def _post_crypto_policy_fixups(ctx):
+    """update-crypto-policies regenerates /etc/sysconfig/sshd with the
+    package-default 0640 — re-assert the CIS 5.1.3 perms (0600 root:root)
+    so a parallel file_perm fixer cannot lose the race."""
+    f = "/etc/sysconfig/sshd"
+    if exists(f):
+        os.chmod(f, 0o600)
+        sh(["chown", "root:root", f], 30)
+        ctx.add_changed_file(f)
 
 # ==========================================================================
 # auditd
@@ -4131,7 +4191,46 @@ def c_bootloader_password(ctx, p):
     if not has_pw:
         miss.append("no password_pbkdf2 / GRUB2_PASSWORD")
     return "fail", "; ".join(miss)
-# no automated fix: the password must be chosen by an operator
+
+
+@fix("bootloader_password")
+def f_bootloader_password(ctx, p):
+    """Set a GRUB superuser with a per-image random pbkdf2 password.
+
+    The password is generated at build time, stored root-only in
+    /root/ohbs-image-grub-password (and noted in the image report) — only
+    the hash lands in the GRUB config.  Normal booting is unaffected; the
+    password is only required to edit menu entries / use the GRUB shell.
+    """
+    import secrets
+    pw = secrets.token_urlsafe(18)
+    salt = secrets.token_hex(32)
+    digest = hashlib.pbkdf2_hmac(
+        "sha512", pw.encode(), bytes.fromhex(salt), 10000).hex()
+    grub_pw = "grub.pbkdf2.sha512.10000.%s.%s" % (salt, digest)
+    if have("grub2-mkconfig") or exists("/boot/grub2"):
+        # RHEL/TencentOS path: /boot/grub2/user.cfg is sourced by grub.cfg.
+        write_file(ctx, "/boot/grub2/user.cfg",
+                   "GRUB2_PASSWORD=%s\n" % grub_pw, 0o600)
+        where = "/boot/grub2/user.cfg"
+    else:
+        # Debian/Ubuntu path: a grub.d drop-in + update-grub.  01_users is
+        # one of the files the check inspects.
+        body = ('#!/bin/sh\n'
+                'exec tail -n +3 $0\n'
+                '# CIS hardening: GRUB superuser (ohbs-image)\n'
+                'set superusers="root"\n'
+                'password_pbkdf2 root %s\n' % grub_pw)
+        write_file(ctx, "/etc/grub.d/01_users", body, 0o755)
+        rc, o, e = sh(["update-grub"], 120)
+        if rc != 0:
+            return False, "update-grub failed: %s" % (e or o)[:160]
+        where = "/etc/grub.d/01_users"
+    write_file(ctx, "/root/ohbs-image-grub-password",
+               "# GRUB superuser password generated by ohbs-image at build"
+               " time.\n# Rotate per site policy; the hash lives in %s.\n"
+               "root %s\n" % (where, pw), 0o600)
+    return True, "set GRUB superuser 'root' with a random pbkdf2 password (%s)" % where
 
 
 @check("bootloader_perm")
@@ -5039,7 +5138,12 @@ def f_updates_applied(ctx, p):
         if have("dnf"):
             cmd = ["dnf", "-y", "update"]
         elif have("apt-get"):
-            cmd = ["env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "-y", "upgrade"]
+            # dist-upgrade also applies kept-back updates (new deps); the
+            # phased-updates opt-in keeps 'N update(s) pending' from
+            # lingering on packages apt would otherwise hold back (fwupd).
+            cmd = ["env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "-y",
+                   "-o", "APT::Get::Always-Include-Phased-Updates=true",
+                   "dist-upgrade"]
         else:
             return False, "no supported package manager found"
         rc, o, e = sh(cmd, 1800)
@@ -5087,9 +5191,13 @@ def c_listening_ports(ctx, p):
     for proto, addr, port, proc in _listening_sockets(ctx):
         if _is_loopback_addr(addr):
             continue
-        if port not in allow:
-            offenders.append("%s/%s on %s%s" % (
-                port, proto, addr or "*", " (%s)" % proc if proc else ""))
+        # Entries are either a bare port ("22", any proto) or proto-pinned
+        # ("68/udp") — the latter whitelists e.g. the DHCP client without
+        # also opening 68/tcp.
+        if port in allow or "%s/%s" % (port, proto) in allow:
+            continue
+        offenders.append("%s/%s on %s%s" % (
+            port, proto, addr or "*", " (%s)" % proc if proc else ""))
     if offenders:
         return "fail", "unexpected listener(s): " + ", ".join(sorted(offenders))
     return "pass", "all listening ports are loopback-only or in %s" % sorted(allow)
@@ -5416,12 +5524,13 @@ def c_firewalld_rules(ctx, p):
         #  address="127.0.0.1" drop' in the trusted zone; accept the 127/8
         # variant too.
         for z, rule in _firewalld_rich_rules():
-            if not re.search(r"\b(drop|reject)\b", rule):
+            # firewall-cmd normalises 'not' to uppercase NOT — match both.
+            if not re.search(r"\b(drop|reject)\b", rule, re.I):
                 continue
-            if not re.search(r'source\s+address="?127\.0\.0\.(1|0/8)"?', rule):
+            if not re.search(r'source\s+address="?127\.0\.0\.(1|0/8)"?', rule, re.I):
                 continue
-            if re.search(r'destination\s+not\s+address', rule) or \
-                    re.search(r'source\s+address="?127\.0\.0\.0/8"?', rule):
+            if re.search(r'destination\s+not\s+address', rule, re.I) or \
+                    re.search(r'source\s+address="?127\.0\.0\.0/8"?', rule, re.I):
                 return "pass", "anti-spoof rich rule in zone %s" % z
         return "fail", "no rich rule drops loopback-sourced traffic off lo"
     if kind == "services":
@@ -5618,11 +5727,19 @@ def c_exclusive_stack(ctx, p):
     if not group:
         return "error", "rule has no group configured (incomplete catalog)"
     in_use = []
+    seen_frag = set()
     for u in group:
         if not unit_exists(u):
             continue
         en, ac = _unit_state(u)
         if en in ("enabled", "enabled-runtime") or ac == "active":
+            # Alias units (chronyd.service -> chrony.service) share one
+            # FragmentPath — counting both would phantom-fail the rule.
+            frag = out(["systemctl", "show", "-p", "FragmentPath",
+                        "--value", u], 30).strip()
+            if frag and frag in seen_frag:
+                continue
+            seen_frag.add(frag)
             in_use.append("%s(%s/%s)" % (u, en or "disabled", ac or "inactive"))
     if len(in_use) == 1:
         return "pass", "exactly one in use: %s" % in_use[0]
@@ -6180,16 +6297,21 @@ def _ensure_custom_profile(ctx):
 
 
 def _pam_edit_targets(ctx):
-    targets = []
     d = _ensure_custom_profile(ctx)
     if d:
-        for n in ("system-auth", "password-auth"):
-            fp = os.path.join(d, n)
-            if exists(fp):
-                targets.append(fp)
-    # Always include PAM_FILES as well — authselect-managed symlinks may
-    # have args that the custom profile source does not (e.g. nullok injected
-    # by the authselect template compiler).
+        targets = [os.path.join(d, n) for n in ("system-auth", "password-auth")
+                   if exists(os.path.join(d, n))]
+        if targets:
+            # authselect manages /etc/pam.d via symlinks — edit ONLY the
+            # custom-profile sources and let apply-changes regenerate the
+            # live stack.  Writing /etc/pam.d (or /etc/authselect/*) through
+            # an atomic replace turns authselect's symlinks into regular
+            # files, after which EVERY authselect operation refuses with
+            # "unexpected content" (seen live on RHEL8/9: with-faillock
+            # could never be enabled again).
+            return targets
+    # No authselect: edit the live stack files directly.
+    targets = []
     for f in PAM_FILES:
         fp = os.path.realpath(f) if exists(f) else f
         if exists(fp) and fp not in targets:
@@ -6357,14 +6479,15 @@ def f_pam_arg(ctx, p):
         return f_pam_arg(ctx, dict(p, _arg_retry=1))
     _pam_apply(ctx)
     # authselect apply-changes regenerates /etc/pam.d from the selected
-    # profile.  TencentOS 3 ships a modified sssd profile that authselect
-    # refuses to clone, so apply-changes can re-inject the removed arg
-    # (nullok) from the stock profile.  Re-apply the edit once more so the
-    # final on-disk state is correct regardless.
-    # authselect apply-changes regenerates /etc/pam.d from the selected
-    # profile and can re-inject the stock arg (observed on TencentOS 3
-    # with a modified sssd profile).  Re-apply the edit once more so the
-    # final on-disk state is correct regardless of set/absent mode.
+    # custom profile, which already carries this edit.  Only re-apply the
+    # edit directly when the live stack is NOT authselect-managed — writing
+    # through authselect's symlinks would replace them with regular files
+    # and every later authselect operation would refuse ("unexpected
+    # content", seen live on RHEL8/9).
+    prof, _feats = _authselect_current(ctx)
+    if prof and prof.startswith("custom/"):
+        verb = "removed" if newarg is None else "set"
+        return True, "%s %s on %s in %d file(s)" % (verb, arg, mod, changed)
     for f in PAM_FILES:
         if not exists(f):
             continue

@@ -977,8 +977,9 @@
     "assessment": "Automated",
     "family": "bootloader_password",
     "params": {},
-    "risk": "none",
-    "page": 169
+    "risk": "safe",
+    "page": 169,
+    "note": "auto-remediated: ohbs-image sets a per-image random GRUB superuser password at build time (hash in grub config, plaintext root-only in /root/ohbs-image-grub-password)"
   },
   {
     "id": "1.4.2",
@@ -2958,7 +2959,7 @@
     "params": {
       "kind": "services"
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 479
   },
   {
@@ -2977,7 +2978,7 @@
     "params": {
       "kind": "loopback"
     },
-    "risk": "none",
+    "risk": "safe",
     "page": 481
   },
   {
@@ -4841,31 +4842,6 @@
     },
     "risk": "disruptive",
     "page": 750
-  },
-  {
-    "id": "6.2.2.2",
-    "title": "Ensure journald ForwardToSyslog is disabled",
-    "section": "6.2.2",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "family": "kv_conf",
-    "params": {
-      "files": [
-        "/etc/systemd/journald.conf.d/99-cis.conf"
-      ],
-      "key": "ForwardToSyslog",
-      "sep": "=",
-      "value": "no",
-      "op": "eq"
-    },
-    "risk": "safe",
-    "page": 752,
-    "assessment": "Automated"
   },
   {
     "id": "6.2.2.3",

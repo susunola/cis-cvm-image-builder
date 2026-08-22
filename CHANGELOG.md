@@ -7,6 +7,76 @@ can be traced across rebuilds.
 
 ## [Unreleased]
 
+### Fixed (fleet re-audit round, all 8 Linux roles)
+- **role bundling: purge stale roles from the shared workdir** — the build
+  workdir is reused across runs, so `workdir/ansible/roles/` accumulated
+  every previously-built role; any glob-based engine lookup (finalize
+  re-scan, `_probe_scan`) could pick a different OS family's engine and
+  report another distro's results. `_bundle_role` now removes every role
+  directory except the current one before copying, and the finalize
+  re-scan / probe scan resolve the engine via the explicit
+  `/opt/ohbs-image-ansible/roles/__ROLE_DIR__/files` path with the glob
+  only as a fallback.
+- **finalize banner drop-in mode 0600** — `99-ohbs-image-banner.conf` was
+  written 0644, failing the CIS sshd_config permission check on its own.
+- **`sudo_defaults` accepts `op: eq`** — 5.2.3 (`Defaults use_pty` etc.)
+  failed on every platform because the checker only understood `kv`.
+- **authselect: never write through a profile symlink** — on rhel8/9 the
+  PAM edit path atomically replaced `/etc/authselect/custom/*` symlinks
+  with plain files, after which every authselect operation refused to
+  touch the profile ("unexpected content") and with-faillock/with-pwhistory
+  could never be enabled. `_pam_edit_targets` now edits only the custom
+  profile's source files when one exists; `f_pam_arg`'s direct
+  `/etc/pam.d` re-apply loop runs only for non-custom profiles, and
+  `f_authselect_feature` creates the custom profile (based on `sssd`)
+  before enabling features.
+- **journald upload: socket-activated remote sink** —
+  `_bootstrap_journal_upload` rewritten: a socket drop-in re-points
+  `systemd-journal-remote.socket` at 127.0.0.1:19532, the service drop-in
+  drops PrivateNetwork and writes to `/var/log/journal-remote/`, the
+  masked unit from older images is unmasked, and `journal-upload.conf`
+  always uses `URL=http://127.0.0.1:19532` (`UploadServer=` is not a
+  valid lvalue on systemd 239).
+- **`crypto_policy` fixes** — SSH crypto rules (`no_weak_mac`, …) no
+  longer require `update-crypto-policies` (absent on Ubuntu, so 5.1.15
+  never fixed); a post-fix hook restores `/etc/sysconfig/sshd` to
+  0600 root:root after `update-crypto-policies` rewrites it 0640; the
+  `no_sha1` module gains `mac = -HMAC-SHA1`, and the fixer prefers the
+  vendor `NO-SHA1.pmod` module when present instead of shadowing it with
+  a local (incomplete) one.
+- **`svc_enabled`: masked units count as "not in use"** — an
+  `if_in_use` rule whose unit is masked now evaluates `notapplicable`
+  (ubuntu2204: chrony's rule masks systemd-timesyncd, which then
+  reported itself as a failure). The fixer also falls back to the
+  `systemd-journal-remote` package on apt systems where
+  `systemd-journal-upload` does not exist.
+- **`updates_applied` (apt): dist-upgrade + phased updates** — plain
+  `apt-get -y upgrade` leaves kept-back/phased updates pending; the
+  fixer now runs `dist-upgrade` with
+  `APT::Get::Always-Include-Phased-Updates=true`.
+- **`exclusive_stack` dedupes unit aliases** — units sharing one
+  `FragmentPath` (chrony/chronyd) no longer count as two stacks.
+- **`listening_ports`: protocol-qualified allowlist entries** —
+  `allow_ports` accepts `"68/udp"` so DHCP clients do not fail the check.
+- **`logfile_perm`: also hook `APT::Update::Post-Invoke-Success`** —
+  `eipp.log.xz` is written by `apt update`, which the DPkg hook misses.
+- **new fixer `bootloader_password`** — generates a random GRUB
+  superuser password (PBKDF2-SHA512, 10k rounds) per build: RHEL-family
+  writes `/boot/grub2/user.cfg`, Debian-family a `01_users` drop-in +
+  `update-grub`; the cleartext is stashed in
+  `/root/ohbs-image-grub-password` (0600). Catalogs flipped from
+  risk=none to safe on all 8 Linux roles.
+- **catalog conflict cleanups** — rhel8 5.1.17 drops the two etm MACs
+  (conflict with 1.6.6); rhel8 6.2.1.1.4 / rhel9 6.2.2.2 / rhel10
+  6.2.2.2 / ubuntu2204 6.1.1.1.4 / ubuntu2004 6.2.2.2 removed
+  (ForwardToSyslog=no is mutually exclusive with the rsyslog path the
+  sibling rule enforces); rhel10 1.1.1.11 keeps `vfat` loadable
+  (/boot/efi) and 2.1.3 disables cockpit at L1 too; ubuntu2404 1.1.1.11
+  keeps overlay/squashfs (snapd); ubuntu2004 drops the whole 4.3.x/4.4.x
+  nftables+iptables sections (alternative stacks fought the enforced ufw
+  stack) and masks the vendor-enabled firewalld; assorted risk=none→safe
+  promotions validated on live build VMs.
+
 ### Added
 - **19 new/extended engine families automating ~130 `manual` Linux rules**
   (all 8 Linux roles share the byte-identical engine; catalog wiring is a

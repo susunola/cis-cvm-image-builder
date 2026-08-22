@@ -877,9 +877,9 @@
     "assessment": "Automated",
     "family": "bootloader_password",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 141,
-    "note": "Site-specific credential; GRUB/bootloader passwords are not set on cloud golden images by default. Exempt or set one out-of-band per site policy."
+    "note": "auto-remediated: ohbs-image sets a per-image random GRUB superuser password at build time (hash in grub config, plaintext root-only in /root/ohbs-image-grub-password)"
   },
   {
     "id": "1.4.2",
@@ -1868,7 +1868,12 @@
     ],
     "assessment": "Manual",
     "family": "listening_ports",
-    "params": {},
+    "params": {
+      "allow_ports": [
+        22,
+        "68/udp"
+      ]
+    },
     "risk": "none",
     "page": 261
   },
@@ -2851,14 +2856,16 @@
     "family": "svc_disabled",
     "params": {
       "units": [
-        "nftables.service"
+        "nftables.service",
+        "firewalld.service"
       ],
       "packages": [
         "nftables"
       ]
     },
     "risk": "disruptive",
-    "page": 422
+    "page": 422,
+    "note": "firewalld.service added: Tencent base image ships it enabled"
   },
   {
     "id": "4.2.3",
@@ -2980,432 +2987,6 @@
     },
     "risk": "safe",
     "page": 436
-  },
-  {
-    "id": "4.3.1",
-    "title": "Ensure nftables is installed",
-    "section": "4.3",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "pkg_present",
-    "params": {
-      "packages": [
-        "nftables"
-      ]
-    },
-    "risk": "safe",
-    "page": 440
-  },
-  {
-    "id": "4.3.2",
-    "title": "Ensure ufw is uninstalled or disabled with nftables",
-    "section": "4.3",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "svc_disabled",
-    "params": {
-      "units": [
-        "ufw.service"
-      ],
-      "packages": [
-        "ufw"
-      ]
-    },
-    "risk": "disruptive",
-    "page": 442
-  },
-  {
-    "id": "4.3.3",
-    "title": "Ensure iptables are flushed with nftables",
-    "section": "4.3",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Manual",
-    "family": "nft_rules",
-    "params": {
-      "kind": "flushed"
-    },
-    "risk": "safe",
-    "page": 444
-  },
-  {
-    "id": "4.3.4",
-    "title": "Ensure a nftables table exists",
-    "section": "4.3",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "nft_rules",
-    "params": {
-      "kind": "table"
-    },
-    "risk": "safe",
-    "page": 446
-  },
-  {
-    "id": "4.3.5",
-    "title": "Ensure nftables base chains exist",
-    "section": "4.3",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "nft_rules",
-    "params": {
-      "kind": "base_chains"
-    },
-    "risk": "safe",
-    "page": 448
-  },
-  {
-    "id": "4.3.6",
-    "title": "Ensure nftables loopback traffic is configured",
-    "section": "4.3",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "nft_rules",
-    "params": {
-      "kind": "loopback"
-    },
-    "risk": "safe",
-    "page": 450
-  },
-  {
-    "id": "4.3.7",
-    "title": "Ensure nftables outbound and established connections are configured",
-    "section": "4.3",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Manual",
-    "family": "nft_rules",
-    "params": {
-      "kind": "established"
-    },
-    "risk": "safe",
-    "page": 452
-  },
-  {
-    "id": "4.3.8",
-    "title": "Ensure nftables default deny firewall policy",
-    "section": "4.3",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "nft_rules",
-    "params": {
-      "kind": "default_deny"
-    },
-    "risk": "safe",
-    "page": 454
-  },
-  {
-    "id": "4.3.9",
-    "title": "Ensure nftables service is enabled",
-    "section": "4.3",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "svc_enabled",
-    "params": {
-      "units": [
-        "nftables.service"
-      ],
-      "packages": []
-    },
-    "risk": "safe",
-    "page": 456
-  },
-  {
-    "id": "4.3.10",
-    "title": "Ensure nftables rules are permanent",
-    "section": "4.3",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "nft_rules",
-    "params": {
-      "kind": "permanent"
-    },
-    "risk": "safe",
-    "page": 458
-  },
-  {
-    "id": "4.4.1.1",
-    "title": "Ensure iptables packages are installed",
-    "section": "4.4.1",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "pkg_present",
-    "params": {
-      "packages": [
-        "iptables",
-        "iptables-persistent"
-      ]
-    },
-    "risk": "safe",
-    "page": 463
-  },
-  {
-    "id": "4.4.1.2",
-    "title": "Ensure nftables is not in use with iptables",
-    "section": "4.4.1",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "svc_disabled",
-    "params": {
-      "units": [
-        "nftables.service"
-      ],
-      "packages": [
-        "nftables"
-      ]
-    },
-    "risk": "disruptive",
-    "page": 465
-  },
-  {
-    "id": "4.4.1.3",
-    "title": "Ensure ufw is not in use with iptables",
-    "section": "4.4.1",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "svc_disabled",
-    "params": {
-      "units": [
-        "ufw.service"
-      ],
-      "packages": [
-        "ufw"
-      ]
-    },
-    "risk": "disruptive",
-    "page": 467
-  },
-  {
-    "id": "4.4.2.1",
-    "title": "Ensure iptables default deny firewall policy",
-    "section": "4.4.2",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "iptables_rules",
-    "params": {
-      "kind": "default_deny"
-    },
-    "risk": "safe",
-    "page": 470
-  },
-  {
-    "id": "4.4.2.2",
-    "title": "Ensure iptables loopback traffic is configured",
-    "section": "4.4.2",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "iptables_rules",
-    "params": {
-      "kind": "loopback"
-    },
-    "risk": "safe",
-    "page": 472
-  },
-  {
-    "id": "4.4.2.3",
-    "title": "Ensure iptables outbound and established connections are configured",
-    "section": "4.4.2",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Manual",
-    "family": "iptables_rules",
-    "params": {
-      "kind": "established"
-    },
-    "risk": "safe",
-    "page": 474
-  },
-  {
-    "id": "4.4.2.4",
-    "title": "Ensure iptables firewall rules exist for all open ports",
-    "section": "4.4.2",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "iptables_rules",
-    "params": {
-      "kind": "open_ports"
-    },
-    "risk": "safe",
-    "page": 476
-  },
-  {
-    "id": "4.4.3.1",
-    "title": "Ensure ip6tables default deny firewall policy",
-    "section": "4.4.3",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "iptables_rules",
-    "params": {
-      "kind": "default_deny",
-      "ipv6": true
-    },
-    "risk": "safe",
-    "page": 479
-  },
-  {
-    "id": "4.4.3.2",
-    "title": "Ensure ip6tables loopback traffic is configured",
-    "section": "4.4.3",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "iptables_rules",
-    "params": {
-      "kind": "loopback",
-      "ipv6": true
-    },
-    "risk": "safe",
-    "page": 482
-  },
-  {
-    "id": "4.4.3.3",
-    "title": "Ensure ip6tables outbound and established connections are configured",
-    "section": "4.4.3",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Manual",
-    "family": "iptables_rules",
-    "params": {
-      "kind": "established",
-      "ipv6": true
-    },
-    "risk": "safe",
-    "page": 485
-  },
-  {
-    "id": "4.4.3.4",
-    "title": "Ensure ip6tables firewall rules exist for all open ports",
-    "section": "4.4.3",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "assessment": "Automated",
-    "family": "iptables_rules",
-    "params": {
-      "kind": "open_ports",
-      "ipv6": true
-    },
-    "risk": "safe",
-    "page": 487
   },
   {
     "id": "5.1.1",
@@ -5169,31 +4750,6 @@
     },
     "risk": "safe",
     "page": 716,
-    "assessment": "Automated"
-  },
-  {
-    "id": "6.2.2.2",
-    "title": "Ensure journald ForwardToSyslog is disabled",
-    "section": "6.2.2",
-    "levels": [
-      1
-    ],
-    "platforms": [
-      "Server",
-      "Workstation"
-    ],
-    "family": "kv_conf",
-    "params": {
-      "files": [
-        "/etc/systemd/journald.conf.d/99-cis.conf"
-      ],
-      "key": "ForwardToSyslog",
-      "sep": "=",
-      "value": "no",
-      "op": "eq"
-    },
-    "risk": "safe",
-    "page": 718,
     "assessment": "Automated"
   },
   {

@@ -530,7 +530,10 @@ build {
       "# final image state (finalize rewrites banner/motd/issue, which flips",
       "# CIS 1.7.x banner results).  Engine + catalog were kept under",
       "# /opt/ohbs-image-ansible/roles/ by the cleanup step.",
-      "ENG=$(ls -d /opt/ohbs-image-ansible/roles/cis-*/files 2>/dev/null | head -1)",
+      "# Explicit role dir — a shared workdir may have staged other roles",
+      "# alongside ours, so globbing cis-*/ could pick the WRONG engine.",
+      "ENG=/opt/ohbs-image-ansible/roles/__ROLE_DIR__/files",
+      "[ -d \"$ENG\" ] || ENG=$(ls -d /opt/ohbs-image-ansible/roles/cis-*/files 2>/dev/null | head -1)",
       "if [ -n \"$ENG\" ] && [ -f \"$ENG/ohbs_engine.py\" ]; then",
       "  CAT=\"$ENG/rules.json\"; [ -f \"$ENG/__IMAGE_CATALOG__\" ] && CAT=\"$ENG/__IMAGE_CATALOG__\";",
       "  sudo /opt/ohbs-image-ansible/bin/python \"$ENG/ohbs_engine.py\" --catalog \"$CAT\" --mode scan --profile '__CIS_PROFILE_SHORT__' --out /tmp/cis-final-scan.json >/dev/null 2>&1 && sudo install -m 0600 -o root -g root /tmp/cis-final-scan.json /opt/ohbs-image-AUDIT-RESULT.json && sudo rm -f /tmp/cis-final-scan.json && echo '[ohbs-image] final-state audit refreshed' || echo '[ohbs-image] WARNING: final-state re-scan failed; keeping pre-finalize audit'",
@@ -1267,7 +1270,10 @@ sudo tee /etc/ssh/sshd_config.d/99-ohbs-image-banner.conf > /dev/null <<'SSHD_EO
 Banner /etc/ohbs-image/banner
 SSHD_EOF
 _bar "sshd drop-in perms"
-sudo chmod 0644 /etc/ssh/sshd_config.d/99-ohbs-image-banner.conf
+# CIS sshd_config_perm requires 0600 root:root on EVERY sshd_config.d/*.conf,
+# this drop-in included.
+sudo chmod 0600 /etc/ssh/sshd_config.d/99-ohbs-image-banner.conf
+sudo chown root:root /etc/ssh/sshd_config.d/99-ohbs-image-banner.conf
 
 # 5. /opt/ohbs-image-REPORT.md — what was done to the base image
 _bar "generate REPORT.md"

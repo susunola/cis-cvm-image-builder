@@ -574,9 +574,12 @@ def _probe_scan(r: ResolvedConfig, ip: str, ssh_port: int, ssh_user: str,
     # (CIS / legacy).  The build promotes the active catalog to rules.json too,
     # so rules.json is always safe, but this makes the probe explicit.
     cat = r.catalog_basename or "rules.json"
-    # Role dirs are dash-named (cis-ubuntu2204, cis-rhel8, ...) — the glob
-    # must match that, not the old underscore form.
+    # Role dirs are dash-named (cis-ubuntu2204, cis-rhel8, ...).  Use the
+    # configured role dir explicitly — globbing cis-*/ could pick a stale
+    # role staged by an earlier build sharing the workdir.
     remote = (
+        f"ENG=/opt/ohbs-image-ansible/roles/{r.role_dir}/files; "
+        "[ -d \"$ENG\" ] || "
         "ENG=$(ls -d /opt/ohbs-image-ansible/roles/cis-*/files 2>/dev/null | head -1); "
         "if [ -n \"$ENG\" ] && [ -f \"$ENG/ohbs_engine.py\" ]; then "
         "CAT=\"$ENG/rules.json\"; "

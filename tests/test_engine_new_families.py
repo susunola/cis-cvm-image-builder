@@ -252,7 +252,9 @@ def test_updates_applied_fix_apt(eng, monkeypatch):
     ok, _ = eng.f_updates_applied(make_ctx(eng), {})
     assert ok
     assert seen["cmd"][:4] == ["env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "-y"]
-    assert "upgrade" in seen["cmd"]
+    # dist-upgrade (not plain upgrade) so kept-back updates apply too
+    assert "dist-upgrade" in seen["cmd"]
+    assert "upgrade" not in seen["cmd"]
     assert seen["timeout"] >= 900
 
 
