@@ -5387,9 +5387,19 @@ def _firewalld_rich_rules():
 @check("firewalld_rules")
 def c_firewalld_rules(ctx, p):
     kind = p.get("kind")
-    if not _stack_in_use(ctx, ["firewalld.service"]):
+    if not unit_exists("firewalld.service"):
         return ("notapplicable",
-                "firewalld stack not in use (firewalld.service not enabled/active)")
+                "firewalld stack not in use (firewalld.service not present)")
+    en, ac = _unit_state("firewalld.service")
+    if ac != "active":
+        # firewalld is installed (the catalog's chosen stack) but not
+        # running.  This is a FAIL, not notapplicable: with parallel apply
+        # this rule can be evaluated before the svc_enabled fixer has
+        # started firewalld, and reporting notapplicable there would skip
+        # the fixer entirely — leaving the stock public-zone services
+        # (dhcpv6-client, mdns) in place on the final image.
+        return "fail", "firewalld.service is not active (%s/%s)" % (
+            en or "disabled", ac or "inactive")
     if kind == "loopback":
         # CIS 4.2.1 (RHEL9): the loopback interface is assigned to the
         # trusted zone (firewall-cmd --permanent --zone=trusted
@@ -5441,6 +5451,14 @@ def c_firewalld_rules(ctx, p):
 @fix("firewalld_rules")
 def f_firewalld_rules(ctx, p):
     kind = p.get("kind")
+    # Bring the stack up first: with parallel apply this fixer can run
+    # before svc_enabled gets to firewalld (idempotent — harmless when it
+    # is already running).
+    if unit_exists("firewalld.service"):
+        en, ac = _unit_state("firewalld.service")
+        if ac != "active":
+            sh(["systemctl", "enable", "--now", "firewalld.service"], 180)
+            _unit_db_invalidate()
     if kind == "loopback":
         rc, o, e = sh(["firewall-cmd", "--permanent", "--zone=trusted",
                        "--add-interface=lo"], 60)

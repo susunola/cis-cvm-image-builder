@@ -558,6 +558,26 @@ def test_firewalld_rules_guard(eng, monkeypatch):
     assert st == "notapplicable"
 
 
+def test_firewalld_rules_inactive_unit_fails_and_fixer_starts_stack(eng, monkeypatch):
+    """firewalld installed but not running: fail (not notapplicable) so the
+    fixer fires even when parallel apply reaches this rule before
+    svc_enabled starts firewalld; the fixer brings the stack up itself."""
+    _mock_units(monkeypatch, eng, {"firewalld.service": ("disabled", "inactive")})
+    monkeypatch.setattr(eng, "sh", _fwd_sh())
+    st, detail = eng.c_firewalld_rules(make_ctx(eng), {"kind": "services"})
+    assert st == "fail" and "not active" in detail
+    calls = []
+
+    def fake_sh(cmd, timeout=60):
+        calls.append(cmd)
+        return _fwd_sh(zones_svcs={"public": (["ssh", "mdns"], [])})(cmd, timeout)
+
+    monkeypatch.setattr(eng, "sh", fake_sh)
+    ok, msg = eng.f_firewalld_rules(make_ctx(eng), {"kind": "services"})
+    assert ok, msg
+    assert ["systemctl", "enable", "--now", "firewalld.service"] in calls
+
+
 def test_firewalld_rules_loopback(eng, monkeypatch):
     _mock_units(monkeypatch, eng, {"firewalld.service": ("enabled", "active")})
     monkeypatch.setattr(eng, "sh", _fwd_sh(trusted_ifs=("lo",)))
