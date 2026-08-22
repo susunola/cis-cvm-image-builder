@@ -76,6 +76,16 @@ can be traced across rebuilds.
   nftables+iptables sections (alternative stacks fought the enforced ufw
   stack) and masks the vendor-enabled firewalld; assorted risk=none→safe
   promotions validated on live build VMs.
+- **`bootloader_password` (Debian/Ubuntu): keep menu entries bootable** —
+  Debian's `/etc/grub.d/10_linux` generates entries WITHOUT
+  `--unrestricted` (RHEL ships it in `CLASS=` by default), so defining a
+  GRUB superuser made GRUB prompt for credentials before booting any
+  entry: the post-hardening reboot of the 2026-08-22 ubuntu2404 build
+  never came back (SSH dial i/o timeout).  The fixer now patches every
+  `/etc/grub.d/10_linux*` generator to append `--unrestricted` to the
+  `CLASS=` line (idempotent), verifies the regenerated grub.cfg, and
+  rolls back `01_users` + re-runs update-grub when entries still lack it
+  — a failed rule beats an unbootable image.
 - **Windows: first-boot deferred hardening** — the CIS WinRM Service
   lockdown rules (AllowBasic / AllowAutoConfig / AllowUnencryptedTraffic /
   WinRS AllowRemoteShell) and the UAC built-in-Administrator token
