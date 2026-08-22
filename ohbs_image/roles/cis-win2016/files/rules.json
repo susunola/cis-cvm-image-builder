@@ -2590,7 +2590,8 @@
       "path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
       "name": "FilterAdministratorToken",
       "value": 1
-    }
+    },
+    "defer": "firstboot"
   },
   {
     "id": "2.3.17.2",
@@ -8387,7 +8388,8 @@
       "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service",
       "name": "AllowBasic",
       "value": 0
-    }
+    },
+    "defer": "firstboot"
   },
   {
     "id": "18.10.89.2.2",
@@ -8408,7 +8410,8 @@
       "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service",
       "name": "AllowAutoConfig",
       "value": 0
-    }
+    },
+    "defer": "firstboot"
   },
   {
     "id": "18.10.89.2.3",
@@ -8429,7 +8432,8 @@
       "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service",
       "name": "AllowUnencryptedTraffic",
       "value": 0
-    }
+    },
+    "defer": "firstboot"
   },
   {
     "id": "18.10.89.2.4",
@@ -8471,7 +8475,8 @@
       "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service\\WinRS",
       "name": "AllowRemoteShell",
       "value": 0
-    }
+    },
+    "defer": "firstboot"
   },
   {
     "id": "18.10.92.2.1",

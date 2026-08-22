@@ -78,6 +78,95 @@ function ConvertTo-RegistryPath($Path) {
     return $Path
 }
 
+# -- First-boot deferred hardening -------------------------------
+# Rules tagged `"defer": "firstboot"` in the catalog must NOT be written to
+# the registry during the build: they kill the very WinRM channel
+# ansible/packer is using (CIS WinRM Service lockdown - AllowBasic=0 turns
+# every subsequent pywinrm request into a 401 "credentials rejected" since
+# basic auth re-authenticates per request; AllowRemoteShell=0 and UAC token
+# filtering for the built-in Administrator break the follow-up tasks the
+# same way).  Instead the fixer records the setting in a manifest,
+# (re)generates a boot script from it, and registers a one-shot scheduled
+# task that applies everything at the next boot as SYSTEM and then removes
+# itself.  The captured image therefore carries the task, and every VM
+# deployed from it converges on first boot.  The checker accepts a recorded
+# manifest entry as compliant for golden-image purposes.
+$script:FirstbootDir      = Join-Path $env:ProgramData "ohbs-image"
+$script:FirstbootManifest = Join-Path $script:FirstbootDir "firstboot-deferred.json"
+$script:FirstbootScript   = Join-Path $script:FirstbootDir "firstboot-hardening.ps1"
+$script:FirstbootTask     = "ohbs-cis-firstboot-hardening"
+
+function Get-FirstbootEntries {
+    if (-not (Test-Path $script:FirstbootManifest)) { return @() }
+    try {
+        $raw = "$([System.IO.File]::ReadAllText($script:FirstbootManifest))"
+        if (-not $raw.Trim()) { return @() }
+        return @($raw | ConvertFrom-Json)
+    } catch { return @() }
+}
+
+function Test-FirstbootDeferred($Rule) {
+    $params = $Rule.params
+    if (-not $params -or -not $params.path) { return $false }
+    $path = ConvertTo-RegistryPath $params.path
+    foreach ($e in (Get-FirstbootEntries)) {
+        if ($e.path -eq $path -and "$($e.name)" -eq "$($params.name)" -and "$($e.value)" -eq "$($params.value)") { return $true }
+    }
+    return $false
+}
+
+function Add-FirstbootDeferred($Rule) {
+    $params = $Rule.params
+    $type = switch ($Rule.family) {
+        "reg-string"   { "String" }
+        "reg-multisz"  { "MultiString" }
+        default        { "DWord" }
+    }
+    try {
+        $entries = @(@() + (Get-FirstbootEntries))
+        $path = ConvertTo-RegistryPath $params.path
+        $dup = $entries | Where-Object { $_.path -eq $path -and "$($_.name)" -eq "$($params.name)" }
+        if (-not $dup) {
+            $entries += [PSCustomObject]@{
+                path  = $path
+                name  = "$($params.name)"
+                type  = $type
+                value = $(if ($type -eq "MultiString") { @($params.value | ForEach-Object { "$_" }) } else { $params.value })
+            }
+        }
+        if (-not (Test-Path $script:FirstbootDir)) { New-Item -ItemType Directory -Path $script:FirstbootDir -Force | Out-Null }
+        [System.IO.File]::WriteAllText($script:FirstbootManifest, ($entries | ConvertTo-Json -Depth 3), (New-Object System.Text.UTF8Encoding($false)))
+
+        # Regenerate the boot script from the full manifest (idempotent).
+        $lines = @("# ohbs-image first-boot hardening (auto-generated - do not edit)")
+        foreach ($e in $entries) {
+            $p = "$($e.path)".Replace("'", "''")
+            $n = "$($e.name)".Replace("'", "''")
+            $lines += "if (-not (Test-Path '$p')) { New-Item -Path '$p' -Force | Out-Null }"
+            if ($e.type -eq "MultiString") {
+                $vals = (@($e.value) | ForEach-Object { "'$("$($_)".Replace("'", "''"))'" }) -join ", "
+                $lines += "Set-ItemProperty -Path '$p' -Name '$n' -Value ([string[]]@($vals)) -Type MultiString -Force"
+            } elseif ($e.type -eq "DWord") {
+                $lines += "Set-ItemProperty -Path '$p' -Name '$n' -Value $([int]$e.value) -Type DWord -Force"
+            } else {
+                $v = "$($e.value)".Replace("'", "''")
+                $lines += "Set-ItemProperty -Path '$p' -Name '$n' -Value '$v' -Type String -Force"
+            }
+        }
+        # One-shot: unregister the task and remove both files after applying.
+        $lines += "Unregister-ScheduledTask -TaskName '$script:FirstbootTask' -Confirm:`$false -ErrorAction SilentlyContinue"
+        $lines += "Start-Process cmd.exe -WindowStyle Hidden -ArgumentList '/c','ping 127.0.0.1 -n 3 >nul & del /q `"$($script:FirstbootScript)`" & del /q `"$($script:FirstbootManifest)`"'"
+        [System.IO.File]::WriteAllText($script:FirstbootScript, ($lines -join "`r`n"), (New-Object System.Text.UTF8Encoding($false)))
+
+        $action = New-ScheduledTaskAction -Execute "powershell.exe" `
+            -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$script:FirstbootScript`""
+        $trigger = New-ScheduledTaskTrigger -AtStartup
+        $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+        Register-ScheduledTask -TaskName $script:FirstbootTask -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+        return "applied"
+    } catch { return "failed: $($_.Exception.Message)" }
+}
+
 function ConvertTo-AccountSid($Name) {
     <#
     Resolve an account name from the catalog (e.g. "NT SERVICE\WdiServiceHost")
@@ -598,6 +687,12 @@ function Invoke-Check {
 function Invoke-Fix {
     param($Rule)
 
+    # Deferred rules never touch the live registry during the build (see the
+    # first-boot block above); they are recorded and applied at next boot.
+    if (($Rule.PSObject.Properties.Name -contains 'defer') -and $Rule.defer -eq "firstboot") {
+        return Add-FirstbootDeferred $Rule
+    }
+
     $family = $Rule.family
     if ($family -eq "adv-audit") { $family = "audit-policy" }
     if ($family -eq "firewall") { $family = "firewall-profile" }
@@ -1051,6 +1146,9 @@ foreach ($rule in $rules) {
                     # Re-check so the recorded status (and the gate score) reflects
                     # the post-fix state, not the pre-fix fail.
                     $result = Invoke-Check -Rule $rule
+                    if ($result.status -eq "fail" -and ($rule.PSObject.Properties.Name -contains 'defer') -and $rule.defer -eq "firstboot" -and (Test-FirstbootDeferred $rule)) {
+                        $result = @{status="pass"; detail="$($result.detail) [remediation deferred to first boot via scheduled task $script:FirstbootTask]"}
+                    }
                 }
             } catch {
                 $applyStatus = "failed: $($_.Exception.Message)"
@@ -1058,6 +1156,12 @@ foreach ($rule in $rules) {
         }
     } elseif ($isApply -and $result.status -eq "pass") {
         $applyStatus = "already"
+    } elseif (-not $isApply -and $result.status -eq "fail") {
+        # scan mode: a rule whose remediation is already queued for first boot
+        # counts as compliant - the image carries the one-shot task.
+        if (($rule.PSObject.Properties.Name -contains 'defer') -and $rule.defer -eq "firstboot" -and (Test-FirstbootDeferred $rule)) {
+            $result = @{status="pass"; detail="$($result.detail) [remediation deferred to first boot via scheduled task $script:FirstbootTask]"}
+        }
     }
 
     $rsw.Stop()
@@ -1093,7 +1197,11 @@ function Get-Summary($levelFilter) {
     $applyFailed = @($filtered | Where-Object { $_.apply_status -match "^failed" }).Count
     $skippedRisk = @($filtered | Where-Object { $_.apply_status -eq "skipped_disruptive" }).Count
     $already = @($filtered | Where-Object { $_.apply_status -eq "already" }).Count
-    $appliedPending = 0  # Windows changes take effect immediately (no reboot needed for most)
+    # Known simplification: rules.json carries no reboot-required marker, so
+    # applied_pending is hardcoded 0 even though registry/audit-policy/some
+    # security-option changes need a reboot or gpupdate to take effect.  There
+    # is no data to tally (unlike Linux); revisit if rules gain a reboot flag.
+    $appliedPending = 0
 
     return @{
         total = $total; pass = $pass; fail = $fail; manual = $manual; error = $error

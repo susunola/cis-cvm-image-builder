@@ -76,6 +76,22 @@ can be traced across rebuilds.
   nftables+iptables sections (alternative stacks fought the enforced ufw
   stack) and masks the vendor-enabled firewalld; assorted risk=none→safe
   promotions validated on live build VMs.
+- **Windows: first-boot deferred hardening** — the CIS WinRM Service
+  lockdown rules (AllowBasic / AllowAutoConfig / AllowUnencryptedTraffic /
+  WinRS AllowRemoteShell) and the UAC built-in-Administrator token
+  filtering rule (FilterAdministratorToken) cannot be written to the live
+  registry during a packer build: pywinrm re-authenticates with basic auth
+  on every request, so AllowBasic=0 turns the running ansible play into
+  "401 credentials rejected" (win2022 died mid-apply with exit status 4).
+  Catalog entries for these rules now carry `"defer": "firstboot"`; the
+  ps1 engine records them in
+  `%ProgramData%\ohbs-image\firstboot-deferred.json`, generates
+  `firstboot-hardening.ps1` from that manifest, and registers a one-shot
+  SYSTEM scheduled task (`ohbs-cis-firstboot-hardening`, AtStartup) that
+  applies the values at the next boot and removes itself.  The checker
+  treats a recorded manifest entry as compliant (the captured image
+  carries the task, so deployed VMs converge on first boot).  All 4
+  Windows roles now share a byte-identical engine.
 
 ### Added
 - **19 new/extended engine families automating ~130 `manual` Linux rules**
