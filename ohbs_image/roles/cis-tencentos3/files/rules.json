@@ -212,9 +212,14 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "kmod_list",
+    "params": {
+      "modules": [
+        "fat",
+        "kafs"
+      ]
+    },
+    "risk": "safe",
     "page": 57
   },
   {
@@ -392,10 +397,9 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "partition",
     "params": {
-      "mount": "/home",
-      "note": "manual: site-specific partition/tmpfs decision; never live-mount at build time"
+      "mount": "/home"
     },
     "risk": "none",
     "page": 86
@@ -452,10 +456,9 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "partition",
     "params": {
-      "mount": "/var",
-      "note": "manual: site-specific partition/tmpfs decision; never live-mount at build time"
+      "mount": "/var"
     },
     "risk": "none",
     "page": 93
@@ -512,10 +515,9 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "partition",
     "params": {
-      "mount": "/var/tmp",
-      "note": "manual: site-specific partition/tmpfs decision; never live-mount at build time"
+      "mount": "/var/tmp"
     },
     "risk": "none",
     "page": 100
@@ -592,10 +594,9 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "partition",
     "params": {
-      "mount": "/var/log",
-      "note": "manual: site-specific partition/tmpfs decision; never live-mount at build time"
+      "mount": "/var/log"
     },
     "risk": "none",
     "page": 109
@@ -672,10 +673,9 @@
       "Workstation"
     ],
     "assessment": "Automated",
-    "family": "manual",
+    "family": "partition",
     "params": {
-      "mount": "/var/log/audit",
-      "note": "manual: site-specific partition/tmpfs decision; never live-mount at build time"
+      "mount": "/var/log/audit"
     },
     "risk": "none",
     "page": 118
@@ -752,7 +752,7 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
+    "family": "gpg_keys",
     "params": {},
     "risk": "none",
     "page": 128
@@ -788,7 +788,7 @@
       "Server",
       "Workstation"
     ],
-    "assessment": "Manual",
+    "assessment": "Automated",
     "family": "dnf_flag",
     "params": {
       "key": "repo_gpgcheck",
@@ -809,7 +809,7 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
+    "family": "pkg_repos",
     "params": {},
     "risk": "none",
     "page": 136
@@ -846,9 +846,9 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
+    "family": "updates_applied",
     "params": {},
-    "risk": "none",
+    "risk": "safe",
     "page": 141
   },
   {
@@ -968,7 +968,7 @@
       "Server",
       "Workstation"
     ],
-    "assessment": "Manual",
+    "assessment": "Automated",
     "family": "selinux",
     "params": {
       "kind": "no_unconfined",
@@ -1033,8 +1033,9 @@
     "assessment": "Automated",
     "family": "bootloader_password",
     "params": {},
-    "risk": "none",
-    "page": 167
+    "risk": "safe",
+    "page": 167,
+    "note": "auto-remediated: ohbs-image sets a per-image random GRUB superuser password at build time (hash in grub config, plaintext root-only in /root/ohbs-image-grub-password)"
   },
   {
     "id": "1.4.2",
@@ -1387,7 +1388,7 @@
       "Server",
       "Workstation"
     ],
-    "assessment": "Manual",
+    "assessment": "Automated",
     "family": "crypto_policy",
     "params": {
       "kind": "no_chacha_ssh"
@@ -1407,7 +1408,7 @@
       "Server",
       "Workstation"
     ],
-    "assessment": "Manual",
+    "assessment": "Automated",
     "family": "crypto_policy",
     "params": {
       "kind": "no_etm_ssh"
@@ -2250,8 +2251,12 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
+    "family": "listening_ports",
+    "params": {
+      "allow_ports": [
+        22
+      ]
+    },
     "risk": "none",
     "page": 356
   },
@@ -3560,9 +3565,11 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "firewalld_rules",
+    "params": {
+      "kind": "loopback"
+    },
+    "risk": "safe",
     "page": 582
   },
   {
@@ -3577,9 +3584,11 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "firewalld_rules",
+    "params": {
+      "kind": "loopback_src"
+    },
+    "risk": "safe",
     "page": 584
   },
   {
@@ -3594,9 +3603,14 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "firewalld_rules",
+    "params": {
+      "kind": "services",
+      "allow": [
+        "ssh"
+      ]
+    },
+    "risk": "safe",
     "page": 587
   },
   {
@@ -4598,7 +4612,7 @@
       "Server",
       "Workstation"
     ],
-    "assessment": "Manual",
+    "assessment": "Automated",
     "family": "kv_conf",
     "params": {
       "files": [
@@ -4910,7 +4924,7 @@
       "Server",
       "Workstation"
     ],
-    "assessment": "Manual",
+    "assessment": "Automated",
     "family": "kv_conf",
     "params": {
       "files": [
@@ -5330,7 +5344,7 @@
       "Server",
       "Workstation"
     ],
-    "assessment": "Manual",
+    "assessment": "Automated",
     "family": "journald_fileperm",
     "params": {},
     "risk": "safe",
@@ -5347,7 +5361,7 @@
       "Server",
       "Workstation"
     ],
-    "assessment": "Manual",
+    "assessment": "Automated",
     "family": "kv_conf",
     "params": {
       "files": [
@@ -5643,7 +5657,7 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
+    "family": "rsyslog_actions",
     "params": {},
     "risk": "none",
     "page": 856
@@ -5693,10 +5707,14 @@
       "Server",
       "Workstation"
     ],
-    "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "assessment": "Automated",
+    "family": "pkg_present",
+    "params": {
+      "packages": [
+        "logrotate"
+      ]
+    },
+    "risk": "safe",
     "page": 862
   },
   {
@@ -6380,7 +6398,7 @@
       "Server",
       "Workstation"
     ],
-    "assessment": "Manual",
+    "assessment": "Automated",
     "family": "audit_running_sync",
     "params": {},
     "risk": "none",
@@ -6886,9 +6904,11 @@
       "Workstation"
     ],
     "assessment": "Manual",
-    "family": "manual",
-    "params": {},
-    "risk": "none",
+    "family": "suid_baseline",
+    "params": {
+      "baseline": "/etc/ohbs-image/suid-baseline.list"
+    },
+    "risk": "safe",
     "page": 1031
   },
   {

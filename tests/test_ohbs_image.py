@@ -641,7 +641,13 @@ class TestRenderAll:
         assert "Banner /etc/ohbs-image/banner" in finalize
         # The source image, OS and ohbs-image version are wired through.
         assert valid_toml["build"]["source_image_id"] in finalize
-        assert valid_toml["meta"]["os_tag"] in finalize
+        # The dashed os_tag ("tencentos-4" etc.) must NOT be baked into the
+        # script's banner text — CIS 1.2.x greps /etc/motd|issue|issue.net
+        # for OS-name tokens.  The tag arrives as $3 and the banners print
+        # the dash-stripped $OS_TAG_SAFE instead.
+        assert valid_toml["meta"]["os_tag"] in hcl
+        assert 'OS_TAG="$3"' in finalize
+        assert '"$OS_TAG_SAFE"' in finalize
         # The ohbs-image banner ASCII is embedded.
         assert "OHBS IMAGE" in finalize
         assert "OHBS-HARDENED IMAGE BUILDER" in finalize
@@ -652,6 +658,24 @@ class TestRenderAll:
             capture_output=True, text=True,
         )
         assert p.returncode == 0, f"bash -n failed: {p.stderr}"
+
+    def test_finalize_banner_uses_cis_safe_os_tag(self, valid_toml, tmp_path):
+        """CIS 1.2.x greps /etc/motd, /etc/issue and /etc/issue.net for OS-name
+        tokens (\\bTencentOS\\b, \\bCentOS\\b, …).  A dashed os_tag like
+        "tencentos-4" would trip that check on every boot from the image, so
+        the finalize script must print the dash-stripped $OS_TAG_SAFE in
+        banners (the full tag still reaches the /opt report via $3)."""
+        r = resolve(valid_toml)
+        wd = tmp_path / "build"
+        render_all(wd, r)
+        finalize = (wd / "packer" / "scripts" / "ohbs-image-finalize.sh").read_text()
+        assert 'OS_TAG_SAFE="${OS_TAG//-/}"' in finalize
+        # all three banner files take the safe tag
+        assert finalize.count('"$OS_TAG_SAFE"') == 3
+        # no unsubstituted placeholder survives rendering
+        assert "__IMAGE_OS__" not in finalize
+        # /var/log/lastlog joins the late boot-log permission sweep (4.2.3)
+        assert "/var/log/lastlog" in finalize
 
     def test_banner_uses_no_placeholder_markers(self, valid_toml, tmp_path):
         """The ASCII art must not contain runs of underscores that would
@@ -3683,23 +3707,37 @@ class TestRuleIdAndBenchmark:
             src = fh.read()
         assert "_remove_pkgs" in src
         assert 'DEBIAN_FRONTEND=noninteractive' in src
-        # Only _install_pkgs/_remove_pkgs may invoke dnf.
+        # Only _install_pkgs/_remove_pkgs may invoke dnf.  Read-only probes
+        # (the pkg_repos / updates_applied checks) call dnf directly — they
+        # mutate nothing, so the dnf/apt branch stays inside the check.
+        readonly = ('"repolist"', '"check-update"')
         direct = [ln for ln in src.splitlines()
-                  if 'sh(["dnf"' in ln]
+                  if 'sh(["dnf"' in ln
+                  and not any(ro in ln for ro in readonly)]
         assert not direct, f"direct dnf sh() calls remain: {direct}"
 
     def test_none_risk_partition_rules_are_manual(self):
-        """v0.16.15: partition/tmpfs decisions are site-specific — every
-        risk=none partition rule must carry family=manual so it is never
-        live-mounted at build time."""
+        """v0.16.15: partition/tmpfs decisions are site-specific — a
+        risk=none rule must never be live-mounted at build time.
+
+        Policy update (manual-rule automation wave): separate-partition
+        rules ARE now wired to family=partition as CHECK-ONLY — risk=none
+        already gates them out of apply in run_rule (see
+        test_none_risk_rules_never_applied), which turns the old
+        "risk=none => family=manual" convention into a score-lowering
+        no-op.  The invariant that still matters: a risk=none partition
+        rule must not carry allow_tmpfs, so even a future apply-path bug
+        cannot mount tmpfs over a live mountpoint mid-build."""
         import glob as _g
         for path in _g.glob("ohbs_image/roles/cis-*/files/rules.json"):
             with open(path, encoding="utf-8") as fh:
                 rules = json.load(fh)
             for r in rules:
-                if r.get("family") == "partition":
-                    assert r.get("risk") != "none", \
-                        f"{path}: {r['id']} partition rule still risk=none"
+                if r.get("family") != "partition":
+                    continue
+                if r.get("risk") == "none":
+                    assert "allow_tmpfs" not in (r.get("params") or {}), \
+                        f"{path}: {r['id']} risk=none partition rule carries allow_tmpfs"
 
     def test_sarif_carries_benchmark(self):
         from ohbs_image import _build_sarif
@@ -3897,8 +3935,8 @@ class TestVerifyImage:
                             lambda *a, **k: launched.update(k) or "ins-probe")
         monkeypatch.setattr("ohbs_image._probe_public_ip", lambda *a, **k: "1.2.3.4")
         ready = {}
-        monkeypatch.setattr("ohbs_image._probe_ssh_ready",
-                            lambda *a, **k: ready.update({"args": a, **k}) or True)
+        monkeypatch.setattr("ohbs_image._probe_ssh_ready_any",
+                            lambda *a, **k: ready.update({"args": a, **k}) or (True, "ohbsimage"))
         scanned = {}
         monkeypatch.setattr("ohbs_image._probe_scan",
                             lambda *a, **k: scanned.update({"args": a, **k}) or
@@ -3916,12 +3954,13 @@ class TestVerifyImage:
         # UserData pubkey) and into every ssh call (-i key_path)…
         assert launched["key_ids"] == ["key-probe"]
         assert launched["pub_key"] == "ssh-ed25519 AAAA"
-        assert ready["key_path"] == "/tmp/probe_key"
+        assert ready["args"][0] == "1.2.3.4"  # ip
+        assert ("ohbsimage", "/tmp/probe_key") in ready["args"][2]  # candidate 1
+        assert ("root", "/tmp/probe_key") in ready["args"][2]       # candidate 2
         assert scanned["key_path"] == "/tmp/probe_key"
         # …the probe logs in as 'ohbsimage' (PermitRootLogin no on the
         # hardened image; the pubkey is injected only for that user)…
-        assert ready["args"][2] == "ohbsimage"   # ssh_user
-        assert scanned["args"][3] == "ohbsimage"  # ssh_user
+        assert scanned["args"][3] == "ohbsimage"  # ssh_user (winner)
         # …and the key pair is always torn down.
         assert teardowns == [(r, "key-probe", "/tmp/probe_key")]
 
@@ -3934,7 +3973,7 @@ class TestVerifyImage:
                             lambda r_: ("key-probe", "/tmp/probe_key", "ssh-ed25519 AAAA"))
         monkeypatch.setattr("ohbs_image._probe_launch", lambda *a, **k: "ins-probe")
         monkeypatch.setattr("ohbs_image._probe_public_ip", lambda *a, **k: "1.2.3.4")
-        monkeypatch.setattr("ohbs_image._probe_ssh_ready", lambda *a, **k: True)
+        monkeypatch.setattr("ohbs_image._probe_ssh_ready_any", lambda *a, **k: (True, "ohbsimage"))
         monkeypatch.setattr("ohbs_image._probe_scan",
                             lambda *a, **k: {"summary": {"all": {"score": 40.0, "fail": 9}}})
         terminated = []
@@ -4839,7 +4878,7 @@ class TestVerifyImageMinScoreFallback:
         monkeypatch.setattr("ohbs_image._probe_teardown_keypair", lambda *a, **k: None)
         monkeypatch.setattr("ohbs_image._probe_launch", lambda *a, **k: "ins-probe")
         monkeypatch.setattr("ohbs_image._probe_public_ip", lambda *a, **k: "1.2.3.4")
-        monkeypatch.setattr("ohbs_image._probe_ssh_ready", lambda *a, **k: True)
+        monkeypatch.setattr("ohbs_image._probe_ssh_ready_any", lambda *a, **k: (True, "ohbsimage"))
         monkeypatch.setattr("ohbs_image._probe_scan",
                             lambda *a, **k: {"summary": {"all": {"score": 90.0, "fail": 2}}})
         monkeypatch.setattr("ohbs_image._probe_terminate", lambda *a, **k: None)
@@ -4878,7 +4917,7 @@ class TestVerifyImageMinScoreFallback:
         monkeypatch.setattr("ohbs_image._probe_teardown_keypair", lambda *a, **k: None)
         monkeypatch.setattr("ohbs_image._probe_launch", lambda *a, **k: "ins-probe")
         monkeypatch.setattr("ohbs_image._probe_public_ip", lambda *a, **k: "1.2.3.4")
-        monkeypatch.setattr("ohbs_image._probe_ssh_ready", lambda *a, **k: True)
+        monkeypatch.setattr("ohbs_image._probe_ssh_ready_any", lambda *a, **k: (True, "ohbsimage"))
         monkeypatch.setattr("ohbs_image._probe_scan",
                             lambda *a, **k: {"summary": {"all": {"score": 40.0, "fail": 9}}})
         monkeypatch.setattr("ohbs_image._probe_terminate", lambda *a, **k: None)
@@ -5899,6 +5938,38 @@ class TestProbeKeyWiring:
         assert "ssh-ed25519 AAAA probe" in ud
         assert "ohbsimage" in ud  # injected for the build user, not root
 
+    def test_probe_key_name_fits_tencentcloud_25_char_limit(
+        self, valid_toml, monkeypatch):
+        """ImportKeyPair rejects KeyName >25 chars (observed failure:
+        'ohbs-image-probe-<ts>-<hex>' = 32 chars -> InvalidParameterValue)."""
+        from ohbs_image import _probe_setup_keypair
+        r = resolve(valid_toml)
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
+        captured = {}
+        def fake_tc3(service, action, version, region, params, sid, skey, tok=None):
+            captured.update(params)
+            return {"Response": {"KeyId": "skey-probe"}}
+        monkeypatch.setattr("ohbs_image._tc3_api", fake_tc3)
+        monkeypatch.setattr("ohbs_image.subprocess.run",
+                            lambda *a, **k: subprocess.CompletedProcess([], 0))
+        # ssh-keygen writes priv + priv.pub; emulate both files.
+        import tempfile, os
+        tmpdir = tempfile.mkdtemp(prefix="ohbs-test-")
+        priv = os.path.join(tmpdir, "probe_key")
+        with open(priv, "w") as fh:
+            fh.write("PRIV")
+        with open(priv + ".pub", "w") as fh:
+            fh.write("ssh-ed25519 AAAA probe")
+        monkeypatch.setattr("tempfile.mkdtemp", lambda **k: tmpdir)
+        _probe_setup_keypair(r)
+        name = captured["KeyName"]
+        assert len(name) <= 25, f"KeyName {name!r} is {len(name)} chars (>25)"
+        # TencentCloud rejects hyphens too — allow only [a-zA-Z0-9].
+        import re as _re
+        assert _re.fullmatch(r"[a-zA-Z0-9]+", name), f"KeyName {name!r} has illegal chars"
+        assert name.startswith("ohbsp")
+
     def test_probe_launch_without_keypair_omits_settings(
         self, valid_toml, monkeypatch):
         from ohbs_image import _probe_launch
@@ -5928,6 +5999,56 @@ class TestProbeKeyWiring:
         cmds.clear()
         assert _probe_ssh_ready("1.2.3.4", 22, "ohbsimage") is True
         assert "-i" not in cmds[0]  # no dangling -i without a key
+
+    def test_probe_ssh_ready_any_tries_candidates_in_order(self, monkeypatch):
+        """The multi-user probe must try every candidate each pass and report
+        the winner — ohbsimage (user-data key) first, root (LoginSettings key)
+        as fallback."""
+        from ohbs_image import _probe_ssh_ready_any
+        cmds = []
+        def fake_run(cmd, *a, **k):
+            cmds.append(cmd)
+            # First candidate (ohbsimage) is refused; second (root) succeeds.
+            rc = 0 if "root@" in cmd[-2] else 255
+            return subprocess.CompletedProcess(cmd, rc, stdout="", stderr="")
+        monkeypatch.setattr("ohbs_image.subprocess.run", fake_run)
+        ok, winner = _probe_ssh_ready_any(
+            "1.2.3.4", 22, [("ohbsimage", "/tmp/k1"), ("root", "/tmp/k2")],
+            timeout_s=30)
+        assert ok is True
+        assert winner == "root"
+        # Both candidates were tried (ohbsimage first), each with its -i key.
+        assert [c for c in cmds if "ohbsimage@" in c[-2]][0][-2] == "ohbsimage@1.2.3.4"
+        assert [c for c in cmds if "root@" in c[-2]][0][-2] == "root@1.2.3.4"
+
+    def test_probe_ssh_ready_any_returns_false_after_timeout(self, monkeypatch):
+        from ohbs_image import _probe_ssh_ready_any
+        monkeypatch.setattr(
+            "ohbs_image.subprocess.run",
+            lambda *a, **k: subprocess.CompletedProcess([], 255, stdout="", stderr=""))
+        ok, last = _probe_ssh_ready_any(
+            "1.2.3.4", 22, [("ohbsimage", "/tmp/k1"), ("root", "/tmp/k2")],
+            timeout_s=1)
+        assert ok is False
+        assert last == "root"  # last candidate reported for diagnostics
+
+    def test_probe_vnc_url_returns_url_or_empty(self, monkeypatch):
+        from ohbs_image import _probe_vnc_url
+        import types
+        r = types.SimpleNamespace(secret_id_env="TENCENTCLOUD_SECRET_ID",
+                                  secret_key_env="TENCENTCLOUD_SECRET_KEY",
+                                  security_token_env="",
+                                  region="ap-guangzhou")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "AKIDx")
+        monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "key")
+        monkeypatch.setattr(
+            "ohbs_image._tc3_api",
+            lambda *a, **k: {"Response": {"InstanceVncUrl": "https://vnc/xyz"}})
+        assert _probe_vnc_url(r, "ins-probe") == "https://vnc/xyz"
+        monkeypatch.setattr(
+            "ohbs_image._tc3_api",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+        assert _probe_vnc_url(r, "ins-probe") == ""  # never raises
 
     def test_probe_scan_uses_identity_file_and_dash_glob(
         self, valid_toml, monkeypatch):

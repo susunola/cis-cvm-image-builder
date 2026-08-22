@@ -20,6 +20,7 @@ reported in the JSON document written to stdout (or --out).
 import argparse
 import glob as globmod
 import grp
+import hashlib
 import json
 import os
 import pwd
@@ -611,6 +612,75 @@ def _mounts(ctx):
     return ctx.cached("mounts", load)
 
 
+def _mount_unit_name(mp):
+    """systemd mount-unit name for a mount point (CIS paths contain no
+    dashes, so plain substitution is enough — no full systemd-escape)."""
+    if mp == "/":
+        return "-.mount"
+    return mp.strip("/").replace("/", "-") + ".mount"
+
+
+def _unmask_mount_unit(ctx, mp):
+    """Unmask the mount unit for mp so its fstab entry can take effect at
+    boot.  TencentOS 4 ships tmp.mount masked (/etc/systemd/system/
+    tmp.mount -> /dev/null), which silently nullifies a CIS /tmp tmpfs
+    fstab entry — the entry is present but the generator's unit can never
+    start, so /tmp stays on the root fs after reboot."""
+    if not systemd_present():
+        return
+    rc, o, _ = sh(["systemctl", "is-enabled", _mount_unit_name(mp)], 30)
+    if (o or "").strip() == "masked":
+        sh(["systemctl", "unmask", _mount_unit_name(mp)], 30)
+
+
+def ensure_cis_mount_service(ctx, mp):
+    """Re-assert mp's live mount options late in every boot.
+
+    fstab options for API/tmpfs mounts (/dev/shm) are applied at boot by
+    systemd-remount-fs, but that service is not guaranteed to win on every
+    boot — observed on a TencentOS 4 build (first post-hardening boot with
+    SELinux switching on): /dev/shm came up WITHOUT the noexec the fstab
+    entry carried, and the image-build smoke test failed the build.  A
+    one-shot ordered after local-fs re-remounts with the current options
+    as the final word — the same late-boot pattern as
+    cis-sysctl-apply.service.  One ExecStart per mount point; re-recording
+    a mount point replaces its earlier line.
+    """
+    if not systemd_present():
+        return
+    mounts = _mounts(ctx)
+    if mp not in mounts:
+        return
+    opts = ",".join(sorted(mounts[mp]["opts"]))
+    unit = "/etc/systemd/system/cis-mount-apply.service"
+    new_line = "ExecStart=/bin/mount -o remount,%s %s" % (opts, mp)
+    execs = []
+    if exists(unit):
+        execs = [l for l in readlines(unit)
+                 if l.startswith("ExecStart=/bin/mount -o remount,")
+                 and not l.rstrip().endswith(" " + mp)]
+    execs.append(new_line)
+    content = (
+        "[Unit]\n"
+        "Description=Re-assert CIS mount options after early-boot mount actors\n"
+        "After=local-fs.target systemd-remount-fs.service\n"
+        "\n"
+        "[Service]\n"
+        "Type=oneshot\n"
+        "RemainAfterExit=yes\n"
+        + "\n".join(execs) + "\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=multi-user.target\n"
+    )
+    if exists(unit) and read(unit) == content:
+        return
+    write_file(ctx, unit, content, 0o644)
+    ctx.add_changed_file(unit)
+    sh(["systemctl", "daemon-reload"], 30)
+    sh(["systemctl", "enable", "cis-mount-apply.service"], 30)
+
+
 @check("mount_opt")
 def c_mount_opt(ctx, p):
     mp, opt = p["mount"], p["option"]
@@ -709,6 +779,7 @@ def f_mount_opt(ctx, p):
                 atomic_write("/etc/fstab",
                              "\n".join(res).rstrip("\n") + "\n", mode=0o644)
                 ctx.add_changed_file("/etc/fstab")
+            _unmask_mount_unit(ctx, mp)
     # 2. apply live — carry the CURRENT options, or a remount with only the
     #    new option would silently drop everything else (nodev/nosuid/
     #    seclabel) and could break SELinux labelling on /dev/shm.
@@ -721,6 +792,11 @@ def f_mount_opt(ctx, p):
     ctx.invalidate("mounts")
     if rc != 0:
         return False, "fstab updated but live remount failed: %s" % err
+    # tmpfs options applied only via fstab (no live remount survives a
+    # reboot on their own) get a late-boot re-assert so a flaky
+    # systemd-remount-fs pass cannot silently drop them.
+    if mounts[mp]["fstype"] == "tmpfs":
+        ensure_cis_mount_service(ctx, mp)
     return True, "added %s to %s (fstab%s + remount)" % (
         opt, mp, "" if changed else " already ok")
 
@@ -774,6 +850,7 @@ def f_partition(ctx, p):
                     with open("/etc/fstab", "a", encoding="utf-8") as fh:
                         fh.write("\n" + fstab_line + "\n")
                     ctx.add_changed_file("/etc/fstab")
+        _unmask_mount_unit(ctx, mp)
         return True, "%s tmpfs entry written to /etc/fstab (effective at next boot)" % mp
     # Mount as tmpfs with CIS-recommended options (noexec,nosuid,nodev)
     if exists("/etc/fstab"):
@@ -785,6 +862,7 @@ def f_partition(ctx, p):
             with open("/etc/fstab", "a", encoding="utf-8") as fh:
                 fh.write("\n" + fstab_line + "\n")
             ctx.add_changed_file("/etc/fstab")
+    _unmask_mount_unit(ctx, mp)
     os.makedirs(mp, exist_ok=True)
     rc, _, err = sh(["mount", "-t", "tmpfs", "-o", "noexec,nosuid,nodev", "tmpfs", mp])
     ctx.invalidate("mounts")
@@ -1124,6 +1202,85 @@ def _fs_scan_legacy(res):
     return res
 
 
+def _tmpfs_path(ctx, path):
+    """The tmpfs mount point hosting path, or None (longest match wins)."""
+    best = None
+    for mp, m in _mounts(ctx).items():
+        if m["fstype"] != "tmpfs":
+            continue
+        if path == mp or path.startswith(mp.rstrip("/") + "/"):
+            if best is None or len(mp) > len(best):
+                best = mp
+    return best
+
+
+def ensure_volatile_perms_service(ctx, paths):
+    """Re-apply world-writable fixes on files that vendor agents re-create
+    on every boot (TencentCloud barad_agent re-drops /run/.barad_agent.pid
+    & friends mode 0666 tens of seconds after boot, recreates /etc/uuid
+    0666 ~13s in, and its STARGATE logs can get baked into the image as
+    0666 when it rewrites them after the build-time fix).
+
+    A chmod at apply time is wiped by the reboot/recreation, so this
+    installs a boot-time unit that re-applies the fix every second for
+    ~3 minutes — the agents drop their files tens of seconds after boot
+    and the post-boot re-audit can run as early as ~45s uptime.
+    Type=simple keeps the unit from blocking multi-user.target; the
+    bounded loop then exits cleanly.  Two complementary steps per pass:
+      - an explicit chmod loop over every recorded path (covers files on
+        persistent filesystems, which a tmpfs find sweep never sees);
+      - a find(1) sweep of the offending tmpfs mounts (agents do not
+        always re-drop the SAME set there, so per-file chmods are not
+        enough).
+
+    A .path trigger was tried first and rejected on a live TencentOS 4
+    VM: PathExists re-triggers in a tight loop while the watched file
+    keeps existing (start-limit-hit), while RemainAfterExit=yes on the
+    service suppressed the re-trigger entirely — both dead ends.
+    """
+    if not paths or not systemd_present():
+        return
+    svc = "/etc/systemd/system/ohbs-cis-volatile-perms.service"
+    stale_pth = "/etc/systemd/system/ohbs-cis-volatile-perms.path"
+    dirs = sorted({_tmpfs_path(ctx, p) for p in paths} - {None})
+    explicit = sorted(p for p in paths if _tmpfs_path(ctx, p) is None)
+    steps = []
+    if explicit:
+        steps.append(
+            'for f in %s; do [ -e "$f" ] && chmod o-w "$f"; done'
+            % " ".join(explicit))
+    steps += [
+        "find %s -xdev -type f -perm -0002 -exec chmod o-w {} + 2>/dev/null"
+        % d for d in dirs]
+    svc_body = (
+        "[Unit]\n"
+        "Description=Re-apply CIS world-writable fixes on boot-recreated files\n"
+        "\n"
+        "[Service]\n"
+        "# vendor agents drop their 0666 files tens of seconds after boot;\n"
+        "# re-apply every second for ~3 min so the fix lands within ~1s of\n"
+        "# the file appearing (the post-boot re-audit can run as early as\n"
+        "# ~45s uptime), then exit.  Type=simple never blocks the target.\n"
+        "Type=simple\n"
+        "ExecStart=/bin/sh -c 'for i in $(seq 1 180); do " + "; ".join(steps)
+        + "; sleep 1; done'\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=multi-user.target\n"
+    )
+    if not (exists(svc) and read(svc) == svc_body):
+        write_file(ctx, svc, svc_body, 0o644)
+        ctx.add_changed_file(svc)
+        sh(["systemctl", "daemon-reload"], 30)
+        sh(["systemctl", "enable", "ohbs-cis-volatile-perms.service"], 30)
+    # Drop the superseded .path design if an older engine left it behind.
+    if exists(stale_pth):
+        sh(["systemctl", "disable", "--now",
+            "ohbs-cis-volatile-perms.path"], 30)
+        os.unlink(stale_pth)
+        sh(["systemctl", "daemon-reload"], 30)
+
+
 @check("world_writable")
 def c_world_writable(ctx, p):
     files = _fs_scan(ctx)["world_files"]
@@ -1141,6 +1298,15 @@ def f_world_writable(ctx, p):
     for f in files:
         sh(["chmod", "o-w", f], 60)
     ctx.invalidate("fs_scan")
+    # Record every fixed path — tmpfs or not: vendor agents re-create
+    # 0666 files on persistent filesystems too (barad's /etc/uuid and
+    # STARGATE logs), and only the explicit path loop in the boot-time
+    # service covers those.  Paths with shell-hostile characters are
+    # dropped (the loop is whitespace-separated).
+    recorded = [f for f in files
+                if '"' not in f and not any(c.isspace() for c in f)]
+    if recorded:
+        ensure_volatile_perms_service(ctx, recorded)
     return True, "removed world-write bit from %d regular file(s)" % len(files)
 
 
@@ -1173,10 +1339,14 @@ def f_logfile_perm(ctx, p):
        "2>/dev/null || true", 30)
     # apt re-creates /var/log/apt/*.log* 0644 on every run (ubuntu2004
     # 6.2.4.1); hook DPkg so the CIS perms survive later apt activity.
+    # eipp.log.xz is written by `apt update` (no DPkg invoke), so hook the
+    # update path too (seen live on ubuntu2204: 6.1.3.1 stayed red).
     if os.path.isdir("/etc/apt/apt.conf.d"):
         hook = "/etc/apt/apt.conf.d/99cis-logperms"
         body = ('DPkg::Post-Invoke {"chmod g-wx,o-rwx /var/log/apt/*.log* '
-                '2>/dev/null || true";};\n')
+                '2>/dev/null || true";};\n'
+                'APT::Update::Post-Invoke-Success {"chmod g-wx,o-rwx '
+                '/var/log/apt/*.log* 2>/dev/null || true";};\n')
         if read(hook) != body:
             write_file(ctx, hook, body, 0o644)
             ctx.add_changed_file(hook)
@@ -1337,8 +1507,14 @@ def c_svc_enabled(ctx, p):
     # systemd-timesyncd): when neither the unit nor its provider package
     # exists, the service is simply not in use on this host — another time
     # sync daemon (chrony) may be covering the control.  That is
-    # notapplicable, not a failure.
-    if p.get("if_in_use") and not any(unit_exists(u) for u in units) \
+    # notapplicable, not a failure.  A MASKED unit (e.g. timesyncd after the
+    # single-daemon rule masked it) also counts as not in use.
+    def _in_use(u):
+        if not unit_exists(u):
+            return False
+        en, _ = _unit_state(u)
+        return en != "masked"
+    if p.get("if_in_use") and not any(_in_use(u) for u in units) \
             and not any(pkg_installed(x) for x in pkgs):
         return ("notapplicable",
                 "%s not present — service not in use on this host (conditional rule)"
@@ -1413,16 +1589,23 @@ def _bootstrap_journal_upload(ctx):
 
     This avoids needing an external log server while making the service
     genuinely active, and leaves a local archived copy of the journal in
-    /var/log/journal-remote/.  Pitfalls handled:
-      1. journal-upload.conf syntax differs by systemd version:
-         URL= (>= 245 / RHEL9) vs UploadServer= (< 245 / RHEL8).
-      2. the remote archive grows unbounded — a logrotate rule caps it.
-      3. no upload loop: remote stores into /var/log/journal-remote,
+    /var/log/journal-remote/.  Pitfalls handled (all seen live on RHEL8):
+      1. journal-upload.conf knows ONLY the URL= lvalue, on every systemd
+         version — the imagined legacy 'UploadServer=' is rejected by
+         RHEL8's systemd 239 ("Unknown lvalue") and kills the service.
+      2. the receiver must stay SOCKET-ACTIVATED: masking the socket makes
+         the service unstartable (Requires=systemd-journal-remote.socket,
+         and 'Sockets=' cannot be cleared from a drop-in — "Unknown
+         lvalue").  Instead the socket is pinned to loopback and the
+         service speaks plain HTTP on the activation fd (--listen-http=-3;
+         the stock unit uses --listen-https=-3 which demands TLS).
+      3. the remote archive grows unbounded — a logrotate rule caps it.
+      4. no upload loop: remote stores into /var/log/journal-remote,
          which journal-upload never reads.
-      4. the stock remote unit runs PrivateNetwork=yes — a 127.0.0.1
+      5. the stock remote unit runs PrivateNetwork=yes — a 127.0.0.1
          listener inside that netns is unreachable from journal-upload,
          so the drop-in turns it off.
-      5. after CIS hardening /var/log/journal is 2740 root:systemd-journal,
+      6. after CIS hardening /var/log/journal is 2740 root:systemd-journal,
          so the systemd-journal-remote user cannot traverse into
          /var/log/journal/remote and the service dies with "output must be
          a directory" — the archive lives in a top-level LogsDirectory
@@ -1436,31 +1619,26 @@ def _bootstrap_journal_upload(ctx):
             ctx.add_note("journal-upload: cannot install %s: %s"
                          % (", ".join(missing), err))
             return False, "cannot install systemd-journal-remote: %s" % err
-    # 1. Loopback receiver — drop-in override on the stock unit.
-    #    The stock socket unit is NOT used: socket activation would hold
-    #    127.0.0.1:19532 before the service binds it ("Address already in
-    #    use"), so the socket is masked and the service binds directly
-    #    (Requires= cleared so the socket is not pulled back in).
+    # 1. Loopback receiver: socket pinned to 127.0.0.1 + service speaking
+    #    plain HTTP on the activation fd.
     rem = out("command -v systemd-journal-remote 2>/dev/null || "
               "echo /usr/lib/systemd/systemd-journal-remote", 20).strip()
     os.makedirs("/var/log/journal-remote", exist_ok=True)
     write_file(ctx,
+               "/etc/systemd/system/systemd-journal-remote.socket.d/ohbs_image.conf",
+               "[Socket]\nListenStream=\nListenStream=127.0.0.1:19532\n", 0o644)
+    write_file(ctx,
                "/etc/systemd/system/systemd-journal-remote.service.d/ohbs_image.conf",
-               "[Unit]\nRequires=\n"
                "[Service]\nPrivateNetwork=no\nLogsDirectory=\n"
                "LogsDirectory=journal-remote\nExecStart=\n"
-               "ExecStart=%s --listen-http=127.0.0.1:19532 "
+               "ExecStart=%s --listen-http=-3 "
                "--output=/var/log/journal-remote/\n" % rem, 0o644)
     sh(["systemctl", "daemon-reload"], 30)
-    sh(["systemctl", "mask", "systemd-journal-remote.socket"], 60)
-    sh(["systemctl", "enable", "--now", "systemd-journal-remote.service"], 120)
-    # 2. journal-upload target — version-aware syntax.
-    ver = as_int((out("systemd --version 2>/dev/null | head -1 | "
-                      "awk '{print $2}'", 20) or "").strip()) or 0
-    if ver >= 245:
-        upload_cfg = "[Upload]\nURL=http://127.0.0.1:19532\n"
-    else:
-        upload_cfg = "[Upload]\nUploadServer=127.0.0.1:19532\n"
+    # Older images masked the socket (a dead end — see pitfall 2); undo it.
+    sh(["systemctl", "unmask", "systemd-journal-remote.socket"], 60)
+    sh(["systemctl", "enable", "--now", "systemd-journal-remote.socket"], 120)
+    # 2. journal-upload target (URL= is the only valid lvalue).
+    upload_cfg = "[Upload]\nURL=http://127.0.0.1:19532\n"
     # NB: world-readable on purpose — systemd-journal-upload runs as the
     # systemd-journal user and must be able to READ this file; 0600 made
     # the service fail with "Permission denied" on Ubuntu.
@@ -1483,12 +1661,28 @@ def _bootstrap_journal_upload(ctx):
 def f_svc_enabled(ctx, p):
     # Conditional rule not in use on this host (see c_svc_enabled): do NOT
     # install/enable anything — the control is covered by another daemon.
-    if p.get("if_in_use") and not any(unit_exists(u) for u in (p.get("units") or [])):
-        return True, "service not present (conditional rule not in use) — nothing to do"
+    # A masked unit (deliberately disabled by the single-daemon rule) counts
+    # as not in use too.
+    if p.get("if_in_use"):
+        def _present(u):
+            if not unit_exists(u):
+                return False
+            en, _ = _unit_state(u)
+            return en != "masked"
+        if not any(_present(u) for u in (p.get("units") or [])):
+            return True, "service not present (conditional rule not in use) — nothing to do"
     pkgs = p.get("packages") or []
     missing = [x for x in pkgs if not pkg_installed(x)]
     if missing:
         ok, err = _install_pkgs(ctx, missing)
+        if not ok and have("apt-get"):
+            # Debian/Ubuntu ship the journal-upload BINARY (and unit) in the
+            # systemd-journal-remote package — there is no standalone
+            # systemd-journal-upload package ("Unable to locate package").
+            alt = {"systemd-journal-upload": "systemd-journal-remote"}
+            mapped = [alt.get(x, x) for x in missing]
+            if mapped != missing:
+                ok, err = _install_pkgs(ctx, mapped)
         if not ok:
             return False, "cannot install %s: %s" % (", ".join(missing), err)
     # CIS 6.2.1.2.3 special case: journal-upload needs a receiver to be
@@ -1510,6 +1704,130 @@ def f_svc_enabled(ctx, p):
         return False, "no matching units present"
     _unit_db_invalidate()
     return True, "enabled and started: " + ", ".join(acts)
+
+
+@check("fw_stack_in_use")
+def c_fw_stack_in_use(ctx, p):
+    """Guard for the mutually exclusive CIS firewall-stack sections.
+
+    The benchmark splits host firewall guidance into alternatives —
+    firewalld (3.4.2.x), nftables (3.4.3.x), iptables (3.4.4.x) — of which
+    exactly ONE is meant to be configured.  Rules for a stack whose
+    service is neither enabled nor active on this host are notapplicable;
+    when the stack IS in use the rule drops back to "manual" so it is
+    still reviewed per the benchmark Audit procedure.
+    """
+    units = p.get("units") or []
+    if not units:
+        return "error", "rule has no units configured (incomplete catalog)"
+    in_use = []
+    for u in units:
+        if not unit_exists(u):
+            continue
+        en, ac = _unit_state(u)
+        if en in ("enabled", "enabled-runtime") or ac == "active":
+            in_use.append("%s(%s/%s)" % (u, en or "disabled", ac or "inactive"))
+    if in_use:
+        return ("manual",
+                "firewall stack in use (%s) — review per the benchmark Audit "
+                "procedure" % ", ".join(sorted(in_use)))
+    return ("notapplicable",
+            "firewall stack not in use (no enabled/active unit among: %s)"
+            % ", ".join(units))
+
+
+def _firewall_zones():
+    """{zone: [interfaces]} parsed from `firewall-cmd --get-active-zones`."""
+    rc, o, _ = sh(["firewall-cmd", "--get-active-zones"], 30)
+    zones = {}
+    cur = None
+    if rc != 0:
+        return zones
+    for ln in (o or "").splitlines():
+        if not ln.startswith((" ", "\t")):
+            cur = ln.strip()
+            zones.setdefault(cur, [])
+        elif cur and ln.strip().startswith("interfaces:"):
+            zones[cur] = ln.split(":", 1)[1].split()
+    return zones
+
+
+def _net_ifaces():
+    """Non-loopback interface names from /sys/class/net."""
+    return sorted(i for i in os.listdir("/sys/class/net") if i != "lo")
+
+
+@check("firewalld_cfg")
+def c_firewalld_cfg(ctx, p):
+    """firewalld chosen-stack checks (CIS 3.4.2.4 / 3.4.2.5).
+
+    params.check selects the probe:
+      default_zone        — a default zone is set (any non-empty zone
+                            passes; params.zone only feeds the fixer)
+      interfaces_assigned — every non-loopback interface is bound to a zone
+    """
+    kind = p.get("check")
+    if not unit_exists("firewalld.service"):
+        return "notapplicable", "firewalld.service not present on this host"
+    en, ac = _unit_state("firewalld.service")
+    if ac != "active":
+        return "fail", "firewalld.service is not active (%s/%s)" \
+                       % (en or "disabled", ac or "inactive")
+    if kind == "default_zone":
+        rc, o, e = sh(["firewall-cmd", "--get-default-zone"], 30)
+        zone = (o or "").strip()
+        if rc == 0 and zone:
+            return "pass", "default zone: %s" % zone
+        return "fail", "no default zone set (%s)" \
+                       % ((e or o or "").strip()[:120] or "empty output")
+    if kind == "interfaces_assigned":
+        bound = set()
+        for ifs in _firewall_zones().values():
+            bound.update(ifs)
+        try:
+            ifaces = _net_ifaces()
+        except OSError as exc:
+            return "error", "cannot list /sys/class/net: %s" % exc
+        stray = [i for i in ifaces if i not in bound]
+        if stray:
+            return "fail", "interface(s) not assigned to any zone: " + ", ".join(stray)
+        return "pass", "all interfaces assigned to a zone (%s)" \
+                       % (", ".join(ifaces) or "none besides lo")
+    return "error", "unknown firewalld_cfg check %r" % kind
+
+
+@fix("firewalld_cfg")
+def f_firewalld_cfg(ctx, p):
+    kind = p.get("check")
+    if kind == "default_zone":
+        zone = p.get("zone") or "public"
+        rc, o, e = sh(["firewall-cmd", "--permanent", "--set-default-zone", zone], 60)
+        if rc != 0:
+            return False, (e or o).strip()[:200]
+        sh(["firewall-cmd", "--reload"], 120)
+        return True, "default zone set to %s (permanent + reload)" % zone
+    if kind == "interfaces_assigned":
+        rc, o, _ = sh(["firewall-cmd", "--get-default-zone"], 30)
+        zone = (o or "").strip() or "public"
+        bound = set()
+        for ifs in _firewall_zones().values():
+            bound.update(ifs)
+        try:
+            ifaces = _net_ifaces()
+        except OSError as exc:
+            return False, "cannot list /sys/class/net: %s" % exc
+        moved = []
+        for i in ifaces:
+            if i in bound:
+                continue
+            rc, o, e = sh(["firewall-cmd", "--zone=" + zone,
+                           "--change-interface=" + i], 60)
+            if rc != 0:
+                return False, "cannot bind %s to zone %s: %s" \
+                              % (i, zone, (e or o).strip()[:120])
+            moved.append(i)
+        return True, "bound to zone %s: %s" % (zone, ", ".join(moved) or "none missing")
+    return False, "unknown firewalld_cfg check %r" % kind
 
 
 @check("dnf_flag")
@@ -1833,8 +2151,24 @@ def f_mta_local(ctx, p):
 def c_chrony_user(ctx, p):
     if not pkg_installed("chrony"):
         return "notapplicable", "chrony is not installed"
+    # params.user defaults to "chrony" (RHEL/TencentOS).  Ubuntu runs chronyd
+    # as _chrony (CIS 2.3.3.2): the daemon starts as root and self-drops
+    # privileges — there is no /etc/sysconfig/chronyd and no -u flag, so the
+    # running process (or the unit's User= directive) is the only evidence.
+    user = p.get("user") or "chrony"
     running = out("ps -eo user:32,comm 2>/dev/null | awk '$2==\"chronyd\"{print $1}' | "
                   "sort -u", 30)
+    if user != "chrony":
+        if running:
+            if running.strip() == user:
+                return "pass", "chronyd runs as %s" % user
+            return "fail", "chronyd running as %s (expected %s)" % (
+                running.replace("\n", ","), user)
+        unit_cfg = out("systemctl cat chrony.service chronyd.service 2>/dev/null", 30) or ""
+        if re.search(r"^\s*User=%s\s*$" % re.escape(user), unit_cfg, re.M):
+            return "pass", "chronyd unit runs as User=%s" % user
+        return ("fail", "chronyd is not running and no unit User=%s directive found"
+                % user)
     if running and running.strip() != "chrony":
         return "fail", "chronyd running as %s (expected chrony)" % running.replace("\n", ",")
     files = ["/etc/sysconfig/chronyd"]
@@ -1849,6 +2183,12 @@ def c_chrony_user(ctx, p):
 def f_chrony_user(ctx, p):
     if not pkg_installed("chrony"):
         return False, "chrony is not installed"
+    if (p.get("user") or "chrony") != "chrony":
+        # Debian/Ubuntu chronyd self-drops privileges; there is no static
+        # config knob to write (setting User= on the unit would break the
+        # root-requiring clock control).  Nothing honest to automate.
+        return False, ("chronyd self-drops privileges to %s on this platform; "
+                       "no static config to write" % (p.get("user") or "chrony"))
     set_kv_in_file(ctx, "/etc/sysconfig/chronyd", "OPTIONS",
                    '"-F 2 -u chrony"', sep="=")
     ctx.defer_restart("chronyd")
@@ -2515,6 +2855,10 @@ def c_authselect_feature(ctx, p):
 def f_authselect_feature(ctx, p):
     if not have("authselect"):
         return False, "authselect is not installed"
+    # enable-feature only works on a custom profile — create/select ours
+    # first (idempotent) or the command fails on stock sssd/minimal.
+    if not _ensure_custom_profile(ctx):
+        return False, "unable to create a custom authselect profile"
     rc, o, e = sh(["authselect", "enable-feature", p["feature"]], 60)
     if rc != 0:
         return False, "authselect enable-feature failed: %s" % (e or o)[:200]
@@ -2564,7 +2908,7 @@ def c_sudo_defaults(ctx, p):
         m = re.search(re.escape(key) + r"\s*=\s*(\"?)([^\",]+)\1", l)
         if m:
             vals.append((f, m.group(2).strip()))
-    if op == "kv":
+    if op in ("kv", "eq"):
         if any(v == str(want) for _, v in vals):
             return "pass", "%s=%s" % (key, want)
         return "fail", "%s=%s (expected %s)" % (
@@ -3089,8 +3433,12 @@ def _fix_sshd_crypto(ctx, kind):
     comment_out(ctx, "/etc/ssh/sshd_config", r"^\s*Ciphers\s")
     # Validate BEFORE deferring a restart: a drop-in sshd rejects would
     # kill the daemon on the next restart (and on reboot).  Roll the file
-    # back so SSH can never be bricked by a bad algorithm name.
-    rc, _, err = sh(["sshd", "-t"], 30)
+    # back so SSH can never be bricked by a bad algorithm name.  sshd -t
+    # needs the privilege-separation dir — on Debian/Ubuntu it lives in
+    # /run and only exists while the service is up, so create it first.
+    os.makedirs("/run/sshd", exist_ok=True)
+    sshd_bin = out("command -v sshd 2>/dev/null || echo /usr/sbin/sshd", 20).strip()
+    rc, _, err = sh([sshd_bin, "-t"], 30)
     if rc != 0:
         try:
             os.unlink(SSH_CRYPTO_DROPIN)
@@ -3172,7 +3520,7 @@ def c_crypto_policy(ctx, p):
 
 
 CRYPTO_MODULES = {
-    "no_sha1": ("NO-SHA1", "hash = -SHA1\nsign = -*-SHA1\nsha1_in_certs = 0\n"),
+    "no_sha1": ("NO-SHA1", "hash = -SHA1\nmac = -HMAC-SHA1\nsign = -*-SHA1\nsha1_in_certs = 0\n"),
     "no_weak_mac": ("NO-WEAKMAC", "mac = -*-64* -HMAC-MD5 -HMAC-SHA1\n"),
     "no_cbc_ssh": ("NO-SSHCBC", "cipher@SSH = -*-CBC\n"),
     "no_chacha_ssh": ("NO-SSHCHACHA20", "cipher@SSH = -CHACHA20-POLY1305\n"),
@@ -3182,22 +3530,33 @@ CRYPTO_MODULES = {
 
 @fix("crypto_policy")
 def f_crypto_policy(ctx, p):
-    if not have("update-crypto-policies"):
-        return False, "crypto-policies is not installed"
     kind = p["kind"]
     if kind in ("no_weak_mac", "no_etm_ssh", "no_cbc_ssh", "no_chacha_ssh"):
-        # SSH-side only — no system-wide policy change, not disruptive.
+        # SSH-side only — no system-wide policy change, not disruptive, and
+        # does NOT need update-crypto-policies (Ubuntu has none; the fixer
+        # used to bail out here and never wrote the sshd drop-in).
         return _fix_sshd_crypto(ctx, kind)
+    if not have("update-crypto-policies"):
+        return False, "crypto-policies is not installed"
     if kind in ("not_legacy", "future_or_fips"):
         target = "DEFAULT" if kind == "not_legacy" else "FUTURE"
         rc, o, e = sh(["update-crypto-policies", "--set", target], 120)
         if rc != 0:
             return False, "update-crypto-policies failed: %s" % (e or o)[:200]
+        _post_crypto_policy_fixups(ctx)
         ctx.invalidate("crypto_policy")
         return True, "set the system-wide crypto policy to %s (reboot recommended)" % target
     name, body = CRYPTO_MODULES[kind]
     modpath = "/etc/crypto-policies/policies/modules/%s.pmod" % name
-    write_file(ctx, modpath, "# CIS hardening\n" + body)
+    vendor = "/usr/share/crypto-policies/policies/modules/%s.pmod" % name
+    if exists(vendor):
+        # The OS-shipped module is authoritative — a locally written shadow
+        # wins over /usr/share, and ours once lacked mac=-HMAC-SHA1, leaving
+        # SHA1 in the gnutls/java backends after --set (rhel9 1.6.3).
+        if exists(modpath):
+            os.unlink(modpath)
+    else:
+        write_file(ctx, modpath, "# CIS hardening\n" + body)
     cur = crypto_policy_now(ctx) or "DEFAULT"
     base = cur.split(":")[0]
     mods = [m for m in cur.split(":")[1:] if m]
@@ -3207,8 +3566,20 @@ def f_crypto_policy(ctx, p):
     rc, o, e = sh(["update-crypto-policies", "--set", newpol], 120)
     if rc != 0:
         return False, "update-crypto-policies --set %s failed: %s" % (newpol, (e or o)[:160])
+    _post_crypto_policy_fixups(ctx)
     ctx.invalidate("crypto_policy")
     return True, "applied crypto policy %s (reboot recommended)" % newpol
+
+
+def _post_crypto_policy_fixups(ctx):
+    """update-crypto-policies regenerates /etc/sysconfig/sshd with the
+    package-default 0640 — re-assert the CIS 5.1.3 perms (0600 root:root)
+    so a parallel file_perm fixer cannot lose the race."""
+    f = "/etc/sysconfig/sshd"
+    if exists(f):
+        os.chmod(f, 0o600)
+        sh(["chown", "root:root", f], 30)
+        ctx.add_changed_file(f)
 
 # ==========================================================================
 # auditd
@@ -3820,7 +4191,86 @@ def c_bootloader_password(ctx, p):
     if not has_pw:
         miss.append("no password_pbkdf2 / GRUB2_PASSWORD")
     return "fail", "; ".join(miss)
-# no automated fix: the password must be chosen by an operator
+
+
+@fix("bootloader_password")
+def f_bootloader_password(ctx, p):
+    """Set a GRUB superuser with a per-image random pbkdf2 password.
+
+    The password is generated at build time, stored root-only in
+    /root/ohbs-image-grub-password (and noted in the image report) — only
+    the hash lands in the GRUB config.  Normal booting is unaffected; the
+    password is only required to edit menu entries / use the GRUB shell.
+    """
+    import secrets
+    pw = secrets.token_urlsafe(18)
+    salt = secrets.token_hex(32)
+    digest = hashlib.pbkdf2_hmac(
+        "sha512", pw.encode(), bytes.fromhex(salt), 10000).hex()
+    grub_pw = "grub.pbkdf2.sha512.10000.%s.%s" % (salt, digest)
+    if have("grub2-mkconfig") or exists("/boot/grub2"):
+        # RHEL/TencentOS path: /boot/grub2/user.cfg is sourced by grub.cfg.
+        write_file(ctx, "/boot/grub2/user.cfg",
+                   "GRUB2_PASSWORD=%s\n" % grub_pw, 0o600)
+        where = "/boot/grub2/user.cfg"
+    else:
+        # Debian/Ubuntu path: a grub.d drop-in + update-grub.  01_users is
+        # one of the files the check inspects.  Unlike RHEL (whose 10_linux
+        # ships CLASS="... --unrestricted"), Debian's 10_linux generates
+        # menu entries WITHOUT --unrestricted, so defining a superuser makes
+        # GRUB prompt for credentials before booting ANY entry — a headless
+        # cloud VM then hangs at the GRUB prompt (observed 2026-08-22 on
+        # ubuntu2404: the post-hardening reboot never came back; SSH dial
+        # i/o timeout).  Patch every 10_linux* generator to keep entries
+        # --unrestricted (the password still gates entry editing and the
+        # GRUB shell, which is what CIS wants), verify the regenerated
+        # grub.cfg, and roll back on mismatch — a failed rule beats an
+        # unbootable image.
+        patched = False
+        for gen in sorted(globmod.glob("/etc/grub.d/10_linux*")):
+            try:
+                with open(gen) as fh:
+                    txt = fh.read()
+            except OSError:
+                continue
+            if "--unrestricted" in txt:
+                patched = True
+                continue
+            new = re.sub(r'^(CLASS="(?![^"]*--unrestricted)[^"]*?)("\s*)$',
+                         r"\1 --unrestricted\2", txt, flags=re.M)
+            if new != txt:
+                write_file(ctx, gen, new, 0o755)
+                patched = True
+        body = ('#!/bin/sh\n'
+                'exec tail -n +3 $0\n'
+                '# CIS hardening: GRUB superuser (ohbs-image)\n'
+                'set superusers="root"\n'
+                'password_pbkdf2 root %s\n' % grub_pw)
+        write_file(ctx, "/etc/grub.d/01_users", body, 0o755)
+        rc, o, e = sh(["update-grub"], 120)
+        if rc != 0:
+            return False, "update-grub failed: %s" % (e or o)[:160]
+        bootable = not patched  # nothing to patch -> nothing to verify
+        try:
+            with open("/boot/grub/grub.cfg") as fh:
+                entries = [l for l in fh.read().splitlines()
+                           if l.startswith("menuentry ")]
+            bootable = (not entries or
+                        any("--unrestricted" in l for l in entries))
+        except OSError:
+            bootable = True  # no grub.cfg to validate (unlikely)
+        if not bootable:
+            os.unlink("/etc/grub.d/01_users")
+            sh(["update-grub"], 120)
+            return (False, "grub.cfg menu entries lack --unrestricted; "
+                           "rolled back /etc/grub.d/01_users to keep the "
+                           "image bootable")
+        where = "/etc/grub.d/01_users"
+    write_file(ctx, "/root/ohbs-image-grub-password",
+               "# GRUB superuser password generated by ohbs-image at build"
+               " time.\n# Rotate per site policy; the hash lives in %s.\n"
+               "root %s\n" % (where, pw), 0o600)
+    return True, "set GRUB superuser 'root' with a random pbkdf2 password (%s)" % where
 
 
 @check("bootloader_perm")
@@ -4105,6 +4555,30 @@ def _ua_gid0_group_root(ctx):
     if names == ["root"]:
         return "pass", "root is the only GID 0 group"
     return "fail", "GID 0 groups: " + ", ".join(names)
+
+
+def _ua_shadow_group_empty(ctx):
+    """CIS 7.2.4 (Ubuntu) — the shadow group must have no members and no
+    account may use it as its primary group (membership grants read access
+    to /etc/shadow)."""
+    shadow_gid = None
+    members = []
+    for f in _group_entries():
+        if f[0] == "shadow":
+            shadow_gid = f[2]
+            members = [m for m in (f[3].split(",") if len(f) > 3 else []) if m]
+            break
+    if shadow_gid is None:
+        return "pass", "no shadow group present on this system"
+    bad = []
+    if members:
+        bad.append("shadow group has members: " + ", ".join(members))
+    primary = [f[0] for f in _passwd_entries() if f[3] == shadow_gid]
+    if primary:
+        bad.append("account(s) with shadow as primary group: " + ", ".join(primary))
+    if bad:
+        return "fail", "; ".join(bad)
+    return "pass", "shadow group is empty (gid %s)" % shadow_gid
 
 
 def _ua_root_path(ctx):
@@ -4527,8 +5001,1218 @@ def f_user_audit(ctx, p):
             return False, "could not chgrp any ungrouped path"
         ctx.invalidate("fs_scan")
         return True, "assigned root group to %d path(s)" % len(done)
+    if kind == "shadow_group_empty":
+        # gpasswd -d can only strip group MEMBERS; accounts using shadow as
+        # their PRIMARY group need a new primary group — a site decision,
+        # so those are reported, not moved.
+        done = []
+        for f in _group_entries():
+            if f[0] == "shadow" and len(f) > 3:
+                for m in [x for x in f[3].split(",") if x]:
+                    sh(["gpasswd", "-d", m, "shadow"], 30)
+                    done.append(m)
+        shadow_gid = next((f[2] for f in _group_entries() if f[0] == "shadow"), None)
+        primary = [f[0] for f in _passwd_entries()
+                   if shadow_gid is not None and f[3] == shadow_gid]
+        if primary:
+            return False, ("removed member(s): %s; but %s still use shadow as "
+                           "their primary group — assign a new primary group "
+                           "manually" % (", ".join(done) or "none",
+                                         ", ".join(primary)))
+        if not done:
+            return False, "nothing to change"
+        return True, "removed from the shadow group: " + ", ".join(done)
     return False, ("finding requires human judgement (accounts, ownership or data "
                    "loss risk); remediate manually")
+
+
+# ==========================================================================
+# Manual-rule automation families (second wave)
+#
+# Families below automate rules the catalogs historically carried as
+# `manual`.  Network-firewall detail families (nft_rules / iptables_rules /
+# ufw_rules / firewalld_rules) embed the c_fw_stack_in_use guard semantics:
+# when the stack's unit is neither enabled nor active the rule is
+# notapplicable instead of fail — the CIS firewall sections are mutually
+# exclusive alternatives.
+# ==========================================================================
+
+def _stack_in_use(ctx, units):
+    """True when any of `units` is enabled or active (fw_stack_in_use semantics)."""
+    for u in units:
+        if not unit_exists(u):
+            continue
+        en, ac = _unit_state(u)
+        if en in ("enabled", "enabled-runtime") or ac == "active":
+            return True
+    return False
+
+
+@check("kmod_list")
+def c_kmod_list(ctx, p):
+    """Loop c_kmod over params.modules (CIS 1.1.1.x unused-filesystem lists)."""
+    mods = p.get("modules") or []
+    if not mods:
+        return "error", "rule has no modules configured (incomplete catalog)"
+    bad = []
+    for m in mods:
+        st, detail = c_kmod(ctx, {"module": m})
+        if st != "pass":
+            bad.append("%s (%s)" % (m, detail))
+    if bad:
+        return "fail", "; ".join(bad)
+    return "pass", "%d unused filesystem module(s) unavailable" % len(mods)
+
+
+@fix("kmod_list")
+def f_kmod_list(ctx, p):
+    done = []
+    for m in p.get("modules") or []:
+        st, _ = c_kmod(ctx, {"module": m})
+        if st == "pass":
+            continue
+        ok, detail = f_kmod(ctx, {"module": m})
+        if not ok:
+            return False, "%s: %s" % (m, detail)
+        done.append(m)
+    if not done:
+        return False, "nothing to change"
+    return True, "blocked and unloaded: " + ", ".join(done)
+
+
+@check("gpg_keys")
+def c_gpg_keys(ctx, p):
+    """CIS 1.2.1.1 — package-manager GPG keys are configured.  Check-only:
+    importing/distributing keys is site input, nothing honest to auto-fix."""
+    if have("rpm"):
+        rc, o, _ = sh(["rpm", "-q", "gpg-pubkey"], 60)
+        keys = [ln for ln in (o or "").splitlines()
+                if ln.strip().startswith("gpg-pubkey-")]
+        if rc == 0 and keys:
+            return "pass", "%d gpg-pubkey package(s) installed (%s)" % (len(keys), keys[0])
+        return "fail", "no gpg-pubkey packages installed (rpm -q gpg-pubkey)"
+    if have("apt-get"):
+        rings = []
+        for pat in ("/etc/apt/trusted.gpg.d/*.gpg", "/etc/apt/trusted.gpg.d/*.asc",
+                    "/usr/share/keyrings/*.gpg", "/usr/share/keyrings/*.asc"):
+            rings.extend(sorted(globmod.glob(pat)))
+        if rings:
+            return "pass", "%d apt keyring file(s) present (e.g. %s)" % (
+                len(rings), os.path.basename(rings[0]))
+        return "fail", ("no keyrings under /etc/apt/trusted.gpg.d or "
+                        "/usr/share/keyrings")
+    return "error", "no supported package manager (rpm/apt-get) found"
+
+
+@check("pkg_repos")
+def c_pkg_repos(ctx, p):
+    """CIS 1.2.1.x — at least one package repository is enabled.  Check-only:
+    repositories are image/site input (build VMs ship working ones, so this
+    passes honestly)."""
+    if have("dnf"):
+        rc, o, e = sh(["dnf", "repolist", "enabled"], 180)
+        repos = [ln for ln in (o or "").splitlines()
+                 if ln.strip() and not ln.lower().startswith("repo id")]
+        if rc == 0 and repos:
+            return "pass", "%d enabled repo(s) (e.g. %s)" % (
+                len(repos), repos[0].split()[0])
+        return "fail", "no enabled dnf repositories (%s)" % ((e or o or "")[:120])
+    if have("apt-get"):
+        files = (["/etc/apt/sources.list"] if exists("/etc/apt/sources.list") else [])
+        files += sorted(globmod.glob("/etc/apt/sources.list.d/*.list"))
+        files += sorted(globmod.glob("/etc/apt/sources.list.d/*.sources"))
+        found = None
+        for path in files:
+            for ln in readlines(path):
+                s = ln.strip()
+                if not s or s.startswith("#"):
+                    continue
+                if re.match(r"^(deb|deb-src)\s", s) or \
+                        (path.endswith(".sources") and
+                         re.match(r"^Types:\s+.*\bdeb\b", s)):
+                    found = "%s: %s" % (os.path.basename(path), s[:60])
+                    break
+            if found:
+                break
+        if found:
+            return "pass", "apt repository configured (%s)" % found
+        return "fail", "no enabled apt repositories in sources.list(.d)"
+    return "error", "no supported package manager (dnf/apt-get) found"
+
+
+@check("updates_applied")
+def c_updates_applied(ctx, p):
+    """CIS 1.2.2.1 — no pending package updates.
+
+    dnf check-update exit codes: 0 = no updates, 100 = updates pending,
+    anything else = the check itself failed (error, not fail).
+    """
+    if have("dnf"):
+        rc, o, e = sh(["dnf", "check-update"], 300)
+        if rc == 0:
+            return "pass", "no pending updates (dnf check-update)"
+        if rc == 100:
+            pending = [ln for ln in (o or "").splitlines()
+                       if ln.strip() and not ln.startswith((" ", "Last"))]
+            return "fail", "%d update(s) pending (dnf check-update)" % len(pending)
+        return "error", "dnf check-update failed (rc=%d): %s" % (rc, (e or o)[:200])
+    if have("apt-get"):
+        rc, o, e = sh(["apt", "list", "--upgradable"], 300)
+        if rc != 0:
+            return "error", "apt list --upgradable failed: %s" % (e or o)[:200]
+        pending = [ln for ln in (o or "").splitlines()
+                   if ln.strip() and not ln.startswith("Listing")]
+        if pending:
+            return "fail", "%d update(s) pending (e.g. %s)" % (
+                len(pending), pending[0].split("/")[0])
+        return "pass", "no pending updates (apt list --upgradable)"
+    return "error", "no supported package manager (dnf/apt-get) found"
+
+
+@fix("updates_applied")
+def f_updates_applied(ctx, p):
+    # Heavy by design (full system update) — catalogs set the risk.  Same
+    # locking discipline as _install_pkgs: parallel fixers must not race
+    # two dnf/apt processes for the rpmdb/dpkg lock.
+    with ctx._pkg_lock:
+        if have("dnf"):
+            cmd = ["dnf", "-y", "update"]
+        elif have("apt-get"):
+            # dist-upgrade also applies kept-back updates (new deps); the
+            # phased-updates opt-in keeps 'N update(s) pending' from
+            # lingering on packages apt would otherwise hold back (fwupd).
+            cmd = ["env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "-y",
+                   "-o", "APT::Get::Always-Include-Phased-Updates=true",
+                   "dist-upgrade"]
+        else:
+            return False, "no supported package manager found"
+        rc, o, e = sh(cmd, 1800)
+        if rc != 0:
+            return False, "%s failed: %s" % (" ".join(cmd[:3]), (e or o)[:200])
+        _pkg_cache_invalidate()
+        return True, "all pending updates applied"
+
+
+def _listening_sockets(ctx):
+    """[(proto, addr, port, proc)] for every listening TCP/UDP socket.
+
+    `ss -H -lntup` covers both protocols in one pass; the local endpoint is
+    column 5 and may carry an %iface suffix or [] brackets (127.0.0.53%lo:53,
+    [::]:22)."""
+    rc, o, _ = sh(["ss", "-H", "-lntup"], 60)
+    res = []
+    for ln in (o or "").splitlines():
+        f = ln.split()
+        if len(f) < 5:
+            continue
+        local = f[4]
+        addr, _, port = local.rpartition(":")
+        addr = addr.split("%")[0].strip("[]")
+        m = re.search(r'users:\(\("([^"]+)"', ln)
+        res.append((f[0], addr, port, m.group(1) if m else ""))
+    return res
+
+
+def _is_loopback_addr(addr):
+    return addr.startswith("127.") or addr == "::1"
+
+
+@check("listening_ports")
+def c_listening_ports(ctx, p):
+    """CIS 2.1.x — only approved ports listen on non-loopback addresses.
+
+    params.allow_ports: list of allowed ports (default [22], the golden
+    image's only management path).  Loopback-only listeners always pass.
+    Deliberately check-only (no @fix): killing an unexpected listener is a
+    review decision, so catalogs carry risk=none and apply reports
+    `unsupported`."""
+    allow = set(str(x) for x in (p.get("allow_ports") or [22]))
+    offenders = []
+    for proto, addr, port, proc in _listening_sockets(ctx):
+        if _is_loopback_addr(addr):
+            continue
+        # Entries are either a bare port ("22", any proto) or proto-pinned
+        # ("68/udp") — the latter whitelists e.g. the DHCP client without
+        # also opening 68/tcp.
+        if port in allow or "%s/%s" % (port, proto) in allow:
+            continue
+        offenders.append("%s/%s on %s%s" % (
+            port, proto, addr or "*", " (%s)" % proc if proc else ""))
+    if offenders:
+        return "fail", "unexpected listener(s): " + ", ".join(sorted(offenders))
+    return "pass", "all listening ports are loopback-only or in %s" % sorted(allow)
+
+
+# -- nftables (CIS 3.4.3.x / 4.3.x) ------------------------------------------
+
+def _nft_ruleset(ctx):
+    return ctx.cached("nft_ruleset",
+                      lambda: sh(["nft", "list", "ruleset"], 60)[1] or "")
+
+
+@check("nft_rules")
+def c_nft_rules(ctx, p):
+    kind = p.get("kind")
+    # Same guard as c_fw_stack_in_use: the nftables detail rules only apply
+    # when nftables is the chosen stack (unit enabled or active).
+    if not _stack_in_use(ctx, p.get("units") or ["nftables.service"]):
+        return ("notapplicable",
+                "nftables stack not in use (nftables.service not enabled/active)")
+    ruleset = _nft_ruleset(ctx)
+    if kind == "flushed":
+        # CIS 4.3.1: when nftables is in use, legacy iptables must be empty
+        # (policies only, no -A rules) so the two stacks cannot disagree.
+        bad = []
+        for cmd in ("iptables", "ip6tables"):
+            if not have(cmd):
+                continue
+            legacy = [ln for ln in (sh([cmd, "-S"], 30)[1] or "").splitlines()
+                      if ln.startswith("-A")]
+            if legacy:
+                bad.append("%s: %d rule(s)" % (cmd, len(legacy)))
+        if bad:
+            return "fail", "legacy iptables not flushed: " + ", ".join(bad)
+        return "pass", "iptables/ip6tables carry no rules"
+    if kind == "table":
+        if re.search(r"^\s*table\s+\S+\s+\S+", ruleset, re.M):
+            return "pass", "an nftables table exists"
+        return "fail", "no nftables table in the running ruleset"
+    if kind == "base_chains":
+        missing = [h for h in ("input", "forward", "output")
+                   if not re.search(r"hook\s+%s\b" % h, ruleset)]
+        if missing:
+            return "fail", "missing base chain(s): " + ", ".join(missing)
+        return "pass", "base chains exist for input/forward/output"
+    if kind == "loopback":
+        bad = []
+        if not re.search(r'iifname\s+"?lo"?\s+accept', ruleset):
+            bad.append("no 'iifname lo accept' rule")
+        # CIS accepts either the explicit 127/8 drop or the
+        # 'saddr 127.0.0.1 daddr != 127.0.0.1 drop' anti-spoof variant.
+        if not (re.search(r"ip\s+saddr\s+127\.0\.0\.0/8[^#\n]*drop", ruleset) or
+                re.search(r"ip\s+saddr\s+127\.0\.0\.1[^#\n]*drop", ruleset)):
+            bad.append("no drop for 127.0.0.0/8 traffic not on lo")
+        if bad:
+            return "fail", "; ".join(bad)
+        return "pass", "loopback accept + 127/8 anti-spoof drop present"
+    if kind == "established":
+        # CIS wants established/related accepted in BOTH the input and
+        # output base chains — check per chain body, not anywhere in the
+        # ruleset (an output-only rule must not satisfy the input side).
+        bodies = re.findall(r"chain\s+\w+\s*\{([^}]*)\}", ruleset, re.S)
+        ct = re.compile(r"ct\s+state[^#\n]*established[^#\n]*accept")
+        bad = [h for h in ("input", "output") if not any(
+            "hook %s" % h in b and ct.search(b) for b in bodies)]
+        if bad:
+            return "fail", ("no 'ct state established ... accept' rule in "
+                            "chain(s): " + ", ".join(bad))
+        return "pass", "established/related connections accepted (input+output)"
+    if kind == "default_deny":
+        notdrop = [h for h in ("input", "forward", "output")
+                   if not re.search(r"hook\s+%s\b[^;]*;\s*policy\s+drop" % h, ruleset)]
+        if notdrop:
+            return "fail", "base chain policy is not drop: " + ", ".join(notdrop)
+        return "pass", "input/forward/output base chains all policy drop"
+    if kind == "permanent":
+        # The running ruleset must survive a reboot: either the main conf
+        # defines the table itself (Ubuntu) or it includes the saved ruleset
+        # file that does (RHEL/TencentOS /etc/sysconfig/nftables.conf).
+        main = read("/etc/nftables.conf") or ""
+        sysconf = read("/etc/sysconfig/nftables.conf") or ""
+        if re.search(r"^\s*table\s+\S+", main, re.M):
+            return "pass", "/etc/nftables.conf defines a table"
+        if 'include "/etc/sysconfig/nftables.conf"' in main and \
+                re.search(r"^\s*table\s+\S+", sysconf, re.M):
+            return "pass", "/etc/nftables.conf includes the saved ruleset"
+        return "fail", "running ruleset is not persisted in nftables.conf"
+    return "error", "unknown nft_rules kind %r" % kind
+
+
+_NFT_BASELINE = """#!/usr/sbin/nft -f
+# CIS baseline ruleset (written by ohbs-image): loopback accept, 127/8
+# anti-spoof drop, established/related accept, SSH management access,
+# default-deny policies.
+flush ruleset
+table inet filter {
+    chain input {
+        type filter hook input priority 0; policy drop;
+        iifname "lo" accept
+        ip saddr 127.0.0.0/8 drop
+        ip6 saddr ::1/128 drop
+        ct state established,related accept
+        tcp dport __SSH_PORT__ accept
+    }
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+    }
+    chain output {
+        type filter hook output priority 0; policy drop;
+        oifname "lo" accept
+        ct state new,established,related accept
+    }
+}
+"""
+
+
+@fix("nft_rules")
+def f_nft_rules(ctx, p):
+    if p.get("kind") == "flushed":
+        for cmd in ("iptables", "ip6tables"):
+            if have(cmd):
+                sh([cmd, "-F"], 60)
+        return True, "flushed legacy iptables/ip6tables rules"
+    # Every other kind is satisfied by one CIS baseline ruleset, persisted
+    # where the distro's nftables.service loads it: RHEL/TencentOS keep the
+    # rules in /etc/sysconfig/nftables.conf (included from the main conf),
+    # Debian/Ubuntu write /etc/nftables.conf directly.
+    baseline = _NFT_BASELINE.replace("__SSH_PORT__", _detect_ssh_port())
+    main = read("/etc/nftables.conf") or ""
+    if os.path.isdir("/etc/sysconfig"):
+        path = "/etc/sysconfig/nftables.conf"
+        if 'include "/etc/sysconfig/nftables.conf"' not in main:
+            write_file(ctx, "/etc/nftables.conf",
+                       '# Managed by CIS hardening\n'
+                       'include "/etc/sysconfig/nftables.conf"\n', 0o644)
+    else:
+        path = "/etc/nftables.conf"
+    write_file(ctx, path, baseline, 0o644)
+    rc, o, e = sh(["nft", "-f", path], 60)
+    if rc != 0:
+        return False, "nft -f %s failed: %s" % (path, (e or o)[:200])
+    sh(["systemctl", "enable", "--now", "nftables.service"], 120)
+    _unit_db_invalidate()
+    ctx.invalidate("nft_ruleset")
+    return True, "wrote CIS baseline ruleset to %s and enabled nftables" % path
+
+
+# -- iptables (CIS 3.4.4.x / 4.4.x) ------------------------------------------
+
+_IPTABLES_GUARD_UNITS = ["iptables.service", "ip6tables.service",
+                         "netfilter-persistent.service"]
+
+
+def _iptables_rules(cmd):
+    """`iptables -S` lines: -P policies and -A rules in machine form."""
+    return (sh([cmd, "-S"], 30)[1] or "").splitlines()
+
+
+@check("iptables_rules")
+def c_iptables_rules(ctx, p):
+    kind = p.get("kind")
+    ipv6 = bool(p.get("ipv6"))
+    # Same guard as c_fw_stack_in_use (RHEL/TencentOS iptables.service;
+    # Ubuntu persists via netfilter-persistent.service).
+    if not _stack_in_use(ctx, p.get("units") or _IPTABLES_GUARD_UNITS):
+        return ("notapplicable",
+                "iptables stack not in use (no enabled/active unit among: %s)"
+                % ", ".join(p.get("units") or _IPTABLES_GUARD_UNITS))
+    cmd = "ip6tables" if ipv6 else "iptables"
+    lines = _iptables_rules(cmd)
+    lo_net = "::1" if ipv6 else r"127\.0\.0\.0/8"
+    if kind == "default_deny":
+        notdrop = [c for c in ("INPUT", "FORWARD", "OUTPUT")
+                   if "-P %s DROP" % c not in lines]
+        if notdrop:
+            return "fail", "%s policy is not DROP: %s" % (cmd, ", ".join(notdrop))
+        return "pass", "%s INPUT/FORWARD/OUTPUT policies are DROP" % cmd
+    if kind == "loopback":
+        bad = []
+        if not any(re.match(r"-A INPUT\b.*\s-i lo\b.*-j ACCEPT", ln) for ln in lines):
+            bad.append("no '-A INPUT -i lo -j ACCEPT' rule")
+        if not any(re.match(r"-A OUTPUT\b.*\s-o lo\b.*-j ACCEPT", ln) for ln in lines):
+            bad.append("no '-A OUTPUT -o lo -j ACCEPT' rule")
+        if not any(re.match(r"-A INPUT\b.*-s %s.*-j DROP" % lo_net, ln)
+                   for ln in lines):
+            bad.append("no drop for loopback-network traffic not on lo")
+        if bad:
+            return "fail", "; ".join(bad)
+        return "pass", "loopback rules configured in %s" % cmd
+    if kind == "established":
+        bad = []
+        for chain in ("INPUT", "OUTPUT"):
+            ok = any(ln.startswith("-A %s " % chain)
+                     and ("--ctstate" in ln or "--state" in ln)
+                     and "ESTABLISHED" in ln and "-j ACCEPT" in ln
+                     for ln in lines)
+            if not ok:
+                bad.append("no ESTABLISHED accept rule in %s" % chain)
+        if bad:
+            return "fail", "; ".join(bad)
+        return "pass", "established/related connections accepted (%s)" % cmd
+    if kind == "open_ports":
+        allowed = set()
+        for ln in lines:
+            m = re.search(r"^-A INPUT\b.*--dport\s+(\d+)\b.*-j ACCEPT", ln)
+            if m:
+                allowed.add(m.group(1))
+        missing = []
+        for proto, addr, port, proc in _listening_sockets(ctx):
+            if _is_loopback_addr(addr):
+                continue
+            if port not in allowed:
+                missing.append("%s/%s%s" % (port, proto,
+                                            " (%s)" % proc if proc else ""))
+        if missing:
+            return "fail", "listening port(s) without an INPUT accept rule: " \
+                           + ", ".join(sorted(set(missing)))
+        return "pass", "every listening port has an INPUT accept rule"
+    if kind == "permanent":
+        # iptables.service / netfilter-persistent restore these files at boot.
+        paths = (["/etc/sysconfig/ip6tables", "/etc/iptables/rules.v6"] if ipv6
+                 else ["/etc/sysconfig/iptables", "/etc/iptables/rules.v4"])
+        for path in paths:
+            if exists(path) and re.search(r"^-A\s", read(path) or "", re.M):
+                return "pass", "rules persisted in %s" % path
+        return "fail", "no persisted ruleset under /etc/sysconfig or /etc/iptables"
+    return "error", "unknown iptables_rules kind %r" % kind
+
+
+def _iptables_baseline(ipv6):
+    """CIS baseline: DROP policies, loopback accept, anti-spoof drop,
+    established accept, SSH management access."""
+    if ipv6:
+        return ("*filter\n"
+                ":INPUT DROP [0:0]\n:FORWARD DROP [0:0]\n:OUTPUT DROP [0:0]\n"
+                "-A INPUT -i lo -j ACCEPT\n"
+                "-A INPUT -s ::1/128 -j DROP\n"
+                "-A OUTPUT -o lo -j ACCEPT\n"
+                "-A INPUT -p tcp -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT\n"
+                "-A INPUT -p udp -m conntrack --ctstate ESTABLISHED -j ACCEPT\n"
+                "-A INPUT -p ipv6-icmp -j ACCEPT\n"
+                "-A OUTPUT -p tcp -m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT\n"
+                "-A OUTPUT -p udp -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT\n"
+                "-A INPUT -p tcp -m conntrack --ctstate NEW --dport __SSH_PORT__ -j ACCEPT\n"
+                "COMMIT\n")
+    return ("*filter\n"
+            ":INPUT DROP [0:0]\n:FORWARD DROP [0:0]\n:OUTPUT DROP [0:0]\n"
+            "-A INPUT -i lo -j ACCEPT\n"
+            "-A INPUT -s 127.0.0.0/8 -j DROP\n"
+            "-A OUTPUT -o lo -j ACCEPT\n"
+            "-A INPUT -p tcp -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT\n"
+            "-A INPUT -p udp -m conntrack --ctstate ESTABLISHED -j ACCEPT\n"
+            "-A INPUT -p icmp -m conntrack --ctstate ESTABLISHED -j ACCEPT\n"
+            "-A OUTPUT -p tcp -m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT\n"
+            "-A OUTPUT -p udp -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT\n"
+            "-A INPUT -p tcp -m conntrack --ctstate NEW --dport __SSH_PORT__ -j ACCEPT\n"
+            "COMMIT\n")
+
+
+@fix("iptables_rules")
+def f_iptables_rules(ctx, p):
+    ipv6 = bool(p.get("ipv6"))
+    cmd = "ip6tables" if ipv6 else "iptables"
+    baseline = _iptables_baseline(ipv6).replace("__SSH_PORT__", _detect_ssh_port())
+    if os.path.isdir("/etc/sysconfig"):
+        path = "/etc/sysconfig/ip6tables" if ipv6 else "/etc/sysconfig/iptables"
+    else:
+        path = "/etc/iptables/rules.v6" if ipv6 else "/etc/iptables/rules.v4"
+    write_file(ctx, path, baseline, 0o600)
+    rc, o, e = sh("%s-restore < %s" % (cmd, path), 60)
+    if rc != 0:
+        return False, "%s-restore failed: %s" % (cmd, (e or o)[:200])
+    for u in _IPTABLES_GUARD_UNITS:
+        if unit_exists(u):
+            sh(["systemctl", "enable", "--now", u], 120)
+    _unit_db_invalidate()
+    return True, "wrote CIS baseline to %s and restored it" % path
+
+
+# -- firewalld (CIS 3.4.2.6 / 4.1.5-7 / 4.2.1-2) ------------------------------
+
+def _firewalld_rich_rules():
+    """All permanent rich rules across all zones, one firewall-cmd pass each."""
+    zones = (sh(["firewall-cmd", "--get-zones"], 30)[1] or "").split()
+    res = []
+    for z in zones:
+        o = sh(["firewall-cmd", "--permanent", "--zone=%s" % z,
+                "--list-rich-rules"], 30)[1] or ""
+        for ln in o.splitlines():
+            if ln.strip():
+                res.append((z, ln.strip()))
+    return res
+
+
+@check("firewalld_rules")
+def c_firewalld_rules(ctx, p):
+    kind = p.get("kind")
+    if not unit_exists("firewalld.service"):
+        return ("notapplicable",
+                "firewalld stack not in use (firewalld.service not present)")
+    en, ac = _unit_state("firewalld.service")
+    if ac != "active":
+        # firewalld is installed (the catalog's chosen stack) but not
+        # running.  This is a FAIL, not notapplicable: with parallel apply
+        # this rule can be evaluated before the svc_enabled fixer has
+        # started firewalld, and reporting notapplicable there would skip
+        # the fixer entirely — leaving the stock public-zone services
+        # (dhcpv6-client, mdns) in place on the final image.
+        return "fail", "firewalld.service is not active (%s/%s)" % (
+            en or "disabled", ac or "inactive")
+    if kind == "loopback":
+        # CIS 4.2.1 (RHEL9): the loopback interface is assigned to the
+        # trusted zone (firewall-cmd --permanent --zone=trusted
+        # --add-interface=lo).
+        ifs = (sh(["firewall-cmd", "--permanent", "--zone=trusted",
+                   "--list-interfaces"], 30)[1] or "").split()
+        if "lo" in ifs:
+            return "pass", "lo is assigned to the trusted zone"
+        return "fail", "lo is not assigned to the trusted zone"
+    if kind == "loopback_src":
+        # CIS 4.2.2 (RHEL9): a rich rule drops loopback-sourced traffic that
+        # is not destined to loopback — the benchmark remediation is
+        # 'rule family=ipv4 source address="127.0.0.1" destination not
+        #  address="127.0.0.1" drop' in the trusted zone; accept the 127/8
+        # variant too.
+        for z, rule in _firewalld_rich_rules():
+            # firewall-cmd normalises 'not' to uppercase NOT — match both.
+            if not re.search(r"\b(drop|reject)\b", rule, re.I):
+                continue
+            if not re.search(r'source\s+address="?127\.0\.0\.(1|0/8)"?', rule, re.I):
+                continue
+            if re.search(r'destination\s+not\s+address', rule, re.I) or \
+                    re.search(r'source\s+address="?127\.0\.0\.0/8"?', rule, re.I):
+                return "pass", "anti-spoof rich rule in zone %s" % z
+        return "fail", "no rich rule drops loopback-sourced traffic off lo"
+    if kind == "services":
+        # Active-zone services/ports must be a subset of params.allow
+        # (default ["ssh"]) — the image's only management path is SSH.
+        allow = set(p.get("allow") or ["ssh"])
+        allow_ports = set(str(x) for x in (p.get("allow_ports") or []))
+        if "ssh" in allow:
+            allow_ports.add("%s/tcp" % _detect_ssh_port())
+        zones = _firewall_zones()
+        if not zones:
+            return "fail", "no active firewalld zone is configured"
+        bad = []
+        for z in zones:
+            svcs = (sh(["firewall-cmd", "--zone=%s" % z, "--list-services"], 30)[1]
+                    or "").split()
+            ports = (sh(["firewall-cmd", "--zone=%s" % z, "--list-ports"], 30)[1]
+                     or "").split()
+            bad += ["%s: service %s" % (z, s) for s in svcs if s not in allow]
+            bad += ["%s: port %s" % (z, pt) for pt in ports if pt not in allow_ports]
+        if bad:
+            return "fail", "unnecessary services/ports: " + ", ".join(sorted(bad))
+        return "pass", "active-zone services/ports limited to %s" % sorted(allow)
+    return "error", "unknown firewalld_rules kind %r" % kind
+
+
+@fix("firewalld_rules")
+def f_firewalld_rules(ctx, p):
+    kind = p.get("kind")
+    # Bring the stack up first: with parallel apply this fixer can run
+    # before svc_enabled gets to firewalld (idempotent — harmless when it
+    # is already running).
+    if unit_exists("firewalld.service"):
+        en, ac = _unit_state("firewalld.service")
+        if ac != "active":
+            sh(["systemctl", "enable", "--now", "firewalld.service"], 180)
+            _unit_db_invalidate()
+    if kind == "loopback":
+        rc, o, e = sh(["firewall-cmd", "--permanent", "--zone=trusted",
+                       "--add-interface=lo"], 60)
+        if rc != 0:
+            return False, (e or o).strip()[:200]
+        sh(["firewall-cmd", "--reload"], 120)
+        return True, "assigned lo to the trusted zone (permanent + reload)"
+    if kind == "loopback_src":
+        rule = ('rule family=ipv4 source address="127.0.0.1" '
+                'destination not address="127.0.0.1" drop')
+        rc, o, e = sh(["firewall-cmd", "--permanent", "--zone=trusted",
+                       "--add-rich-rule=%s" % rule], 60)
+        if rc != 0:
+            return False, (e or o).strip()[:200]
+        sh(["firewall-cmd", "--reload"], 120)
+        return True, "added loopback anti-spoof rich rule to the trusted zone"
+    if kind == "services":
+        allow = set(p.get("allow") or ["ssh"])
+        allow_ports = set(str(x) for x in (p.get("allow_ports") or []))
+        if "ssh" in allow:
+            allow_ports.add("%s/tcp" % _detect_ssh_port())
+        removed = []
+        for z in _firewall_zones():
+            for s in (sh(["firewall-cmd", "--zone=%s" % z, "--list-services"], 30)[1]
+                      or "").split():
+                if s not in allow:
+                    sh(["firewall-cmd", "--zone=%s" % z, "--remove-service=%s" % s,
+                        "--permanent"], 60)
+                    removed.append("%s:%s" % (z, s))
+            for pt in (sh(["firewall-cmd", "--zone=%s" % z, "--list-ports"], 30)[1]
+                       or "").split():
+                if pt not in allow_ports:
+                    sh(["firewall-cmd", "--zone=%s" % z, "--remove-port=%s" % pt,
+                        "--permanent"], 60)
+                    removed.append("%s:%s" % (z, pt))
+        if not removed:
+            return False, "nothing to change"
+        sh(["firewall-cmd", "--reload"], 120)
+        return True, "removed: " + ", ".join(removed)
+    return False, "unknown firewalld_rules kind %r" % kind
+
+
+# -- ufw (CIS 4.2.5-8, Ubuntu) ------------------------------------------------
+
+def _ufw_in_use(ctx):
+    """ufw is the chosen stack when its service is enabled/active OR
+    `ufw status` reports active (ufw has no runtime daemon — the service is
+    a oneshot loader, so the CLI status is the more reliable signal)."""
+    if _stack_in_use(ctx, ["ufw.service"]):
+        return True
+    return "Status: active" in (sh(["ufw", "status"], 30)[1] or "")
+
+
+def _ufw_status(ctx):
+    return ctx.cached("ufw_status",
+                      lambda: sh(["ufw", "status", "verbose"], 30)[1] or "")
+
+
+@check("ufw_rules")
+def c_ufw_rules(ctx, p):
+    kind = p.get("kind")
+    if not _ufw_in_use(ctx):
+        return ("notapplicable",
+                "ufw stack not in use (ufw.service not enabled/active and "
+                "'ufw status' not active)")
+    txt = _ufw_status(ctx)
+    if kind == "loopback":
+        # CIS 4.2.5: allow in/out on lo, deny loopback-network traffic from
+        # other interfaces.  `ufw status` columns are To/Action/From:
+        #   Anywhere on lo  ALLOW IN   Anywhere
+        #   Anywhere        ALLOW OUT  Anywhere on lo (out)
+        #   Anywhere        DENY IN    127.0.0.0/8
+        bad = []
+        if not any("on lo" in ln and "ALLOW IN" in ln for ln in txt.splitlines()):
+            bad.append("no 'allow in on lo' rule")
+        if not any("on lo" in ln and "ALLOW OUT" in ln for ln in txt.splitlines()):
+            bad.append("no 'allow out on lo' rule")
+        if not any("DENY IN" in ln and "127.0.0.0/8" in ln
+                   for ln in txt.splitlines()):
+            bad.append("no 'deny in from 127.0.0.0/8' rule")
+        if bad:
+            return "fail", "; ".join(bad)
+        return "pass", "loopback rules configured"
+    if kind == "default_deny":
+        if re.search(r"Default:\s*(deny|reject)\s*\(incoming\)", txt):
+            return "pass", "default policy denies incoming"
+        return "fail", "default incoming policy is not deny/reject"
+    if kind == "outbound":
+        if re.search(r"Default:.*allow\s*\(outgoing\)", txt):
+            return "pass", "default policy allows outgoing"
+        return "fail", "default outgoing policy is not allow"
+    if kind == "open_ports":
+        # Every non-loopback listening port must be covered by an ALLOW rule.
+        allowed = set()
+        for ln in txt.splitlines():
+            if "ALLOW" not in ln:
+                continue
+            m = re.match(r"^(\d+)/(tcp|udp)\b", ln.split()[0]) if ln.split() else None
+            if m:
+                allowed.add(m.group(1))
+        missing = []
+        for proto, addr, port, proc in _listening_sockets(ctx):
+            if _is_loopback_addr(addr):
+                continue
+            if port not in allowed:
+                missing.append("%s/%s%s" % (port, proto,
+                                            " (%s)" % proc if proc else ""))
+        if missing:
+            return "fail", "listening port(s) without a ufw allow rule: " \
+                           + ", ".join(sorted(set(missing)))
+        return "pass", "every listening port has a ufw allow rule"
+    return "error", "unknown ufw_rules kind %r" % kind
+
+
+@fix("ufw_rules")
+def f_ufw_rules(ctx, p):
+    kind = p.get("kind")
+    if not _ufw_in_use(ctx):
+        return False, "ufw stack not in use"
+    # Whitelist the SSH management port before any default-deny / enable —
+    # enabling ufw without it locks the build (and every future console) out.
+    sh(["ufw", "allow", "%s/tcp" % _detect_ssh_port()], 60)
+    acts = []
+    if kind == "loopback":
+        for args in (["allow", "in", "on", "lo"], ["allow", "out", "on", "lo"],
+                     ["deny", "in", "from", "127.0.0.0/8"],
+                     ["deny", "in", "from", "::1"]):
+            sh(["ufw"] + args, 60)
+            acts.append(" ".join(args))
+    elif kind == "default_deny":
+        sh(["ufw", "default", "deny", "incoming"], 60)
+        acts.append("default deny incoming")
+    elif kind == "outbound":
+        sh(["ufw", "default", "allow", "outgoing"], 60)
+        acts.append("default allow outgoing")
+    elif kind == "open_ports":
+        for proto, addr, port, _ in _listening_sockets(ctx):
+            if _is_loopback_addr(addr):
+                continue
+            sh(["ufw", "allow", "%s/%s" % (port, proto)], 60)
+            acts.append("allow %s/%s" % (port, proto))
+    else:
+        return False, "unknown ufw_rules kind %r" % kind
+    sh(["ufw", "--force", "enable"], 60)
+    ctx.invalidate("ufw_status")
+    return True, "; ".join(acts) + " (ufw enabled)"
+
+
+# -- package/service inventory checks ------------------------------------------
+
+@check("exclusive_stack")
+def c_exclusive_stack(ctx, p):
+    """Exactly one unit of params.group is enabled/active — covers the CIS
+    'single firewall utility' and 'single time-sync daemon' rules.
+    Check-only: choosing WHICH member to keep is a catalog/site decision."""
+    group = p.get("group") or []
+    if not group:
+        return "error", "rule has no group configured (incomplete catalog)"
+    in_use = []
+    seen_frag = set()
+    for u in group:
+        if not unit_exists(u):
+            continue
+        en, ac = _unit_state(u)
+        if en in ("enabled", "enabled-runtime") or ac == "active":
+            # Alias units (chronyd.service -> chrony.service) share one
+            # FragmentPath — counting both would phantom-fail the rule.
+            frag = out(["systemctl", "show", "-p", "FragmentPath",
+                        "--value", u], 30).strip()
+            if frag and frag in seen_frag:
+                continue
+            seen_frag.add(frag)
+            in_use.append("%s(%s/%s)" % (u, en or "disabled", ac or "inactive"))
+    if len(in_use) == 1:
+        return "pass", "exactly one in use: %s" % in_use[0]
+    if not in_use:
+        return "fail", "none of %s is enabled/active" % ", ".join(group)
+    return "fail", "more than one in use: " + ", ".join(sorted(in_use))
+
+
+@check("exclusive_logging")
+def c_exclusive_logging(ctx, p):
+    """CIS 6.2.1.4 — only one full syslog daemon may be active (rsyslog XOR
+    syslog-ng).  journald always coexists and is exempt.  Check-only."""
+    active = []
+    for u in (p.get("units") or ["rsyslog.service", "syslog-ng.service"]):
+        if unit_exists(u) and _unit_state(u)[1] == "active":
+            active.append(u)
+    if len(active) > 1:
+        return "fail", "multiple syslog daemons active: " + ", ".join(sorted(active))
+    return "pass", "at most one syslog daemon active (%s)" % (
+        ", ".join(active) or "none")
+
+
+DEFAULT_TIMESERVER = "time.cloud.tencent.com"
+
+
+@check("timesync_cfg")
+def c_timesync_cfg(ctx, p):
+    """CIS 2.3.2.1/2.3.3.1 — the in-use time-sync daemon has a configured
+    time source.  Conditional rules: notapplicable when the daemon is not
+    present.  params.server pins the expected source when given."""
+    kind = p.get("kind")
+    server = p.get("server")
+    if kind == "timesyncd":
+        if not unit_exists("systemd-timesyncd.service"):
+            return ("notapplicable",
+                    "systemd-timesyncd not present — service not in use")
+        vals = conf_values(["/etc/systemd/timesyncd.conf"], "NTP", (r"\s*=\s*",))
+        cur = vals[-1][1] if vals else ""
+        if not cur:
+            return "fail", "NTP= is not set in /etc/systemd/timesyncd.conf"
+        if server and server not in cur.split():
+            return "fail", "NTP=%s (expected %s)" % (cur, server)
+        return "pass", "NTP=%s" % cur
+    if kind == "chrony":
+        if not pkg_installed("chrony"):
+            return "notapplicable", "chrony not installed — service not in use"
+        files = [c for c in ("/etc/chrony.conf", "/etc/chrony/chrony.conf")
+                 if exists(c)]
+        files += sorted(globmod.glob("/etc/chrony/sources.d/*.sources"))
+        files += sorted(globmod.glob("/etc/chrony/conf.d/*.conf"))
+        targets = []
+        for path in files:
+            for ln in readlines(path):
+                m = re.match(r"^\s*(?:server|pool)\s+(\S+)", ln)
+                if m:
+                    targets.append(m.group(1))
+        if not targets:
+            return "fail", "no server/pool directive in the chrony configuration"
+        if server and server not in targets:
+            return "fail", "time source(s) %s (expected %s)" % (
+                ", ".join(targets), server)
+        return "pass", "time source(s): " + ", ".join(targets)
+    return "error", "unknown timesync_cfg kind %r" % kind
+
+
+@fix("timesync_cfg")
+def f_timesync_cfg(ctx, p):
+    kind = p.get("kind")
+    server = p.get("server") or DEFAULT_TIMESERVER
+    if kind == "timesyncd":
+        set_kv_in_file(ctx, "/etc/systemd/timesyncd.conf", "NTP", server, sep="=")
+        ctx.defer_restart("systemd-timesyncd")
+        return True, "set NTP=%s in /etc/systemd/timesyncd.conf" % server
+    if kind == "chrony":
+        conf = next((c for c in ("/etc/chrony.conf", "/etc/chrony/chrony.conf")
+                     if exists(c)),
+                    "/etc/chrony/chrony.conf" if exists("/etc/chrony")
+                    else "/etc/chrony.conf")
+        # Replace, not append: existing server/pool lines may point at
+        # unauthorized sources the rule is trying to get rid of.
+        comment_out(ctx, conf, r"^\s*(server|pool)\s")
+        set_kv_in_file(ctx, conf, "pool", "%s iburst" % server, sep=" ")
+        ctx.defer_restart("chronyd")
+        return True, "set 'pool %s iburst' in %s" % (server, conf)
+    return False, "unknown timesync_cfg kind %r" % kind
+
+
+# -- apparmor (CIS 1.3.1.3/1.3.1.4, Ubuntu) ------------------------------------
+
+def _apparmor_present():
+    return unit_exists("apparmor.service") or pkg_installed("apparmor") \
+        or have("aa-status")
+
+
+@check("apparmor")
+def c_apparmor(ctx, p):
+    kind = p.get("kind")
+    if not _apparmor_present():
+        return "notapplicable", "apparmor is not installed"
+    if kind == "not_disabled":
+        # CIS 1.3.1.3: /etc/apparmor.d/disable/ holds symlinks that take a
+        # profile out of the loaded set — it must be empty.
+        links = sorted(globmod.glob("/etc/apparmor.d/disable/*"))
+        if links:
+            return "fail", "profiles disabled via /etc/apparmor.d/disable: " + \
+                           ", ".join(os.path.basename(l) for l in links)
+        return "pass", "no profiles disabled in /etc/apparmor.d/disable"
+    if kind == "enforcing":
+        # CIS 1.3.1.4: aa-status must report zero profiles in complain mode.
+        rc, o, e = sh(["aa-status"], 30)
+        if rc != 0:
+            return "fail", "aa-status failed: %s" % (e or o)[:200]
+        m = re.search(r"(\d+)\s+profiles?\s+(?:are\s+)?in\s+complain\s+mode", o or "")
+        if not m:
+            return "error", "cannot parse aa-status output"
+        if int(m.group(1)):
+            return "fail", "%s profile(s) in complain mode" % m.group(1)
+        return "pass", "all apparmor profiles are in enforce mode"
+    return "error", "unknown apparmor kind %r" % kind
+
+
+@fix("apparmor")
+def f_apparmor(ctx, p):
+    if not _apparmor_present():
+        return False, "apparmor is not installed"
+    acts = []
+    if p.get("kind") == "not_disabled":
+        links = sorted(globmod.glob("/etc/apparmor.d/disable/*"))
+        if not links:
+            return False, "nothing to change"
+        for l in links:
+            try:
+                os.unlink(l)
+            except OSError as exc:
+                return False, "cannot remove %s: %s" % (l, exc)
+        acts.append("removed %d disable link(s)" % len(links))
+    else:
+        # aa-enforce accepts profile-file paths; only regular files directly
+        # under /etc/apparmor.d are profiles (subdirs hold abstractions etc.).
+        profiles = [f for f in sorted(globmod.glob("/etc/apparmor.d/*"))
+                    if os.path.isfile(f)]
+        if profiles:
+            rc, o, e = sh(["aa-enforce"] + profiles, 120)
+            if rc != 0:
+                return False, "aa-enforce failed: %s" % (e or o)[:200]
+            acts.append("enforced %d profile(s)" % len(profiles))
+    ctx.defer_restart("apparmor")
+    return True, "; ".join(acts) if acts else "nothing to change"
+
+
+# -- generic permission globs ---------------------------------------------------
+
+@check("perm_glob")
+def c_perm_glob(ctx, p):
+    """file_perm generalised over params.globs: every match must satisfy
+    mode/owner/group.  No match at all = notapplicable (the rule's subject
+    does not exist on this host).  kind=dir additionally requires each match
+    to be a directory."""
+    globs = p.get("globs") or []
+    if not globs:
+        return "error", "rule has no globs configured (incomplete catalog)"
+    matches = []
+    for g in globs:
+        matches.extend(sorted(globmod.glob(g)))
+    if not matches:
+        return "notapplicable", "no path matches: %s" % ", ".join(globs)
+    bad = []
+    for path in matches:
+        if p.get("kind") == "dir" and not os.path.isdir(path):
+            bad.append("%s: not a directory" % path)
+            continue
+        u, g, st = owner_of(path)
+        if p.get("mode") is not None and not mode_ok(st.st_mode, p["mode"]):
+            bad.append("%s: mode %s (max %s)" % (path, fmt_mode(st.st_mode), p["mode"]))
+        if p.get("owner") and u != p["owner"]:
+            bad.append("%s: owner %s (expected %s)" % (path, u, p["owner"]))
+        if p.get("group") and g != p["group"]:
+            bad.append("%s: group %s (expected %s)" % (path, g, p["group"]))
+    if bad:
+        return "fail", "; ".join(bad[:6])
+    return "pass", "%d path(s) compliant" % len(matches)
+
+
+@fix("perm_glob")
+def f_perm_glob(ctx, p):
+    matches = []
+    for g in (p.get("globs") or []):
+        matches.extend(sorted(globmod.glob(g)))
+    if not matches:
+        return False, "no path matches"
+    for path in matches:
+        if p.get("mode") is not None:
+            os.chmod(path, int(p["mode"], 8))
+        if p.get("owner") or p.get("group"):
+            sh(["chown", "%s:%s" % (p.get("owner") or "", p.get("group") or ""), path])
+        ctx.add_changed_file(path)
+    return True, "fixed %d path(s)" % len(matches)
+
+
+@check("apt_signed_by")
+def c_apt_signed_by(ctx, p):
+    """CIS 1.2.1.1 (Ubuntu 24.04) — every deb/deb822 source stanza carries
+    an explicit Signed-By option.  Check-only: key placement is site input."""
+    if not have("apt-get"):
+        return "notapplicable", "apt is not present on this system"
+    files = (["/etc/apt/sources.list"] if exists("/etc/apt/sources.list") else [])
+    files += sorted(globmod.glob("/etc/apt/sources.list.d/*.list"))
+    files += sorted(globmod.glob("/etc/apt/sources.list.d/*.sources"))
+    stanzas, bad = 0, []
+    for path in files:
+        if path.endswith(".sources"):
+            stanza = {}
+            for ln in readlines(path) + [""]:
+                if not ln.strip():
+                    if "deb" in stanza.get("Types", "").split():
+                        stanzas += 1
+                        if not stanza.get("Signed-By"):
+                            bad.append("%s: stanza without Signed-By"
+                                       % os.path.basename(path))
+                    stanza = {}
+                    continue
+                if ln.startswith(("#", " ", "\t")):
+                    continue
+                k, _, v = ln.partition(":")
+                stanza[k.strip()] = v.strip()
+        else:
+            for ln in readlines(path):
+                s = ln.strip()
+                if not s or s.startswith("#"):
+                    continue
+                if re.match(r"^(deb|deb-src)\s", s):
+                    stanzas += 1
+                    if "signed-by=" not in s:
+                        bad.append("%s: %s" % (os.path.basename(path), s[:60]))
+    if not stanzas:
+        return "fail", "no apt repositories configured"
+    if bad:
+        return "fail", "source(s) without Signed-By: " + "; ".join(bad[:5])
+    return "pass", "all %d apt source stanza(s) carry Signed-By" % stanzas
+
+
+@check("suid_baseline")
+def c_suid_baseline(ctx, p):
+    """CIS 7.1.13 / tencentos4 6.1.16+6.1.17 — SUID/SGID files on local
+    filesystems must be within a known baseline.
+
+    Reuses the shared fs scan, which runs the same
+    `find <mp> -xdev ( -perm -4000 -o -perm -2000 ) -type f` pass per local
+    mount as the benchmark audit.  Two baseline modes:
+
+    - params.allow (static list of absolute paths) — the catalog bakes the
+      distro baseline in; anything outside it fails.
+    - params.baseline (path, default /etc/ohbs-image/suid-baseline.list) —
+      golden-image mode: the apply-time fixer RECORDS the post-hardening
+      set, and later checks (fresh-boot audit, drift scans) fail on any
+      SUID/SGID file not in the recording.  In apply mode a missing
+      recording counts as fail so the fixer fires; in scan mode it stays
+      "manual" (nothing to compare against — an honest no-data, not a
+      compliance signal)."""
+    found = sorted(_fs_scan(ctx).get("privileged") or [])
+    if p.get("allow") is not None:
+        allow = set(p.get("allow") or [])
+        extra = [f for f in found if f not in allow]
+        if extra:
+            return "fail", "%d SUID/SGID file(s) outside the baseline: %s" % (
+                len(extra), ", ".join(extra[:10]))
+        return "pass", "%d SUID/SGID file(s), all within the baseline" % len(found)
+    bp = p.get("baseline") or "/etc/ohbs-image/suid-baseline.list"
+    recorded = read(bp)
+    if recorded is None:
+        if getattr(ctx.opts, "mode", "scan") == "apply":
+            return ("fail", "no SUID/SGID baseline recorded at %s yet "
+                    "— apply records the post-hardening set" % bp)
+        return ("manual", "no SUID/SGID baseline recorded at %s — "
+                "nothing to compare against" % bp)
+    base = set(recorded.split())
+    extra = [f for f in found if f not in base]
+    if extra:
+        return "fail", "%d SUID/SGID file(s) not in the recorded baseline: %s" % (
+            len(extra), ", ".join(extra[:10]))
+    return "pass", "%d SUID/SGID file(s), all within the recorded baseline (%s)" % (
+        len(found), bp)
+
+
+@fix("suid_baseline")
+def f_suid_baseline(ctx, p):
+    """params.allow mode: strip the SUID/SGID bits from every file outside
+    the baseline (deliberately dumb — removing privilege bits can break
+    setuid helpers — so catalogs decide the rule's risk).
+
+    params.baseline mode: RECORD the current (post-hardening) set as the
+    baseline the checks compare against."""
+    if p.get("allow") is None:
+        bp = p.get("baseline") or "/etc/ohbs-image/suid-baseline.list"
+        found = sorted(_fs_scan(ctx).get("privileged") or [])
+        os.makedirs(os.path.dirname(bp), exist_ok=True)
+        write_file(ctx, bp, "\n".join(found) + "\n", 0o644)
+        ctx.add_changed_file(bp)
+        return True, "recorded %d SUID/SGID file(s) as the baseline (%s)" % (
+            len(found), bp)
+    allow = set(p.get("allow") or [])
+    extra = sorted(f for f in (_fs_scan(ctx).get("privileged") or [])
+                   if f not in allow)
+    if not extra:
+        return False, "nothing to change"
+    done = []
+    for f in extra:
+        if not os.path.lexists(f):
+            continue
+        try:
+            os.chmod(f, os.stat(f).st_mode & ~0o6000)
+            done.append(f)
+        except OSError as exc:
+            ctx.add_note("cannot chmod %s: %s" % (f, exc))
+    if not done:
+        return False, "could not strip any file"
+    ctx.invalidate("fs_scan")
+    return True, "removed SUID/SGID bits from %d file(s)" % len(done)
+
+
+@check("pkg_verify")
+def c_pkg_verify(ctx, p):
+    """CIS 6.1.1 — no package file has unexpected mode/owner/group drift.
+
+    rpm -Va / dpkg --verify list every file differing from the package
+    manifest; only the M (mode/type), U (owner) and G (group) flags count
+    here — content drift on config files is expected after hardening and is
+    not a permissions problem.  Check-only: drift on an image means the
+    build pipeline changed something and needs review."""
+    def probe():
+        if have("rpm"):
+            return "rpm -Va", sh(["rpm", "-Va"], 600)[1] or ""
+        if have("dpkg"):
+            return "dpkg --verify", sh(["dpkg", "--verify"], 600)[1] or ""
+        return None
+    r = ctx.cached("pkg_verify", probe)
+    if r is None:
+        return "error", "no supported package tool (rpm/dpkg) found"
+    tool, o = r
+    drift = []
+    for ln in o.splitlines():
+        f = ln.split(None, 1)
+        if f and any(c in f[0] for c in "MUG"):
+            drift.append(ln.strip()[:80])
+    if drift:
+        return "fail", "%s reports mode/owner drift on %d file(s): %s" % (
+            tool, len(drift), "; ".join(drift[:5]))
+    return "pass", "%s reports no mode/owner drift" % tool
+
+
+# -- logging / audit ------------------------------------------------------------
+
+@check("rsyslog_actions")
+def c_rsyslog_actions(ctx, p):
+    """CIS 6.2.x.5 — rsyslog logging is configured: at least one active
+    (uncommented) action line exists in /etc/rsyslog.conf or
+    /etc/rsyslog.d/*.conf.
+
+    What counts as an action (kept deliberately simple):
+      - forwarding lines starting with @ or @@ (remote host),
+      - selector lines `facility.priority target` (e.g. `*.info;mail.none
+        -/var/log/messages`, `authpriv.* /var/log/secure`),
+      - rainer-script action() blocks naming a target (file=, target= or an
+        omfwd/omfile module).
+    Config directives ($..., module(), input(), template(), ...) do not
+    count.  Check-only — the distro default config satisfies this."""
+    if not pkg_installed("rsyslog"):
+        return "notapplicable", "rsyslog is not installed"
+    skip = ("$", "module(", "input(", "global(", "template(", "ruleset(",
+            "include", "if ", "else", "}", "{")
+    hits = []
+    for spec in RSYSLOG_FILES:
+        paths = sorted(globmod.glob(spec)) if "*" in spec else [spec]
+        for path in paths:
+            for ln in readlines(path):
+                s = ln.strip()
+                if not s or s.startswith("#") or s.startswith(skip):
+                    continue
+                if s.startswith("@"):
+                    hits.append(s[:60])
+                elif "action(" in s and ("file=" in s or "target=" in s
+                                         or "omfwd" in s or "omfile" in s):
+                    hits.append(s[:60])
+                elif re.match(r"^[\w*][\w.,;*!=\-]*\.\S+\s+\S", s):
+                    hits.append(s[:60])
+    if hits:
+        return "pass", "%d logging action(s) configured (e.g. %s)" % (
+            len(hits), hits[0])
+    return "fail", "no active selector/action line in the rsyslog configuration"
+
+
+# First tokens auditctl accepts in a rules file (augenrules input).  A line
+# starting with anything else fails the whole load unless -i is present.
+_AUDIT_RULE_TOKENS = ("-a", "-A", "-b", "-c", "-C", "-d", "-D", "-e", "-f",
+                      "-F", "-i", "-r", "-w", "-W")
+
+
+@check("audit_rules_valid")
+def c_audit_rules_valid(ctx, p):
+    """Every rule line in /etc/audit/rules.d must load.
+
+    ASSUMPTION (flagged in the manual-rule inventory): the benchmark text
+    for the wired rules (rhel8 6.3.3.20 / rhel10 6.3.3.35, 'audit
+    configuration is loaded regardless of errors') needs confirming against
+    the PDF.  This implements the literal 'the audit rules load' check: a
+    non-comment line whose first token is not a valid auditctl rule flag
+    aborts the augenrules load (unless the file opts into -i)."""
+    if not pkg_installed("audit"):
+        return "notapplicable", "the audit package is not installed"
+    bad = []
+    for path in sorted(globmod.glob("/etc/audit/rules.d/*.rules")):
+        for n, ln in enumerate(readlines(path), 1):
+            s = ln.strip()
+            if not s or s.startswith("#"):
+                continue
+            if s.split(None, 1)[0] not in _AUDIT_RULE_TOKENS:
+                bad.append("%s:%d: %s" % (os.path.basename(path), n, s[:60]))
+    if bad:
+        return "fail", "%d audit rule line(s) will not load: %s" % (
+            len(bad), "; ".join(bad[:5]))
+    return "pass", "all audit rules in /etc/audit/rules.d are loadable"
+
+
+@fix("audit_rules_valid")
+def f_audit_rules_valid(ctx, p):
+    if not pkg_installed("audit"):
+        return False, "the audit package is not installed"
+    with ctx.file_lock("__cmd__:augenrules"):
+        rc, o, e = sh(["augenrules", "--load"], 120)
+    ctx.invalidate("auditctl_l", "rulesd")
+    if rc != 0:
+        return False, "augenrules --load failed: %s" % (e or o)[:200]
+    return True, "reloaded audit rules from /etc/audit/rules.d"
 
 
 # ==========================================================================
@@ -4628,6 +6312,15 @@ def _ensure_custom_profile(ctx):
     if prof and prof.startswith("custom/"):
         return "/etc/authselect/%s" % prof
     base = prof or "sssd"
+    # TencentOS 4 ships with the 'minimal' profile selected, which carries
+    # NO feature files — a custom profile based on it can never enable
+    # with-faillock / with-pwhistory ("Unknown profile feature", then
+    # "Unable to activate profile"), so CIS 5.4.x fails forever.  Base the
+    # custom profile on sssd (full feature set) whenever it is available.
+    if base == "minimal":
+        rc, o, _ = sh(["authselect", "list"], 30)
+        if re.search(r"^-?\s*sssd\b", o or "", re.M):
+            base = "sssd"
     rc, o, e = sh(["authselect", "create-profile", CIS_AUTHSELECT_PROFILE,
                    "-b", base, "--symlink-meta"], 60)
     if rc != 0 and "already exists" not in (o + e):
@@ -4644,16 +6337,21 @@ def _ensure_custom_profile(ctx):
 
 
 def _pam_edit_targets(ctx):
-    targets = []
     d = _ensure_custom_profile(ctx)
     if d:
-        for n in ("system-auth", "password-auth"):
-            fp = os.path.join(d, n)
-            if exists(fp):
-                targets.append(fp)
-    # Always include PAM_FILES as well — authselect-managed symlinks may
-    # have args that the custom profile source does not (e.g. nullok injected
-    # by the authselect template compiler).
+        targets = [os.path.join(d, n) for n in ("system-auth", "password-auth")
+                   if exists(os.path.join(d, n))]
+        if targets:
+            # authselect manages /etc/pam.d via symlinks — edit ONLY the
+            # custom-profile sources and let apply-changes regenerate the
+            # live stack.  Writing /etc/pam.d (or /etc/authselect/*) through
+            # an atomic replace turns authselect's symlinks into regular
+            # files, after which EVERY authselect operation refuses with
+            # "unexpected content" (seen live on RHEL8/9: with-faillock
+            # could never be enabled again).
+            return targets
+    # No authselect: edit the live stack files directly.
+    targets = []
     for f in PAM_FILES:
         fp = os.path.realpath(f) if exists(f) else f
         if exists(fp) and fp not in targets:
@@ -4821,14 +6519,15 @@ def f_pam_arg(ctx, p):
         return f_pam_arg(ctx, dict(p, _arg_retry=1))
     _pam_apply(ctx)
     # authselect apply-changes regenerates /etc/pam.d from the selected
-    # profile.  TencentOS 3 ships a modified sssd profile that authselect
-    # refuses to clone, so apply-changes can re-inject the removed arg
-    # (nullok) from the stock profile.  Re-apply the edit once more so the
-    # final on-disk state is correct regardless.
-    # authselect apply-changes regenerates /etc/pam.d from the selected
-    # profile and can re-inject the stock arg (observed on TencentOS 3
-    # with a modified sssd profile).  Re-apply the edit once more so the
-    # final on-disk state is correct regardless of set/absent mode.
+    # custom profile, which already carries this edit.  Only re-apply the
+    # edit directly when the live stack is NOT authselect-managed — writing
+    # through authselect's symlinks would replace them with regular files
+    # and every later authselect operation would refuse ("unexpected
+    # content", seen live on RHEL8/9).
+    prof, _feats = _authselect_current(ctx)
+    if prof and prof.startswith("custom/"):
+        verb = "removed" if newarg is None else "set"
+        return True, "%s %s on %s in %d file(s)" % (verb, arg, mod, changed)
     for f in PAM_FILES:
         if not exists(f):
             continue

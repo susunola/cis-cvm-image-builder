@@ -7,7 +7,172 @@ can be traced across rebuilds.
 
 ## [Unreleased]
 
+### Fixed (fleet re-audit round, all 8 Linux roles)
+- **role bundling: purge stale roles from the shared workdir** — the build
+  workdir is reused across runs, so `workdir/ansible/roles/` accumulated
+  every previously-built role; any glob-based engine lookup (finalize
+  re-scan, `_probe_scan`) could pick a different OS family's engine and
+  report another distro's results. `_bundle_role` now removes every role
+  directory except the current one before copying, and the finalize
+  re-scan / probe scan resolve the engine via the explicit
+  `/opt/ohbs-image-ansible/roles/__ROLE_DIR__/files` path with the glob
+  only as a fallback.
+- **finalize banner drop-in mode 0600** — `99-ohbs-image-banner.conf` was
+  written 0644, failing the CIS sshd_config permission check on its own.
+- **`sudo_defaults` accepts `op: eq`** — 5.2.3 (`Defaults use_pty` etc.)
+  failed on every platform because the checker only understood `kv`.
+- **authselect: never write through a profile symlink** — on rhel8/9 the
+  PAM edit path atomically replaced `/etc/authselect/custom/*` symlinks
+  with plain files, after which every authselect operation refused to
+  touch the profile ("unexpected content") and with-faillock/with-pwhistory
+  could never be enabled. `_pam_edit_targets` now edits only the custom
+  profile's source files when one exists; `f_pam_arg`'s direct
+  `/etc/pam.d` re-apply loop runs only for non-custom profiles, and
+  `f_authselect_feature` creates the custom profile (based on `sssd`)
+  before enabling features.
+- **journald upload: socket-activated remote sink** —
+  `_bootstrap_journal_upload` rewritten: a socket drop-in re-points
+  `systemd-journal-remote.socket` at 127.0.0.1:19532, the service drop-in
+  drops PrivateNetwork and writes to `/var/log/journal-remote/`, the
+  masked unit from older images is unmasked, and `journal-upload.conf`
+  always uses `URL=http://127.0.0.1:19532` (`UploadServer=` is not a
+  valid lvalue on systemd 239).
+- **`crypto_policy` fixes** — SSH crypto rules (`no_weak_mac`, …) no
+  longer require `update-crypto-policies` (absent on Ubuntu, so 5.1.15
+  never fixed); a post-fix hook restores `/etc/sysconfig/sshd` to
+  0600 root:root after `update-crypto-policies` rewrites it 0640; the
+  `no_sha1` module gains `mac = -HMAC-SHA1`, and the fixer prefers the
+  vendor `NO-SHA1.pmod` module when present instead of shadowing it with
+  a local (incomplete) one.
+- **`svc_enabled`: masked units count as "not in use"** — an
+  `if_in_use` rule whose unit is masked now evaluates `notapplicable`
+  (ubuntu2204: chrony's rule masks systemd-timesyncd, which then
+  reported itself as a failure). The fixer also falls back to the
+  `systemd-journal-remote` package on apt systems where
+  `systemd-journal-upload` does not exist.
+- **`updates_applied` (apt): dist-upgrade + phased updates** — plain
+  `apt-get -y upgrade` leaves kept-back/phased updates pending; the
+  fixer now runs `dist-upgrade` with
+  `APT::Get::Always-Include-Phased-Updates=true`.
+- **`exclusive_stack` dedupes unit aliases** — units sharing one
+  `FragmentPath` (chrony/chronyd) no longer count as two stacks.
+- **`listening_ports`: protocol-qualified allowlist entries** —
+  `allow_ports` accepts `"68/udp"` so DHCP clients do not fail the check.
+- **`logfile_perm`: also hook `APT::Update::Post-Invoke-Success`** —
+  `eipp.log.xz` is written by `apt update`, which the DPkg hook misses.
+- **new fixer `bootloader_password`** — generates a random GRUB
+  superuser password (PBKDF2-SHA512, 10k rounds) per build: RHEL-family
+  writes `/boot/grub2/user.cfg`, Debian-family a `01_users` drop-in +
+  `update-grub`; the cleartext is stashed in
+  `/root/ohbs-image-grub-password` (0600). Catalogs flipped from
+  risk=none to safe on all 8 Linux roles.
+- **catalog conflict cleanups** — rhel8 5.1.17 drops the two etm MACs
+  (conflict with 1.6.6); rhel8 6.2.1.1.4 / rhel9 6.2.2.2 / rhel10
+  6.2.2.2 / ubuntu2204 6.1.1.1.4 / ubuntu2004 6.2.2.2 removed
+  (ForwardToSyslog=no is mutually exclusive with the rsyslog path the
+  sibling rule enforces); rhel10 1.1.1.11 keeps `vfat` loadable
+  (/boot/efi) and 2.1.3 disables cockpit at L1 too; ubuntu2404 1.1.1.11
+  keeps overlay/squashfs (snapd); ubuntu2004 drops the whole 4.3.x/4.4.x
+  nftables+iptables sections (alternative stacks fought the enforced ufw
+  stack) and masks the vendor-enabled firewalld; assorted risk=none→safe
+  promotions validated on live build VMs.
+- **`bootloader_password` (Debian/Ubuntu): keep menu entries bootable** —
+  Debian's `/etc/grub.d/10_linux` generates entries WITHOUT
+  `--unrestricted` (RHEL ships it in `CLASS=` by default), so defining a
+  GRUB superuser made GRUB prompt for credentials before booting any
+  entry: the post-hardening reboot of the 2026-08-22 ubuntu2404 build
+  never came back (SSH dial i/o timeout).  The fixer now patches every
+  `/etc/grub.d/10_linux*` generator to append `--unrestricted` to the
+  `CLASS=` line (idempotent), verifies the regenerated grub.cfg, and
+  rolls back `01_users` + re-runs update-grub when entries still lack it
+  — a failed rule beats an unbootable image.
+- **Windows: first-boot deferred hardening** — the CIS WinRM Service
+  lockdown rules (AllowBasic / AllowAutoConfig / AllowUnencryptedTraffic /
+  WinRS AllowRemoteShell) and the UAC built-in-Administrator token
+  filtering rule (FilterAdministratorToken) cannot be written to the live
+  registry during a packer build: pywinrm re-authenticates with basic auth
+  on every request, so AllowBasic=0 turns the running ansible play into
+  "401 credentials rejected" (win2022 died mid-apply with exit status 4).
+  Catalog entries for these rules now carry `"defer": "firstboot"`; the
+  ps1 engine records them in
+  `%ProgramData%\ohbs-image\firstboot-deferred.json`, generates
+  `firstboot-hardening.ps1` from that manifest, and registers a one-shot
+  SYSTEM scheduled task (`ohbs-cis-firstboot-hardening`, AtStartup) that
+  applies the values at the next boot and removes itself.  The checker
+  treats a recorded manifest entry as compliant (the captured image
+  carries the task, so deployed VMs converge on first boot).  All 4
+  Windows roles now share a byte-identical engine.
+
 ### Added
+- **19 new/extended engine families automating ~130 `manual` Linux rules**
+  (all 8 Linux roles share the byte-identical engine; catalog wiring is a
+  separate change).  New check families:
+  - package/repo hygiene: `gpg_keys`, `pkg_repos`, `updates_applied`
+    (fixer runs a full `dnf -y update` / `apt-get -y upgrade` under
+    `_pkg_lock` with an 1800s budget), `pkg_verify` (rpm -Va / dpkg
+    --verify mode/owner drift), `suid_baseline` (SUID/SGID files vs an
+    explicit `params.allow` baseline with a bit-stripping fixer, OR
+    golden-image mode: `params.baseline` records the post-hardening set
+    at apply time and fails later scans on any addition — missing
+    recording is `fail` in apply mode so the fixer fires, `manual` in
+    scan mode), `apt_signed_by`;
+  - network: `listening_ports` (ss-based allowlist, default SSH+loopback;
+    deliberately no fixer), `nft_rules`, `iptables_rules` (+`ipv6` flag),
+    `firewalld_rules`, `ufw_rules` — the four firewall detail families
+    embed the `fw_stack_in_use` guard and return `notapplicable` when
+    their stack is not enabled/active;
+  - services/config: `kmod_list`, `exclusive_stack`, `exclusive_logging`,
+    `timesync_cfg`, `apparmor`, `perm_glob`, `rsyslog_actions`,
+    `audit_rules_valid` (literal "audit rules load" syntax check — see the
+    in-code ASSUMPTION note pending benchmark-PDF confirmation).
+  Extensions: `chrony_user` gains `params.user` (Ubuntu `_chrony`, checked
+  via the running process or the unit's `User=` directive);
+  `user_audit` gains the `shadow_group_empty` kind (fixer strips members
+  via `gpasswd -d`, refuses to move primary groups).
+- **All 8 Linux catalogs wired to the automation families** — every rule
+  previously evaluating as `manual` was mapped to an existing or new
+  family (separate-partition rules became check-only `partition` with
+  risk=none; SUID/SGID audit rules use the new baseline-recording mode).
+  Residual `manual` rules per catalog: tencentos4 **0**; rhel8/9/10,
+  tencentos3, ubuntu2004/2204 **2** each (journal-upload auth and the
+  remote rsyslog destination — both need site-specific endpoints);
+  ubuntu2404 **4** (plus sshd ListenAddress and rsyslog gtls/CA
+  material).  Catalog data bugs fixed along the way: tencentos4 1.11
+  (orphan params belonged to `crypto_policy`), ubuntu2404 1.3.1.3
+  (orphan apparmor params), the 5.3.3.2.3/6.2.x assessment-metadata lags
+  in every catalog, and the rhel9/ubuntu2004 3.3.x sysctl rules left at
+  family=manual while siblings automated them.
+- **Windows catalogs automated** (win2016/2019/2022/2025): ~234 rules
+  moved from `manual` to the existing registry/secedit families
+  (`reg-dword`, `reg-string`, `reg-multisz`, `user-right`,
+  `audit-policy`, …) — CIS 18.x/19.x Administrative-Template rules are
+  registry-backed, so this was mostly catalog data completion.  New
+  ps1-engine family `reg-values-map` (a SET of string values under one
+  key) covers win2016 18.10.43.6.1.2 (ASR per-rule states).  Residual
+  `manual`: 15–16 per catalog — rename-Administrator/Guest (would break
+  the build's own WinRM login), DC-only rules, IPv6 disable (too
+  disruptive on cloud images), and the HKCU-only 19.x policies a golden
+  image cannot enforce.  Data bugs fixed: win2016 2.3.1.1 params,
+  win2022 9.2.5 stray space in the registry path, and the
+  Guest-account-status rules that mapped to `SpecialAccounts\UserList`
+  (hides the account; does not disable it).  WinRM-listener rules are
+  marked `risk: medium` — applying `AllowAutoConfig=0` on a live host
+  can drop its management listener.
+- **Firewall-stack guard + firewalld probes (engine + tencentos4 catalog)** —
+  the CIS 3.4 firewall sections are mutually exclusive alternatives
+  (firewalld 3.4.2.x / nftables 3.4.3.x / iptables 3.4.4.x), yet every
+  stack's detail rules were catalogued `manual`, inflating the manual
+  count by 18 on tencentos4-l1.  Two new families fix that:
+  - `fw_stack_in_use` — a section guard: when none of the stack's units
+    are enabled/active the rule is `notapplicable`; when the stack IS in
+    use the rule drops back to `manual` for auditor review.  Applied to
+    all nftables (3.4.3.x) and iptables (3.4.4.x) detail rules.
+  - `firewalld_cfg` — automates the chosen-stack rules 3.4.2.4
+    (`default_zone`) and 3.4.2.5 (`interfaces_assigned`) via firewall-cmd,
+    with fixers (set default zone / bind stray interfaces to it).
+  Also repairs three catalog entries (3.4.3.7, 3.4.4.1.2, 3.4.4.1.3) that
+  claimed `Automated` assessment but had `family: manual`.  tencentos4-l1
+  manual count drops 31 → 13.
 - **`[ohbs].allow_disruptive` config option** (default `true`) — controls
   whether the engine applies disruptive remediations (mount options,
   service removals, SELinux enforcing, …) during the build. Previously
@@ -15,6 +180,49 @@ can be traced across rebuilds.
   per profile permanently `skipped_disruptive`. The build VM is ephemeral
   and rebooted before the post-boot audit, so disruptive fixes are safe
   to apply here; set it to `false` to restore the old behaviour.
+
+### Fixed (engine + tencentos4 catalog, 2026-08-21 re-audit round)
+- **`mount_opt`/`partition`: unmask the generated mount unit** — TencentOS 4
+  ships `tmp.mount` masked (`/etc/systemd/system/tmp.mount -> /dev/null`),
+  which silently nullified the CIS `/tmp` tmpfs fstab entry: the entry was
+  present but never mounted at boot (re-audit 1.1.2.2–4 `notapplicable`).
+  Both fixers now `systemctl unmask` the mount unit when it is masked.
+- **`mount_opt`: late-boot mount re-assert** — a new opt-in
+  `cis-mount-apply.service` (oneshot, `After=local-fs.target`) re-remounts
+  tmpfs mounts with their applied options on every boot. On the 2026-08-21
+  tencentos4-l1 build, `/dev/shm` came up after the post-hardening reboot
+  WITHOUT the `noexec` its fstab entry carried (systemd-remount-fs did not
+  apply it), failing the build smoke test. Follows the established
+  `cis-sysctl-apply.service` late-boot pattern.
+- **authselect: base the custom profile on `sssd`, not `minimal`** —
+  TencentOS 4 ships with the feature-less `minimal` profile selected, so
+  `authselect enable-feature with-faillock` failed with "Unknown profile
+  feature" and CIS 5.4.3/5.4.4 could never pass.
+- **`world_writable`: persist fixes for boot-recreated tmpfs files** —
+  vendor agents (TencentCloud barad_agent) re-create
+  `/run/.barad_agent.pid` and `/run/barad_agent.lock` mode 0666 tens of
+  seconds after every boot. `f_world_writable` now installs
+  `ohbs-cis-volatile-perms.service` (Type=simple, non-blocking) which
+  polls once a second for up to 3 minutes after boot: an explicit
+  `chmod o-w` loop over every path fixed at build time (covers
+  boot-recreated files on persistent filesystems too — barad recreates
+  `/etc/uuid` 0666 ~13s in, and its STARGATE logs can be baked into the
+  image as 0666) plus a `find` sweep of the offending tmpfs mounts; the
+  fix-logperms provisioner additionally sweeps `/run` right before the
+  fresh-boot re-audit as a deterministic fallback (6.1.13 kept failing
+  the fresh-boot scan).
+- **finalize: keep the CIS banner files OS-name-free** — the build banner
+  written to `/etc/motd`, `/etc/issue` and `/etc/issue.net` embedded the
+  dashed os_tag (`tencentos-4`), which the engine's own CIS 1.2.x banner
+  check flags as an OS reference on every boot from the image (the
+  fresh-boot gate ran before finalize, so it never saw the regression;
+  the post-finalize report audit recorded 1.2.1–3 as fail).  Banners now
+  print the dash-stripped tag (`tencentos4`); the full tag still lands in
+  the /opt report.  The finalize boot-log sweep also covers
+  `/var/log/lastlog` (baked into the image as 0664, failing 4.2.3).
+- **tencentos4 catalog: two more manual rules automated** — 4.2.1.6 now
+  uses the existing `rsyslog_no_receive` family and 4.3 uses `pkg_present`
+  (logrotate), matching the rhel9/ubuntu2404 catalogs.
 
 ## [0.17.0] — 2026-08-20 — build-CVM naming, packer passthrough, API retries, real E2E
 

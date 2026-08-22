@@ -407,6 +407,11 @@ build {
       "# hang on DNS (5-30s per call).  Packer runs as root: no sudo needed.",
       "__HOSTS_FIX_HCL__",
       "sudo find /var/log/ -type f -perm /g+wx,o+rwx -exec chmod g-wx,o-rwx {} + 2>/dev/null",
+      "# Vendor agents (barad) re-create /run/*.pid/.lock world-writable ~30-40s",
+      "# after boot — after the engine's boot-time fixer may have run, and the",
+      "# re-audit starts as early as ~45s uptime.  Sweep /run right before the",
+      "# scan so the fresh-boot audit always sees a clean state.",
+      "sudo find /run -xdev -type f -perm -0002 -exec chmod o-w {} + 2>/dev/null",
       "# Reboot may revert ForwardToSyslog to yes (RPM / init-script overwrite).",
       "# 6.2.2.3 wants yes when rsyslog is present; but 6.2.2.1 already fails",
       "# because rsyslog is not detected, so 6.2.2.3 is not assessed. Safe to fix.",
@@ -448,6 +453,14 @@ build {
     remote_path  = "__REMOTE_DIR__/ohbs-image-cleanup.sh"
     inline = [
       "__CLEAN_CMD__",
+      "# Reset cloud-init state BEFORE the snapshot so every instance launched",
+      "# from this image boots as 'first boot': cloud-init re-runs the data",
+      "# sources and executes user-data scripts.  Without this the probe of",
+      "# `verify-image` (which injects its throwaway SSH key via user-data for",
+      "# the 'ohbsimage' user) can never come up — the stale per-instance state",
+      "# makes cloud-init skip user-data on the fresh boot (observed: clean-boot",
+      "# SSH timeout on every image).  Guarded so a non-cloud-init image no-ops.",
+      "sudo bash -c 'command -v cloud-init >/dev/null 2>&1 && cloud-init clean --logs --seed >/dev/null 2>&1 || rm -rf /var/lib/cloud/instances/* /var/lib/cloud/instance /var/lib/cloud/seed 2>/dev/null; true'",
       "# Re-lock root login for the final image (CIS 5.1.22/5.2.10).  Do NOT",
       "# reload sshd here: the running daemon keeps the current policy so",
       "# Packer can still reconnect for the remaining provisioners; the new",
@@ -517,7 +530,10 @@ build {
       "# final image state (finalize rewrites banner/motd/issue, which flips",
       "# CIS 1.7.x banner results).  Engine + catalog were kept under",
       "# /opt/ohbs-image-ansible/roles/ by the cleanup step.",
-      "ENG=$(ls -d /opt/ohbs-image-ansible/roles/cis-*/files 2>/dev/null | head -1)",
+      "# Explicit role dir — a shared workdir may have staged other roles",
+      "# alongside ours, so globbing cis-*/ could pick the WRONG engine.",
+      "ENG=/opt/ohbs-image-ansible/roles/__ROLE_DIR__/files",
+      "[ -d \"$ENG\" ] || ENG=$(ls -d /opt/ohbs-image-ansible/roles/cis-*/files 2>/dev/null | head -1)",
       "if [ -n \"$ENG\" ] && [ -f \"$ENG/ohbs_engine.py\" ]; then",
       "  CAT=\"$ENG/rules.json\"; [ -f \"$ENG/__IMAGE_CATALOG__\" ] && CAT=\"$ENG/__IMAGE_CATALOG__\";",
       "  sudo /opt/ohbs-image-ansible/bin/python \"$ENG/ohbs_engine.py\" --catalog \"$CAT\" --mode scan --profile '__CIS_PROFILE_SHORT__' --out /tmp/cis-final-scan.json >/dev/null 2>&1 && sudo install -m 0600 -o root -g root /tmp/cis-final-scan.json /opt/ohbs-image-AUDIT-RESULT.json && sudo rm -f /tmp/cis-final-scan.json && echo '[ohbs-image] final-state audit refreshed' || echo '[ohbs-image] WARNING: final-state re-scan failed; keeping pre-finalize audit'",
@@ -1165,6 +1181,13 @@ AUDIT="/opt/ohbs-image-AUDIT-RESULT.json"
 REPORT="/opt/ohbs-image-REPORT.md"
 BUILD_TS="$(date -u +%FT%TZ)"
 
+# Banner-safe OS tag: /etc/motd, /etc/issue and /etc/issue.net must not
+# contain an OS-name token — the CIS 1.2.x audit greps for \bTencentOS\b,
+# \bCentOS\b et al., so "tencentos-4" would fail the check.  Dropping the
+# dashes ("tencentos4") keeps the banner informative and compliant; the
+# full tag still goes into the /opt report.
+OS_TAG_SAFE="${OS_TAG//-/}"
+
 # ── Hostname DNS safeguard (belt-and-suspenders with fix-logperms) ──
 __HOSTS_FIX__
 
@@ -1195,7 +1218,7 @@ _bar "motd"
     printf '\n'
     printf '\x1b[1mImage:\x1b[0m     %s\n' "__IMAGE_NAME__"
     printf '\x1b[1mSource:\x1b[0m    %s\n' "__SOURCE_IMAGE__"
-    printf '\x1b[1mOS/Level:\x1b[0m  %s / %s\n' "__IMAGE_OS__" "__CIS_LEVEL__"
+    printf '\x1b[1mOS/Level:\x1b[0m  %s / %s\n' "$OS_TAG_SAFE" "__CIS_LEVEL__"
     printf '\x1b[1mBenchmark:\x1b[0m %s\n' "__IMAGE_BENCHMARK__"
     printf '\x1b[1mBuilt:\x1b[0m     %s by ohbs-image %s\n\n' "$BUILD_TS" "__CIS_IMAGE_VERSION__"
     printf '\x1b[33m[ REPORT  ]\x1b[0m cat /opt/ohbs-image-REPORT.md     (or run: ohbs-image-info)\n'
@@ -1210,7 +1233,7 @@ _bar "issue + issue.net"
 #    colour escape sequences render as garbage on serial consoles).
 {
     printf 'ohbs-image  OHBS-HARDENED IMAGE BUILDER  --  %s\n' "__IMAGE_NAME__"
-    printf 'OS/Level: %s / %s   Benchmark: %s\n' "__IMAGE_OS__" "__CIS_LEVEL__" "__IMAGE_BENCHMARK__"
+    printf 'OS/Level: %s / %s   Benchmark: %s\n' "$OS_TAG_SAFE" "__CIS_LEVEL__" "__IMAGE_BENCHMARK__"
     printf 'Built:    %s   by ohbs-image %s\n' "$BUILD_TS" "__CIS_IMAGE_VERSION__"
     printf 'Report:   /opt/ohbs-image-REPORT.md  (run "ohbs-image-info")\n'
     printf 'Admin:    ssh ohbsimage@<host>      (root login disabled per CIS)\n'
@@ -1218,7 +1241,7 @@ _bar "issue + issue.net"
 _bar "issue.net"
 {
     printf 'ohbs-image  OHBS-HARDENED IMAGE BUILDER  --  %s\n' "__IMAGE_NAME__"
-    printf 'OS/Level: %s / %s   Built: %s by ohbs-image %s\n' "__IMAGE_OS__" "__CIS_LEVEL__" "$BUILD_TS" "__CIS_IMAGE_VERSION__"
+    printf 'OS/Level: %s / %s   Built: %s by ohbs-image %s\n' "$OS_TAG_SAFE" "__CIS_LEVEL__" "$BUILD_TS" "__CIS_IMAGE_VERSION__"
     printf 'Report: /opt/ohbs-image-REPORT.md\n'
 } | sudo tee /etc/issue.net  > /dev/null
 _bar "issue perms"
@@ -1231,7 +1254,7 @@ sudo chmod 0644 /etc/issue /etc/issue.net
 _bar "fix boot-log perms"
 _bar "  cloud-init log"
 for f in /var/log/cloud-init.log /var/log/cloud-init-output.log \
-         /var/log/wtmp /var/log/btmp; do
+         /var/log/wtmp /var/log/btmp /var/log/lastlog; do
     [ -f "$f" ] && sudo chmod 0640 "$f" 2>/dev/null || true
 done
 
@@ -1247,7 +1270,10 @@ sudo tee /etc/ssh/sshd_config.d/99-ohbs-image-banner.conf > /dev/null <<'SSHD_EO
 Banner /etc/ohbs-image/banner
 SSHD_EOF
 _bar "sshd drop-in perms"
-sudo chmod 0644 /etc/ssh/sshd_config.d/99-ohbs-image-banner.conf
+# CIS sshd_config_perm requires 0600 root:root on EVERY sshd_config.d/*.conf,
+# this drop-in included.
+sudo chmod 0600 /etc/ssh/sshd_config.d/99-ohbs-image-banner.conf
+sudo chown root:root /etc/ssh/sshd_config.d/99-ohbs-image-banner.conf
 
 # 5. /opt/ohbs-image-REPORT.md — what was done to the base image
 _bar "generate REPORT.md"

@@ -150,13 +150,28 @@ class FakeCtx:
         self._engine = engine
         self.backup_dir = backup_dir
         self.mode = mode
+        # The real Ctx exposes the CLI namespace as .opts (run_rule reads
+        # ctx.opts.mode); mirror just enough of it for mode-dependent checks.
+        import types as _t
+        self.opts = _t.SimpleNamespace(mode=mode)
         self.allow_disruptive = allow_disruptive
         self.dry = mode != "apply"
         self.changed_files = []
         self.notes = []
         self._cache = {}
+        import threading
+        # Mirror of the real Ctx's package-manager lock (f_updates_applied
+        # takes it directly, like _install_pkgs does).
+        self._pkg_lock = threading.RLock()
+        self.restarts = []  # defer_restart() captures queued service names
 
     # -- methods the engine calls -----------------------------------------
+    def defer_restart(self, svc_name):
+        self.restarts.append(svc_name)
+
+    def flush_restarts(self):
+        self.restarts.clear()
+
     def cached(self, key, producer):
         if key not in self._cache:
             self._cache[key] = producer()

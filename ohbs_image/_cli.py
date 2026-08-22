@@ -149,6 +149,9 @@ def build_parser() -> argparse.ArgumentParser:
                            help="Image ID to verify (e.g. img-xxxx)")
     p_vrf_img.add_argument("--min-score", type=float, default=85.0,
                            help="Gate threshold in percent (default 85)")
+    p_vrf_img.add_argument("--keep-on-fail", action="store_true",
+                           help="On SSH/scan failure keep the probe instance "
+                                "alive for diagnosis (default: terminate)")
     p_vrf_img.set_defaults(func=cmd_verify_image)
 
     p_drift = sub.add_parser(

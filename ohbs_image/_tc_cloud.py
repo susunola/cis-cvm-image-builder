@@ -340,7 +340,11 @@ def _probe_setup_keypair(r: ResolvedConfig) -> tuple[str, str, str]:
     os.chmod(priv, 0o600)
     with open(priv + ".pub", encoding="utf-8") as fh:
         pub = fh.read().strip()
-    key_name = f"ohbs-image-probe-{int(_time.time())}-{secrets.token_hex(2)}"
+    # TencentCloud ImportKeyPair KeyName rules (enforced, tightened 2026-08):
+    # max 25 chars AND no hyphen — "ohbs-image-probe-<ts>-<hex>" failed on
+    # both ("too long" then "include illegal character `-`").  Use letters +
+    # digits only: "ohbsp<ts><hex>" = 5+10+4 = 19 chars.
+    key_name = f"ohbsp{int(_time.time())}{secrets.token_hex(2)}"
     resp = ohbs_image._tc3_api("cvm", "ImportKeyPair", "2017-03-12", r.region,
                     {"KeyName": key_name, "ProjectId": 0, "PublicKey": pub},
                     sid, skey, tok or None)
@@ -404,16 +408,32 @@ def _probe_launch(r: ResolvedConfig, image_id: str, instance_name: str,
     if key_ids:
         params["LoginSettings"] = {"KeyIds": key_ids}
     if pub_key:
-        # Root SSH is disabled by CIS hardening; the 'ohbsimage' build user
-        # (sudo + authorized_keys, see the install-ansible provisioner) is
-        # the viable login, so install the probe key for it via cloud-init.
+        # Root SSH is disabled by CIS hardening (PermitRootLogin no); the
+        # 'ohbsimage' build user (sudo, same authorized_keys — see the
+        # install-ansible provisioner) is the viable login, so install the
+        # probe key for it via cloud-init user-data.  Log every step to
+        # /var/log/ohbs-probe-key.log so a failed clean-boot probe can be
+        # diagnosed from the instance console.  (The image finalize now runs
+        # `cloud-init clean` before snapshot so user-data scripts reliably
+        # re-run on the probe's first boot.)
         ud = ("#!/bin/bash\n"
+              "exec >> /var/log/ohbs-probe-key.log 2>&1\n"
+              "echo \"[ohbs-probe-key] $(date -Is) start\"\n"
               "h=$(getent passwd ohbsimage | cut -d: -f6)\n"
-              "[ -n \"$h\" ] || exit 0\n"
-              "mkdir -p \"$h/.ssh\"\n"
-              f"echo '{pub_key}' >> \"$h/.ssh/authorized_keys\"\n"
+              "echo \"[ohbs-probe-key] ohbsimage home=${h:-MISSING}\"\n"
+              "if [ -z \"$h\" ] || [ ! -d \"$h\" ]; then\n"
+              "  echo '[ohbs-probe-key] WARN: ohbsimage has no home dir - cannot inject key'\n"
+              "  exit 0\n"
+              "fi\n"
+              "install -d -m 700 -o ohbsimage -g ohbsimage \"$h/.ssh\"\n"
+              "umask 077\n"
+              f"if ! grep -qF '{pub_key}' \"$h/.ssh/authorized_keys\" 2>/dev/null; then\n"
+              f"  echo '{pub_key}' >> \"$h/.ssh/authorized_keys\"\n"
+              "fi\n"
               "chown -R ohbsimage:ohbsimage \"$h/.ssh\"\n"
-              "chmod 700 \"$h/.ssh\" && chmod 600 \"$h/.ssh/authorized_keys\"\n")
+              "chmod 700 \"$h/.ssh\" && chmod 600 \"$h/.ssh/authorized_keys\"\n"
+              "command -v restorecon >/dev/null 2>&1 && restorecon -R \"$h/.ssh\" 2>/dev/null || true\n"
+              "echo '[ohbs-probe-key] done'\n")
         params["UserData"] = base64.b64encode(ud.encode("utf-8")).decode("ascii")
     resp = ohbs_image._tc3_api("cvm", "RunInstances", "2017-03-12", r.region,
                     params, sid, skey, tok or None)
@@ -497,6 +517,49 @@ def _probe_ssh_ready(ip: str, ssh_port: int, ssh_user: str,
         _time.sleep(10)
     return False
 
+def _probe_ssh_ready_any(ip: str, ssh_port: int,
+                         candidates: list[tuple[str, str | None]],
+                         timeout_s: int = 600) -> tuple[bool, str]:
+    """Wait for SSH across a list of (ssh_user, key_path) candidates.
+
+    Returns (ok, winner_or_last_user).  Tries every candidate in each pass so
+    a probe can fall back (e.g. ohbsimage via the user-data key, then root via
+    the platform LoginSettings key) without burning the whole budget on one
+    dead user.  Keep it best-effort like _probe_ssh_ready: any transient
+    failure just means another pass.
+    """
+    import time as _time
+    deadline = _time.time() + timeout_s
+    while _time.time() < deadline:
+        for user, key_path in candidates:
+            key_args = ["-i", key_path] if key_path else []
+            try:
+                cp = subprocess.run(
+                    ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
+                     "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=8",
+                     *key_args, "-p", str(ssh_port), f"{user}@{ip}",
+                     "true"],
+                    capture_output=True, text=True, timeout=15)
+                if cp.returncode == 0:
+                    return True, user
+            except Exception:
+                pass
+        # Sleep adaptively so a short timeout_s (unit tests) doesn't stall.
+        _time.sleep(min(8.0, max(0.1, deadline - _time.time())))
+    return False, candidates[-1][0]
+
+def _probe_vnc_url(r: ResolvedConfig, instance_id: str) -> str:
+    """Best-effort VNC console URL for a probe instance (diagnostics only)."""
+    sid, skey, tok = _creds(r.secret_id_env, r.secret_key_env, r.security_token_env)
+    if not sid or not skey:
+        return ""
+    try:
+        resp = ohbs_image._tc3_api("cvm", "DescribeInstanceVncUrl", "2017-03-12",
+                        r.region, {"InstanceId": instance_id}, sid, skey, tok or None)
+        return str((resp.get("Response") or {}).get("InstanceVncUrl") or "")
+    except Exception:
+        return ""
+
 def _probe_scan(r: ResolvedConfig, ip: str, ssh_port: int, ssh_user: str,
                 level: int, key_path: str | None = None) -> dict[str, Any]:
     """Run the bundled engine in scan mode on the probe instance over SSH.
@@ -511,17 +574,19 @@ def _probe_scan(r: ResolvedConfig, ip: str, ssh_port: int, ssh_user: str,
     # (CIS / legacy).  The build promotes the active catalog to rules.json too,
     # so rules.json is always safe, but this makes the probe explicit.
     cat = r.catalog_basename or "rules.json"
-    # Role dirs are dash-named (cis-ubuntu2204, cis-rhel8, ...) — the glob
-    # must match that, not the old underscore form.
+    # Role dirs are dash-named (cis-ubuntu2204, cis-rhel8, ...).  Use the
+    # configured role dir explicitly — globbing cis-*/ could pick a stale
+    # role staged by an earlier build sharing the workdir.
     remote = (
+        f"ENG=/opt/ohbs-image-ansible/roles/{r.role_dir}/files; "
+        "[ -d \"$ENG\" ] || "
         "ENG=$(ls -d /opt/ohbs-image-ansible/roles/cis-*/files 2>/dev/null | head -1); "
         "if [ -n \"$ENG\" ] && [ -f \"$ENG/ohbs_engine.py\" ]; then "
         "CAT=\"$ENG/rules.json\"; "
         f"[ -f \"$ENG/{cat}\" ] && CAT=\"$ENG/{cat}\"; "
         "sudo /opt/ohbs-image-ansible/bin/python \"$ENG/ohbs_engine.py\" "
-        f"--catalog \"$CAT\" --mode scan --profile {profile} "
-        "--out /tmp/ohbs-image-verify.json >/dev/null 2>&1 && "
-        "cat /tmp/ohbs-image-verify.json; fi"
+        f"--catalog \"$CAT\" --mode scan --profile {profile} 2>/dev/null; "
+        "fi"
     )
     key_args = ["-i", key_path] if key_path else []
     try:
